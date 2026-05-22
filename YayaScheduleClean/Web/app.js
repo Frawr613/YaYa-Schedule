@@ -213,6 +213,9 @@
   const pickerInputBindings = {};
   const htmlCache = new WeakMap();
   const dayItemsCache = new Map();
+  let nativeReminderSyncTimer = 0;
+  let nativeReminderSyncGeneration = 0;
+  let lastNativeReminderSignature = "";
 
   function registerArchitectureRuntime(stage = "runtime") {
     if (!window.YayaLayers?.registerRuntime) return;
@@ -396,7 +399,7 @@
     attachEvents();
     registerArchitectureRuntime("init-start");
     renderAll();
-    syncNativeNotifications({ requestPermission: false });
+    syncNativeNotifications({ requestPermission: false, force: true, retry: false, reason: "init" });
     updateNativeWidget();
     scheduleNativeImportPull();
     window.addEventListener("yaya-native-import-ready", scheduleNativeImportPull);
@@ -406,7 +409,7 @@
       if (!document.hidden) {
         refreshDateIfNeeded();
         scheduleNativeImportPull();
-        syncNativeNotifications({ requestPermission: false });
+        syncNativeNotifications({ requestPermission: false, force: true, retry: false, reason: "visible" });
         if (state.modal) renderModal();
       } else {
         flushPersist();
@@ -627,7 +630,7 @@
     if (!options.skipCache) rebuildCache(true);
     persist(options);
     if (!options.skipNative) {
-      syncNativeNotifications();
+      syncNativeNotifications({ reason: "commit", force: true });
       updateNativeWidget();
     }
     registerArchitectureRuntime("commit");
@@ -4573,7 +4576,7 @@
   }
 
   function handleReminderPermissionUpdated() {
-    syncNativeNotifications({ requestPermission: false });
+    syncNativeNotifications({ requestPermission: false, force: true, reason: "permission" });
     window.YayaLayers?.registerRuntime?.("platform", {
       reminderPermissionUpdatedAt: Date.now(),
       reminderStatus: reminderPermissionLabels(reminderPermissionStatus()).state
@@ -4595,7 +4598,7 @@
     const ok = options.interactive === false
       ? Boolean(window.YayaPlatform?.requestNotificationPermission?.())
       : Boolean(window.YayaPlatform?.requestReminderPermissions?.() ?? window.YayaPlatform?.requestNotificationPermission?.());
-    syncNativeNotifications({ requestPermission: false });
+    syncNativeNotifications({ requestPermission: false, force: true, reason: "permission-request" });
     if (!options.silent) {
       const labels = reminderPermissionLabels(reminderPermissionStatus());
       state.notice = labels.state === "ready" ? "提醒权限已开启，系统提醒已重新挂载" : "已发起提醒权限请求，请在系统弹窗或权限页中允许";
@@ -4612,6 +4615,7 @@
       .filter((ddl) => normalizeReminderValues(ddl.reminders).length)
       .map((ddl) => ({
         id: ddl.id,
+        alarmKey: ["ddl", ddl.id, ddl.date, ddl.time || "23:59"].join("|"),
         date: ddl.date,
         time: ddl.time || "23:59",
         topic: ddl.topic,
@@ -4625,8 +4629,9 @@
       .filter((item) => normalizeReminderValues(item.reminders).length)
       .map((item) => ({
         id: targetKeyForCustom(item.id),
+        alarmKey: ["synced-ddl", item.id, item.date, item.endTime || item.startTime || "23:59"].join("|"),
         date: item.date,
-        time: item.startTime || "23:59",
+        time: item.endTime || item.startTime || "23:59",
         topic: item.title || "日程",
         content: item.place || "",
         reminders: normalizeReminderValues(item.reminders),
@@ -4641,6 +4646,7 @@
       .filter((item) => normalizeReminderValues(item.reminders).length)
       .map((item) => ({
         id: targetKeyForCustom(item.id),
+        alarmKey: ["schedule", item.id, item.date, item.startTime || "08:00"].join("|"),
         date: item.date,
         time: item.startTime || "08:00",
         topic: item.title || "日程",
@@ -4654,10 +4660,55 @@
 
   function syncNativeNotifications(options = {}) {
     const payload = nativeReminderPayload();
-    if (payload.length && options.requestPermission !== false) window.YayaPlatform?.requestNotificationPermission();
+    const signature = reminderPayloadSignature(payload);
+    const force = options.force === true || signature !== lastNativeReminderSignature;
+    if (!force) return true;
     const serialized = JSON.stringify(payload);
-    const scheduled = window.YayaPlatform?.scheduleReminderNotifications?.(serialized);
-    if (scheduled === undefined) window.YayaPlatform?.scheduleDdlNotifications?.(serialized);
+    const bridge = window.YayaPlatform;
+    if (!bridge?.scheduleReminderNotifications && !bridge?.scheduleDdlNotifications) return false;
+    if (payload.length && options.requestPermission !== false) bridge.requestNotificationPermission?.();
+    let scheduled = bridge.scheduleReminderNotifications?.(serialized);
+    if (scheduled === undefined || scheduled === false) {
+      scheduled = bridge.scheduleDdlNotifications?.(serialized);
+    }
+    const ok = scheduled !== false;
+    if (ok) lastNativeReminderSignature = signature;
+    nativeReminderSyncGeneration += 1;
+    window.YayaLayers?.registerRuntime?.("platform", {
+      reminderPayloadCount: payload.length,
+      reminderPayloadSignature: signature,
+      reminderSyncGeneration: nativeReminderSyncGeneration,
+      reminderSyncReason: options.reason || "sync",
+      reminderBridgeMounted: ok
+    });
+    if (ok && options.retry !== false) {
+      queueNativeNotificationSync({ requestPermission: false, force: true, retry: false, reason: "confirm", delay: 420 });
+    }
+    return ok;
+  }
+
+  function queueNativeNotificationSync(options = {}) {
+    if (nativeReminderSyncTimer) window.clearTimeout(nativeReminderSyncTimer);
+    nativeReminderSyncTimer = window.setTimeout(() => {
+      nativeReminderSyncTimer = 0;
+      syncNativeNotifications(options);
+    }, Number.isFinite(options.delay) ? options.delay : 220);
+  }
+
+  function reminderPayloadSignature(payload) {
+    return payload
+      .map((item) => [
+        item.alarmKey || item.id || "",
+        item.kind || "",
+        item.date || "",
+        item.time || "",
+        item.topic || "",
+        item.content || "",
+        item.timeLabel || "",
+        normalizeReminderValues(item.reminders).join(",")
+      ].join("@"))
+      .sort()
+      .join("||");
   }
 
   function updateNativeWidget() {

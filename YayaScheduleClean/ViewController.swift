@@ -693,6 +693,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             let date = stringValue(item["date"])
             let time = stringValue(item["time"]).isEmpty ? "23:59" : stringValue(item["time"])
             let kind = stringValue(item["kind"])
+            let rawAlarmKey = stringValue(item["alarmKey"])
+            let alarmKey = rawAlarmKey.isEmpty ? "\(kind)|\(id)|\(date)|\(time)" : rawAlarmKey
+            let safeAlarmKey = alarmKey.replacingOccurrences(of: "[^A-Za-z0-9_-]+", with: "-", options: .regularExpression)
             let topicFallback = kind == "schedule" ? "日程" : "DDL"
             let topic = stringValue(item["topic"]).isEmpty ? topicFallback : stringValue(item["topic"])
             let titlePrefix = kind == "schedule" ? "日程提醒：" : "DDL提醒："
@@ -709,7 +712,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 guard let minutes = Int(stringValue(reminder)), minutes > 0 else { continue }
                 let fireDate = deadline.addingTimeInterval(TimeInterval(-minutes * 60))
                 if fireDate <= now.addingTimeInterval(1) { continue }
-                let identifier = "reminder-\(id)-\(minutes)"
+                let identifier = "reminder-\(safeAlarmKey)-\(minutes)"
                 let title = "\(titlePrefix)\(topic)"
                 let body = "\(ddlReminderLabel(minutes)) · \(timeLabel) \(date) \(time)" + (detail.isEmpty ? "" : "\n\(detail)")
                 plans.append(ReminderNotificationPlan(identifier: identifier, title: title, body: body, fireDate: fireDate))
