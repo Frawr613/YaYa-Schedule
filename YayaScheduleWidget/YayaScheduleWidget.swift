@@ -417,7 +417,43 @@ struct YayaScheduleWidgetView: View {
             let height = max(1, proxy.size.height)
             let rawX = width * CGFloat(scheduleLineProgress)
             let lineX = min(max(rawX, 0.6), width - 0.6)
+            let tintWidth = max(lineX, 0.1)
             ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: max(10, palette.radius * 0.72), style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                palette.warm.opacity(entry.data.scheduleActive ? 0.085 : 0.035),
+                                palette.accent.opacity(entry.data.scheduleActive ? 0.05 : 0.024),
+                                Color.white.opacity(entry.data.scheduleActive ? 0.03 : 0.014)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .overlay(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(entry.data.scheduleActive ? 0.075 : 0.035),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .mask(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.78),
+                                Color.white.opacity(0.48),
+                                Color.white.opacity(0.16)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: tintWidth, height: height)
+
                 Rectangle()
                     .fill(
                         LinearGradient(
