@@ -33,7 +33,7 @@
 
   global.YayaPlatform = {
     layer: "platform",
-    capabilities: ["savePortalAccount", "setLauncherIcon", "openAcademicPortal", "takeImportedPage", "getReminderPermissionStatus", "requestReminderPermissions", "requestNotificationPermission", "scheduleDdlNotifications", "updateHomeWidget"],
+    capabilities: ["savePortalAccount", "setLauncherIcon", "openAcademicPortal", "takeImportedPage", "getReminderPermissionStatus", "requestReminderPermissions", "requestNotificationPermission", "scheduleReminderNotifications", "scheduleDdlNotifications", "updateHomeWidget"],
     isNative() {
       return Boolean(global.YayaNative);
     },
@@ -65,8 +65,14 @@
     requestReminderPermissions() {
       return nativeCall("requestReminderPermissions", [], false);
     },
-    scheduleDdlNotifications(payload) {
+    scheduleReminderNotifications(payload) {
+      if (hasNativeMethod("scheduleReminderNotifications")) {
+        return nativeCall("scheduleReminderNotifications", [payload], false);
+      }
       return nativeCall("scheduleDdlNotifications", [payload], false);
+    },
+    scheduleDdlNotifications(payload) {
+      return this.scheduleReminderNotifications(payload);
     },
     updateHomeWidget(payload) {
       const value = Array.isArray(payload) ? JSON.stringify(payload) : String(payload || "");

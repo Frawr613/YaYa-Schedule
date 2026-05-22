@@ -640,7 +640,7 @@ body[data-template-interaction="compact"] .template-action-dock button {
 
 .strip-head,
 .panel-head,
-.modal-head,
+.modal-head-main,
 .list-card,
 .date-switcher,
 .day-actions,
@@ -673,6 +673,10 @@ body[data-template-interaction="compact"] .template-action-dock button {
 
 .modal-head-actions {
   flex-wrap: wrap;
+}
+
+.modal-head-main {
+  min-width: 0;
 }
 
 .strip-head div,
@@ -2468,6 +2472,9 @@ body[data-template="compact"] .dashboard-panel {
   position: sticky;
   top: -14px;
   z-index: 2;
+  display: grid;
+  align-items: stretch;
+  gap: 10px;
   padding: 4px 0 12px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.64), rgba(255, 255, 255, 0.24)),
@@ -2478,6 +2485,147 @@ body[data-template="compact"] .dashboard-panel {
 
 .modal-head h2 {
   font-size: 18px;
+}
+
+.modal-page-chips {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: 1px 2px 4px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.modal-page-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.modal-page-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 92px;
+  min-height: 38px;
+  max-width: min(188px, 76vw);
+  padding: 7px 11px;
+  border-radius: 999px;
+  scroll-snap-align: center;
+  color: color-mix(in srgb, var(--tpl-ink, var(--ink)) 74%, var(--tpl-muted, var(--muted)));
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.14)),
+    var(--tpl-chip, var(--glass-control-bg));
+  border-color: color-mix(in srgb, var(--tpl-border, var(--glass-border)) 72%, transparent);
+  box-shadow: var(--tpl-inset, var(--glass-inset));
+  opacity: 0.78;
+  white-space: nowrap;
+  transition: transform 0.18s ease, opacity 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.modal-page-chip strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 950;
+  color: inherit;
+}
+
+.modal-page-chip span,
+.modal-page-chip small {
+  display: inline-grid;
+  place-items: center;
+  min-height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  color: inherit;
+  background: color-mix(in srgb, var(--tpl-brand, var(--accent)) 10%, rgba(255, 255, 255, 0.34));
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.modal-page-chip.active {
+  color: var(--tpl-action-text, #fff);
+  background: var(--tpl-primary-action, linear-gradient(135deg, var(--accent), var(--accent-warm)));
+  border-color: color-mix(in srgb, var(--tpl-brand, var(--accent)) 54%, white);
+  box-shadow:
+    0 12px 24px color-mix(in srgb, var(--tpl-brand, var(--accent)) 20%, transparent),
+    0 0 0 2px color-mix(in srgb, white 22%, transparent),
+    var(--tpl-inset, var(--glass-inset));
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.modal-page-chip.active span,
+.modal-page-chip.active small {
+  color: inherit;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.modal-page-stage {
+  display: grid;
+  min-width: 0;
+  isolation: isolate;
+}
+
+.modal-page-stage[data-page-motion] {
+  animation-duration: 260ms;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation-fill-mode: both;
+  will-change: opacity, transform, filter;
+}
+
+.modal-page-stage[data-page-motion="forward"] {
+  animation-name: modal-page-forward;
+}
+
+.modal-page-stage[data-page-motion="back"] {
+  animation-name: modal-page-back;
+}
+
+@keyframes modal-page-forward {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateX(18px) scale(0.985);
+  }
+  68% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes modal-page-back {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateX(-18px) scale(0.985);
+  }
+  68% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateX(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-page-stage[data-page-motion] {
+    animation: none;
+  }
 }
 
 .form-stack {
@@ -3801,7 +3949,7 @@ body[data-theme] :where(input, select, textarea) {
   line-height: 1.35 !important;
 }
 
-body[data-theme] :where(.week-badge, .note-badge, .ddl-badge, .time-mark, .date-mark, .note-number, .note-open-mark, .date-week-chip, .date-day-chip, .course-term-tab, .schedule-status-tab) {
+body[data-theme] :where(.week-badge, .note-badge, .ddl-badge, .time-mark, .date-mark, .note-number, .note-open-mark, .date-week-chip, .date-day-chip, .course-term-tab, .schedule-status-tab, .modal-page-chip) {
   font-size: var(--ui-caption-size) !important;
   font-weight: var(--ui-chip-weight) !important;
   line-height: 1.22 !important;
@@ -3816,6 +3964,7 @@ body[data-theme] :where(
   .date-day-chip.active,
   .date-lookup-days button.active,
   .ddl-view-tab.active,
+  .modal-page-chip.active,
   .reminder-switch:has(input:checked),
   .reminder-sync-switch:has(input:checked),
   .reminder-chip.active,
@@ -3841,6 +3990,7 @@ body[data-theme] :where(
   .date-day-chip.active,
   .date-lookup-days button.active,
   .ddl-view-tab.active,
+  .modal-page-chip.active,
   .reminder-switch:has(input:checked),
   .reminder-sync-switch:has(input:checked),
   .reminder-chip.active,

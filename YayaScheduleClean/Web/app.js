@@ -24,6 +24,7 @@
   const DATE_PICKER_MAX_YEAR = 2077;
   const INPUT_UI_PATCH_VERSION = "20260522-template-input-ui-v1";
   const PORTAL_OPEN_COOLDOWN_MS = 1400;
+  const SCHEDULE_OVERVIEW_PAGES = ["custom", "recurring-active", "recurring-ended"];
 
   const PERIOD_TIMES = {
     1: ["08:00", "08:45"],
@@ -195,6 +196,7 @@
   let lastCommandAction = "";
   let lastCommandAt = 0;
   let lastPortalOpenAt = 0;
+  let overviewPageMotion = null;
   let floatingLayerGuardActive = false;
   let swipeGesture = null;
   let lastSwipeSuppressAt = 0;
@@ -334,6 +336,8 @@
       notes: {},
       dateLookupMode: "date",
       ddlView: "active",
+      courseOverviewPage: "",
+      scheduleOverviewPage: "custom",
       uiTemplate: "classicOriginal",
       theme: "coolGlass",
       themeAccent: "",
@@ -460,6 +464,8 @@
     state.appIcon = normalizeIconId(state.appIcon);
     state.dateLookupMode = state.dateLookupMode === "week" ? "week" : "date";
     state.ddlView = state.ddlView === "completed" ? "completed" : "active";
+    state.scheduleOverviewPage = normalizeScheduleOverviewPage(state.scheduleOverviewPage);
+    state.courseOverviewPage = String(state.courseOverviewPage || "");
     state.ddlDoneFilterQuery = normalizeText(state.ddlDoneFilterQuery);
     state.ddlDoneFilterStart = validDateInputValue(state.ddlDoneFilterStart);
     state.ddlDoneFilterStartTime = validTimeInputValue(state.ddlDoneFilterStartTime);
@@ -469,6 +475,7 @@
     if (!state.activeTermId && state.terms[0]) state.activeTermId = state.terms[0].id;
     if (!validDate(state.focusDate)) state.focusDate = todayString();
     syncActiveTerm();
+    state.courseOverviewPage = normalizeCourseOverviewPage(state.courseOverviewPage);
     window.YayaLayers?.registerRuntime?.("cache", {
       restored: true,
       terms: state.terms.length,
@@ -593,6 +600,8 @@
       notes: state.notes,
       dateLookupMode: state.dateLookupMode,
       ddlView: state.ddlView,
+      courseOverviewPage: state.courseOverviewPage,
+      scheduleOverviewPage: state.scheduleOverviewPage,
       uiTemplate: state.uiTemplate,
       theme: state.theme,
       themeAccent: state.themeAccent,
@@ -789,7 +798,6 @@
     autoLockFrame = window.requestAnimationFrame(() => {
       autoLockFrame = 0;
       lockDateLookupToCurrentWeek();
-      lockCourseOverviewToCurrentTerm();
     });
   }
 
@@ -800,15 +808,6 @@
     document.querySelectorAll(".date-day-rail").forEach((rail) => {
       rail.querySelector(".date-day-chip.active")?.scrollIntoView({ block: "nearest", inline: "center" });
     });
-  }
-
-  function lockCourseOverviewToCurrentTerm() {
-    if (state.modal !== "courses") return;
-    const section = els.modalRoot.querySelector("[data-current-term='true']");
-    const card = section?.closest(".modal-card");
-    if (!section || !card) return;
-    const top = Math.max(0, section.offsetTop - 14);
-    card.scrollTop = top;
   }
 
   function renderStatus() {
@@ -1023,6 +1022,8 @@
       JSON.stringify(state.modalData || {}),
       appCache.builtAt,
       state.ddlView,
+      state.courseOverviewPage,
+      state.scheduleOverviewPage,
       state.ddlDoneFilterQuery,
       state.ddlDoneFilterStart,
       state.ddlDoneFilterStartTime,
@@ -1040,6 +1041,7 @@
         ${modalContent(state.modal)}
       </article>
     `, modalCacheKey);
+    if (overviewPageMotion) overviewPageMotion = null;
     const card = els.modalRoot.querySelector(".modal-card");
     if (card) {
       card.dataset.floatingLayer = String(layer);
@@ -1077,14 +1079,17 @@
     return "";
   }
 
-  function modalHead(title, back = "close-modal", actions = "") {
+  function modalHead(title, back = "close-modal", actions = "", tabs = "") {
     return `
-      <div class="modal-head">
-        <div class="modal-title-row">
-          <h2>${escapeHtml(title)}</h2>
-          ${actions ? `<div class="modal-head-actions">${actions}</div>` : ""}
+      <div class="modal-head ${tabs ? "has-modal-tabs" : ""}">
+        <div class="modal-head-main">
+          <div class="modal-title-row">
+            <h2>${escapeHtml(title)}</h2>
+            ${actions ? `<div class="modal-head-actions">${actions}</div>` : ""}
+          </div>
+          <button type="button" class="icon-button" data-action="${escapeAttr(back)}" aria-label="返回">←</button>
         </div>
-        <button type="button" class="icon-button" data-action="${escapeAttr(back)}" aria-label="返回">←</button>
+        ${tabs ? `<div class="modal-page-chips" role="tablist">${tabs}</div>` : ""}
       </div>
     `;
   }
@@ -1593,33 +1598,117 @@
     state.modalData = rest;
   }
 
+  function normalizeCourseOverviewPage(page) {
+    const ids = new Set(state.terms.map((term) => term.id));
+    if (ids.has(page)) return page;
+    return currentCourseOverviewPage();
+  }
+
+  function currentCourseOverviewPage() {
+    return currentCourseTerm()?.id || state.terms[0]?.id || "";
+  }
+
+  function activeCourseOverviewPage() {
+    const page = normalizeCourseOverviewPage(state.courseOverviewPage);
+    if (state.courseOverviewPage !== page) state.courseOverviewPage = page;
+    return page;
+  }
+
+  function normalizeScheduleOverviewPage(page) {
+    return SCHEDULE_OVERVIEW_PAGES.includes(page) ? page : "custom";
+  }
+
+  function activeScheduleOverviewPage() {
+    const page = normalizeScheduleOverviewPage(state.scheduleOverviewPage);
+    if (state.scheduleOverviewPage !== page) state.scheduleOverviewPage = page;
+    return page;
+  }
+
+  function setOverviewPageMotion(kind, fromPage, toPage, order) {
+    if (!toPage || fromPage === toPage) {
+      overviewPageMotion = null;
+      return;
+    }
+    const fromIndex = order.indexOf(fromPage);
+    const toIndex = order.indexOf(toPage);
+    overviewPageMotion = {
+      kind,
+      page: toPage,
+      direction: fromIndex >= 0 && toIndex >= 0 && toIndex < fromIndex ? "back" : "forward"
+    };
+  }
+
+  function modalPageMotionAttr(kind, page) {
+    if (overviewPageMotion?.kind !== kind || overviewPageMotion.page !== page) return "";
+    return ` data-page-motion="${escapeAttr(overviewPageMotion.direction)}"`;
+  }
+
+  function renderCourseOverviewTabs(terms, activeId, currentTermId) {
+    return terms.map((term) => {
+      const groups = groupCoursesByName(term);
+      const active = term.id === activeId;
+      const isCurrent = term.id === currentTermId;
+      return `
+        <button type="button" class="modal-page-chip course-term-tab ${active ? "active" : ""}" data-action="set-course-overview-page" data-term-id="${escapeAttr(term.id)}" role="tab" aria-selected="${active ? "true" : "false"}" ${isCurrent ? `data-current-term-chip="true"` : ""}>
+          <strong>${escapeHtml(term.label || "课表")}</strong>
+          <span>${groups.length}门</span>
+          ${isCurrent ? `<small>当前</small>` : ""}
+        </button>
+      `;
+    }).join("");
+  }
+
+  function renderScheduleOverviewTabs(activePage, recurringGroups) {
+    const pages = [
+      ["custom", "单次", state.customSchedules.length],
+      ["recurring-active", "进行中", recurringGroups.active.length],
+      ["recurring-ended", "已结束", recurringGroups.ended.length]
+    ];
+    return pages.map(([id, label, count]) => {
+      const active = id === activePage;
+      return `
+        <button type="button" class="modal-page-chip schedule-status-tab ${active ? "active" : ""}" data-action="set-schedule-overview-page" data-page="${escapeAttr(id)}" role="tab" aria-selected="${active ? "true" : "false"}">
+          <strong>${escapeHtml(label)}</strong>
+          <span>${count}项</span>
+        </button>
+      `;
+    }).join("");
+  }
+
   function renderCoursesModal() {
     const terms = state.terms;
     const currentTermId = currentCourseTerm()?.id || "";
-    const body = terms.length ? terms.map((term) => {
-      const isCurrent = term.id === currentTermId;
-      return `
-      <section class="modal-section course-term-section ${isCurrent ? "is-current" : ""}" data-course-term-id="${escapeAttr(term.id)}" ${isCurrent ? `data-current-term="true"` : ""}>
-        <div class="course-term-head">
-          <h3>${escapeHtml(term.label || "课表")}</h3>
-          ${isCurrent ? `<span class="course-term-current">当前学期</span>` : ""}
-        </div>
-        <div class="course-grid">
-          ${groupCoursesByName(term).map((group) => `
-            <button type="button" class="course-card" data-action="open-detail" data-detail-type="course" data-detail-id="${escapeAttr(group.primary.courseKey)}">
-              <strong>${escapeHtml(group.name)}</strong>
-              <span>${escapeHtml(group.teacher || "教师未填")} · ${group.courses.length} 条排课</span>
-              <small>${group.lines.map(escapeHtml).join("<br />")}</small>
-            </button>
-          `).join("")}
-        </div>
-      </section>
+    const activeTermId = activeCourseOverviewPage();
+    const activeTerm = terms.find((term) => term.id === activeTermId);
+    const tabs = renderCourseOverviewTabs(terms, activeTermId, currentTermId);
+    if (!activeTerm) return `${modalHead("课程概览")}<div class="empty-state">还没有导入课表</div>`;
+    const groups = groupCoursesByName(activeTerm);
+    const isCurrent = activeTerm.id === currentTermId;
+    const body = `
+      <div class="modal-page-stage course-overview-page"${modalPageMotionAttr("courses", activeTermId)}>
+        <section class="modal-section course-term-section ${isCurrent ? "is-current" : ""}" data-course-term-id="${escapeAttr(activeTerm.id)}" ${isCurrent ? `data-current-term="true"` : ""}>
+          <div class="course-term-head">
+            <h3>${escapeHtml(activeTerm.label || "课表")}</h3>
+            ${isCurrent ? `<span class="course-term-current">当前学期</span>` : ""}
+          </div>
+          <div class="course-grid">
+            ${groups.length ? groups.map((group) => `
+              <button type="button" class="course-card" data-action="open-detail" data-detail-type="course" data-detail-id="${escapeAttr(group.primary.courseKey)}">
+                <strong>${escapeHtml(group.name)}</strong>
+                <span>${escapeHtml(group.teacher || "教师未填")} · ${group.courses.length} 条排课</span>
+                <small>${group.lines.map(escapeHtml).join("<br />")}</small>
+              </button>
+            `).join("") : `<div class="empty-state">当前学期暂无课程</div>`}
+          </div>
+        </section>
+      </div>
     `;
-    }).join("") : `<div class="empty-state">还没有导入课表</div>`;
-    return `${modalHead("课程概览")}${body}`;
+    return `${modalHead("课程概览", "close-modal", "", tabs)}${body}`;
   }
 
   function renderSchedulesModal() {
+    const recurringGroups = groupedRecurringSchedules();
+    const activePage = activeScheduleOverviewPage();
     const custom = state.customSchedules.map((item) => `
       ${renderSwipeShell("schedule", item.id, `
       <article class="list-card schedule-card">
@@ -1633,7 +1722,6 @@
         <button type="button" data-action="delete-schedule" data-id="${escapeAttr(item.id)}">删除</button>
       `)}
     `).join("");
-    const recurringGroups = groupedRecurringSchedules();
     const recurring = (items) => items.map((item) => `
       ${renderSwipeShell("recurring", item.id, `
       <article class="list-card recurring-card">
@@ -1652,11 +1740,17 @@
       <button type="button" class="modal-head-action" data-action="new-schedule">单次日程</button>
       <button type="button" class="modal-head-action" data-action="new-recurring">常驻日程</button>
     `;
+    const tabs = renderScheduleOverviewTabs(activePage, recurringGroups);
+    const sections = {
+      custom: `<section class="modal-section"><h3>单次日程</h3>${custom || `<div class="empty-state">暂无单次日程</div>`}</section>`,
+      "recurring-active": `<section class="modal-section"><h3>常驻日程 · 进行中</h3>${recurring(recurringGroups.active) || `<div class="empty-state">暂无进行中的常驻日程</div>`}</section>`,
+      "recurring-ended": `<section class="modal-section"><h3>常驻日程 · 已结束</h3>${recurring(recurringGroups.ended) || `<div class="empty-state">暂无已结束常驻日程</div>`}</section>`
+    };
     return `
-      ${modalHead("日程概览", "close-modal", headActions)}
-      <section class="modal-section"><h3>单次日程</h3>${custom || `<div class="empty-state">暂无单次日程</div>`}</section>
-      <section class="modal-section"><h3>常驻日程 · 进行中</h3>${recurring(recurringGroups.active) || `<div class="empty-state">暂无进行中的常驻日程</div>`}</section>
-      <section class="modal-section"><h3>常驻日程 · 已结束</h3>${recurring(recurringGroups.ended) || `<div class="empty-state">暂无已结束常驻日程</div>`}</section>
+      ${modalHead("日程概览", "close-modal", headActions, tabs)}
+      <div class="modal-page-stage schedule-overview-page"${modalPageMotionAttr("schedules", activePage)}>
+        ${sections[activePage] || sections.custom}
+      </div>
     `;
   }
 
@@ -2460,8 +2554,33 @@
       persist();
       scheduleRenderAll({ force: true });
     }
-    if (action === "open-courses") openModal("courses");
-    if (action === "open-schedules") openModal("schedules");
+    if (action === "open-courses") {
+      const currentPage = currentCourseOverviewPage();
+      if (state.courseOverviewPage !== currentPage) {
+        state.courseOverviewPage = currentPage;
+        persist({ immediate: true });
+      }
+      openModal("courses");
+    }
+    if (action === "set-course-overview-page") {
+      const nextPage = normalizeCourseOverviewPage(target.dataset.termId || "");
+      setOverviewPageMotion("courses", state.courseOverviewPage, nextPage, state.terms.map((term) => term.id));
+      state.courseOverviewPage = nextPage;
+      persist();
+      renderModal();
+    }
+    if (action === "open-schedules") {
+      state.scheduleOverviewPage = normalizeScheduleOverviewPage(state.scheduleOverviewPage);
+      openModal("schedules");
+    }
+    if (action === "set-schedule-overview-page") {
+      const nextPage = normalizeScheduleOverviewPage(target.dataset.page || "");
+      setOverviewPageMotion("schedules", state.scheduleOverviewPage, nextPage, SCHEDULE_OVERVIEW_PAGES);
+      state.scheduleOverviewPage = nextPage;
+      persist();
+      closeSwipeShells();
+      renderModal();
+    }
     if (action === "open-ddl") {
       if (target.dataset.ddlId) state.ddlView = "active";
       openModal("ddl", { id: target.dataset.ddlId || "" });
@@ -4466,7 +4585,9 @@
   function syncNativeNotifications(options = {}) {
     const payload = nativeReminderPayload();
     if (payload.length && options.requestPermission !== false) window.YayaPlatform?.requestNotificationPermission();
-    window.YayaPlatform?.scheduleDdlNotifications(JSON.stringify(payload));
+    const serialized = JSON.stringify(payload);
+    const scheduled = window.YayaPlatform?.scheduleReminderNotifications?.(serialized);
+    if (scheduled === undefined) window.YayaPlatform?.scheduleDdlNotifications?.(serialized);
   }
 
   function updateNativeWidget() {

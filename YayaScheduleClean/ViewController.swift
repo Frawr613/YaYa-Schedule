@@ -15,18 +15,20 @@ private final class WeakScriptMessageDelegate: NSObject, WKScriptMessageHandler 
     }
 }
 
-private struct DdlNotificationPlan {
+private struct ReminderNotificationPlan {
     let identifier: String
     let title: String
     let body: String
     let fireDate: Date
 }
 
-final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHandler, UNUserNotificationCenterDelegate {
+final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UNUserNotificationCenterDelegate {
     private let appGroupIdentifier = "group.com.xuyunfan.yayaschedule"
     private let widgetPayloadKey = "homeWidgetPayload"
-    private let ddlNotificationIdsKey = "ddlNotificationIds"
-    private let ddlNotificationPayloadKey = "ddlNotificationPayload"
+    private let reminderNotificationIdsKey = "reminderNotificationIds"
+    private let reminderNotificationPayloadKey = "reminderNotificationPayload"
+    private let legacyDdlNotificationIdsKey = "ddlNotificationIds"
+    private let legacyDdlNotificationPayloadKey = "ddlNotificationPayload"
     private let accountUsernameKey = "portalUsername"
     private let accountPasswordKey = "portalPassword"
     private let portalURL = URL(string: "https://one.bnu.edu.cn/")!
@@ -46,6 +48,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
 
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
+        webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
         webView.isOpaque = false
         webView.backgroundColor = UIColor(red: 0.96, green: 0.97, blue: 1.0, alpha: 1.0)
@@ -63,7 +66,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
         UNUserNotificationCenter.current().delegate = self
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(rescheduleStoredDdlNotifications),
+            selector: #selector(rescheduleStoredReminderNotifications),
             name: UIApplication.didBecomeActiveNotification,
             object: nil
         )
@@ -104,6 +107,18 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
         decisionHandler(.allow)
     }
 
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        if navigationAction.targetFrame == nil, let url = navigationAction.request.url {
+            webView.load(URLRequest(url: url))
+        }
+        return nil
+    }
+
     private func loadLocalApp() {
         guard let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Web"),
               let webRoot = Bundle.main.resourceURL?.appendingPathComponent("Web") else {
@@ -122,8 +137,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
         switch type {
         case "updateHomeWidget":
             saveWidgetPayload(body["payload"] ?? body)
-        case "scheduleDdlNotifications":
-            scheduleDdlNotifications(stringValue(body["payload"]))
+        case "scheduleReminderNotifications", "scheduleDdlNotifications":
+            scheduleReminderNotifications(stringValue(body["payload"]))
         case "requestNotificationPermission", "requestReminderPermissions":
             ensureNotificationAuthorization { [weak self] _ in
                 self?.pushReminderPermissionStatus()
@@ -216,8 +231,18 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
             return
         }
         pendingImportJson = json
-        portalSessionActive = false
-        loadLocalApp()
+        setPortalActionStatus("已抓取，点返回鸦鸦后导入")
+    }
+
+    private func setPortalActionStatus(_ text: String) {
+        DispatchQueue.main.async { [weak self] in
+            let script = """
+            window.__yayaIosAcademicStatus = \(Self.javaScriptStringLiteral(text));
+            var node = document.querySelector('[data-yaya-ios-academic-status]');
+            if (node) node.textContent = window.__yayaIosAcademicStatus;
+            """
+            self?.webView.evaluateJavaScript(script)
+        }
     }
 
     private func deliverPendingImportIfNeeded() {
@@ -256,6 +281,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
             if (!el) return false;
             try { el.click(); return true; } catch (error) { return false; }
           }
+          function forceSelfWindow() {
+            Array.prototype.slice.call(document.querySelectorAll('a[target],form[target]')).forEach(function(node) {
+              try { node.setAttribute('target', '_self'); } catch (error) {}
+            });
+          }
           function loginButtonNear(passwordInput) {
             var nodes = Array.prototype.slice.call(document.querySelectorAll('button,input[type=button],input[type=submit],a,[role=button],.btn,.ant-btn,.el-button'));
             var best = null;
@@ -275,6 +305,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
           var tries = 0;
           function step() {
             tries += 1;
+            forceSelfWindow();
             var passwordInput = Array.prototype.slice.call(document.querySelectorAll('input[type=password]')).filter(visible)[0];
             if (passwordInput) {
               var userInput = Array.prototype.slice.call(document.querySelectorAll('input:not([type=password])')).filter(visible)[0];
@@ -356,6 +387,18 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
           box.appendChild(button('导入课表', 'linear-gradient(135deg,#2563eb,#14b8a6)', function(){ capture('courses'); }));
           box.appendChild(button('导入考试', 'linear-gradient(135deg,#7c3aed,#2563eb)', function(){ capture('exams'); }));
           box.appendChild(button('返回鸦鸦', 'linear-gradient(135deg,#111827,#64748b)', function(){ send('returnHome'); }));
+          var status = document.createElement('div');
+          status.setAttribute('data-yaya-ios-academic-status', 'true');
+          status.textContent = window.__yayaIosAcademicStatus || '登录后可导入课表或考试';
+          status.style.cssText = [
+            'grid-column:1 / -1',
+            'font-size:12px',
+            'font-weight:700',
+            'color:rgba(15,23,42,.72)',
+            'text-align:center',
+            'padding:2px 4px 0'
+          ].join(';');
+          box.appendChild(status);
           var sx = 0, sy = 0, startLeft = 0, startTop = 0, dragging = false;
           box.addEventListener('pointerdown', function(event) {
             dragging = true;
@@ -461,20 +504,25 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
         }
     }
 
-    @objc private func rescheduleStoredDdlNotifications() {
+    @objc private func rescheduleStoredReminderNotifications() {
         pushReminderPermissionStatus()
-        let payload = UserDefaults.standard.string(forKey: ddlNotificationPayloadKey) ?? ""
+        let defaults = UserDefaults.standard
+        let payload = defaults.string(forKey: reminderNotificationPayloadKey)
+            ?? defaults.string(forKey: legacyDdlNotificationPayloadKey)
+            ?? ""
         guard !payload.isEmpty else { return }
-        scheduleDdlNotifications(payload, persistPayload: false)
+        scheduleReminderNotifications(payload, persistPayload: false)
     }
 
-    private func scheduleDdlNotifications(_ rawPayload: String, persistPayload: Bool = true) {
+    private func scheduleReminderNotifications(_ rawPayload: String, persistPayload: Bool = true) {
         let center = UNUserNotificationCenter.current()
         let defaults = UserDefaults.standard
         if persistPayload {
-            defaults.set(rawPayload.isEmpty ? "[]" : rawPayload, forKey: ddlNotificationPayloadKey)
+            defaults.set(rawPayload.isEmpty ? "[]" : rawPayload, forKey: reminderNotificationPayloadKey)
+            defaults.removeObject(forKey: legacyDdlNotificationPayloadKey)
         }
-        let oldIds = defaults.stringArray(forKey: ddlNotificationIdsKey) ?? []
+        let oldIds = (defaults.stringArray(forKey: reminderNotificationIdsKey) ?? [])
+            + (defaults.stringArray(forKey: legacyDdlNotificationIdsKey) ?? [])
         if !oldIds.isEmpty {
             center.removePendingNotificationRequests(withIdentifiers: oldIds)
         }
@@ -482,7 +530,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
         guard let data = rawPayload.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data),
               let items = object as? [[String: Any]] else {
-            defaults.set([], forKey: ddlNotificationIdsKey)
+            defaults.set([], forKey: reminderNotificationIdsKey)
+            defaults.removeObject(forKey: legacyDdlNotificationIdsKey)
             pushReminderPermissionStatus()
             return
         }
@@ -492,7 +541,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
         formatter.isLenient = false
 
-        var plans: [DdlNotificationPlan] = []
+        var plans: [ReminderNotificationPlan] = []
         let now = Date()
         for item in items {
             let id = stringValue(item["id"])
@@ -515,16 +564,17 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
                 guard let minutes = Int(stringValue(reminder)), minutes > 0 else { continue }
                 let fireDate = deadline.addingTimeInterval(TimeInterval(-minutes * 60))
                 if fireDate <= now.addingTimeInterval(1) { continue }
-                let identifier = "ddl-\(id)-\(minutes)"
+                let identifier = "reminder-\(id)-\(minutes)"
                 let title = "\(titlePrefix)\(topic)"
                 let body = "\(ddlReminderLabel(minutes)) · \(timeLabel) \(date) \(time)" + (detail.isEmpty ? "" : "\n\(detail)")
-                plans.append(DdlNotificationPlan(identifier: identifier, title: title, body: body, fireDate: fireDate))
+                plans.append(ReminderNotificationPlan(identifier: identifier, title: title, body: body, fireDate: fireDate))
             }
         }
 
         let nextPlans = plans.sorted { $0.fireDate < $1.fireDate }.prefix(64)
         guard !nextPlans.isEmpty else {
-            defaults.set([], forKey: ddlNotificationIdsKey)
+            defaults.set([], forKey: reminderNotificationIdsKey)
+            defaults.removeObject(forKey: legacyDdlNotificationIdsKey)
             pushReminderPermissionStatus()
             return
         }
@@ -532,7 +582,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
         ensureNotificationAuthorization { [weak self] granted in
             guard let self else { return }
             guard granted else {
-                defaults.set([], forKey: self.ddlNotificationIdsKey)
+                defaults.set([], forKey: self.reminderNotificationIdsKey)
+                defaults.removeObject(forKey: self.legacyDdlNotificationIdsKey)
                 self.pushReminderPermissionStatus()
                 return
             }
@@ -542,7 +593,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
                 content.title = plan.title
                 content.body = plan.body
                 content.sound = .default
-                content.categoryIdentifier = "ddl"
+                content.categoryIdentifier = "reminder"
 
                 var components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: plan.fireDate)
                 components.calendar = Calendar.current
@@ -551,7 +602,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
                 center.add(UNNotificationRequest(identifier: plan.identifier, content: content, trigger: trigger))
                 nextIds.append(plan.identifier)
             }
-            defaults.set(nextIds, forKey: self.ddlNotificationIdsKey)
+            defaults.set(nextIds, forKey: self.reminderNotificationIdsKey)
+            defaults.removeObject(forKey: self.legacyDdlNotificationIdsKey)
             self.pushReminderPermissionStatus()
         }
     }
@@ -696,8 +748,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKScriptMess
             requestReminderPermissions: function() {
               return post("requestReminderPermissions");
             },
+            scheduleReminderNotifications: function(payload) {
+              return post("scheduleReminderNotifications", { payload: String(payload || "[]") });
+            },
             scheduleDdlNotifications: function(payload) {
-              return post("scheduleDdlNotifications", { payload: String(payload || "[]") });
+              return post("scheduleReminderNotifications", { payload: String(payload || "[]") });
             },
             updateHomeWidget: function(payload) {
               var value = Array.isArray(payload) ? JSON.stringify(payload) : String(payload || "[]");
