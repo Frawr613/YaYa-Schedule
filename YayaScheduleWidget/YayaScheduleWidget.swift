@@ -342,33 +342,30 @@ struct YayaScheduleWidgetView: View {
     }
 
     private func scheduleTimelineCard(compact: Bool, tall: Bool = false) -> some View {
-        HStack(alignment: tall ? .top : .center, spacing: compact ? 8 : 13) {
-            VStack(alignment: .leading, spacing: compact ? 2 : 8) {
-                HStack(spacing: compact ? 5 : 6) {
-                    Capsule()
-                        .fill(palette.warm)
-                        .frame(width: compact ? 4 : 5, height: compact ? 21 : 18)
-                    Text(scheduleLabel)
-                        .font(.system(size: compact ? 8 : 11, weight: .black, design: .rounded))
-                        .foregroundColor(palette.muted)
-                        .lineLimit(1)
-                }
-
-                Text(entry.data.scheduleTitle.isEmpty ? "暂无安排" : entry.data.scheduleTitle)
-                    .font(.system(size: compact ? 13 : (tall ? 24 : 21), weight: .black, design: .rounded))
-                    .foregroundColor(palette.ink)
-                    .lineLimit(tall ? 2 : 1)
-                    .minimumScaleFactor(0.82)
-
-                scheduleTimeText
+        VStack(alignment: .leading, spacing: compact ? 2 : 10) {
+            HStack(spacing: compact ? 5 : 6) {
+                Capsule()
+                    .fill(palette.warm)
+                    .frame(width: compact ? 4 : 5, height: compact ? 18 : 18)
+                Text(scheduleLabel)
+                    .font(.system(size: compact ? 8 : 11, weight: .black, design: .rounded))
+                    .foregroundColor(palette.muted)
+                    .lineLimit(1)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tall ? .topLeading : .leading)
 
-            timelineRail(compact: compact, tall: tall)
+            Text(entry.data.scheduleTitle.isEmpty ? "暂无安排" : entry.data.scheduleTitle)
+                .font(.system(size: compact ? 13 : (tall ? 24 : 21), weight: .black, design: .rounded))
+                .foregroundColor(palette.ink)
+                .lineLimit(tall ? 2 : 1)
+                .minimumScaleFactor(0.82)
+
+            scheduleTimeText
+
+            scheduleTimeline(compact: compact, tall: tall)
         }
         .padding(.horizontal, compact ? 11 : 16)
-        .padding(.vertical, compact ? 7 : 14)
-        .frame(maxWidth: .infinity, minHeight: tall ? 180 : (compact ? 58 : 86), maxHeight: compact ? 58 : nil, alignment: tall ? .topLeading : .leading)
+        .padding(.vertical, compact ? 5 : 14)
+        .frame(maxWidth: .infinity, minHeight: tall ? 180 : (compact ? 72 : 98), maxHeight: compact ? 72 : nil, alignment: tall ? .topLeading : .leading)
         .background(
             RoundedRectangle(cornerRadius: palette.radius + (tall ? CGFloat(4) : CGFloat(0)), style: .continuous)
                 .fill(palette.scheduleFill)
@@ -393,43 +390,63 @@ struct YayaScheduleWidgetView: View {
         }
     }
 
-    private func timelineRail(compact: Bool, tall: Bool) -> some View {
+    private func scheduleTimeline(compact: Bool, tall: Bool) -> some View {
         GeometryReader { proxy in
-            let height = proxy.size.height
-            let cursorSize: CGFloat = compact ? 9 : 11
-            let travel = max(1, height - cursorSize)
-            let y = travel * CGFloat(progress)
-            ZStack(alignment: .top) {
-                Capsule()
-                    .fill(Color.white.opacity(0.34))
-                    .frame(width: compact ? 4 : 5)
+            let width = max(1, proxy.size.width)
+            let cursorSize: CGFloat = compact ? 8 : 11
+            let lineY: CGFloat = compact ? 6 : 12
+            let startX = cursorSize / 2
+            let endX = width - cursorSize / 2
+            let travel = max(1, endX - startX)
+            let cursorX = startX + travel * CGFloat(progress)
 
-                Rectangle()
-                    .fill(LinearGradient(
-                        colors: [
-                            Color.clear,
-                            palette.warm.opacity(entry.data.scheduleActive ? 0.18 : 0.08),
-                            Color.clear
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ))
-                    .frame(width: compact ? 24 : 34)
-                    .offset(y: max(-18, y - 22))
-
-                Capsule()
-                    .fill(palette.warm.opacity(entry.data.scheduleActive ? 0.76 : 0.28))
-                    .frame(width: compact ? 4 : 5, height: compact ? 34 : 46)
-                    .offset(y: max(0, y - (compact ? 18 : 24)))
+            ZStack(alignment: .topLeading) {
+                Path { path in
+                    path.move(to: CGPoint(x: startX, y: lineY))
+                    path.addLine(to: CGPoint(x: endX, y: lineY))
+                }
+                .stroke(
+                    palette.muted.opacity(0.45),
+                    style: StrokeStyle(lineWidth: compact ? 1.1 : 1.4, lineCap: .round, dash: [1.8, 5.2])
+                )
 
                 Circle()
-                    .fill(palette.ink.opacity(entry.data.scheduleActive ? 0.84 : 0.36))
-                    .frame(width: cursorSize, height: cursorSize)
-                    .offset(y: y)
+                    .fill(palette.muted.opacity(0.52))
+                    .frame(width: compact ? 5 : 7, height: compact ? 5 : 7)
+                    .position(x: startX, y: lineY)
+
+                Circle()
+                    .fill(palette.muted.opacity(0.52))
+                    .frame(width: compact ? 5 : 7, height: compact ? 5 : 7)
+                    .position(x: endX, y: lineY)
+
+                ZStack {
+                    Circle()
+                        .fill(palette.warm.opacity(entry.data.scheduleActive ? 0.24 : 0.12))
+                        .frame(width: compact ? 18 : 24, height: compact ? 18 : 24)
+                    Circle()
+                        .fill(palette.warm.opacity(entry.data.scheduleActive ? 0.95 : 0.58))
+                        .frame(width: cursorSize, height: cursorSize)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.88), lineWidth: 1)
+                        )
+                }
+                .position(x: cursorX, y: lineY)
+
+                if !compact, let range = scheduleTimeRange {
+                    HStack {
+                        Text(range.start)
+                        Spacer(minLength: 0)
+                        Text(range.end)
+                    }
+                    .font(.system(size: tall ? 10 : 9, weight: .bold, design: .rounded))
+                    .foregroundColor(palette.muted.opacity(0.78))
+                    .offset(y: lineY + 8)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: compact ? 22 : 36, height: tall ? 138 : (compact ? 42 : 78))
+        .frame(height: compact ? 10 : (tall ? 32 : 28))
     }
 
     private var widgetBackground: some View {
@@ -467,6 +484,20 @@ struct YayaScheduleWidgetView: View {
 
     private var progress: Double {
         min(max(entry.data.scheduleProgress, 0), 100) / 100
+    }
+
+    private var scheduleTimeRange: (start: String, end: String)? {
+        let text = entry.data.scheduleTime
+            .replacingOccurrences(of: "–", with: "-")
+            .replacingOccurrences(of: "—", with: "-")
+            .replacingOccurrences(of: "至", with: "-")
+            .replacingOccurrences(of: "~", with: "-")
+        let parts = text
+            .components(separatedBy: "-")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard parts.count >= 2 else { return nil }
+        return (start: parts[0], end: parts[1])
     }
 
     private var widgetPadding: CGFloat {
