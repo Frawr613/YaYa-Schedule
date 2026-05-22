@@ -180,9 +180,13 @@ struct YayaWidgetProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<YayaWidgetEntry>) -> Void) {
-        let entry = YayaWidgetEntry(date: Date(), data: readData())
-        let refresh = Calendar.current.date(byAdding: .minute, value: 15, to: Date()) ?? Date().addingTimeInterval(900)
-        completion(Timeline(entries: [entry], policy: .after(refresh)))
+        let data = readData()
+        let now = Date()
+        let entries = (0..<12).map { offset in
+            YayaWidgetEntry(date: now.addingTimeInterval(TimeInterval(offset * 300)), data: data)
+        }
+        let refresh = Calendar.current.date(byAdding: .minute, value: 60, to: now) ?? now.addingTimeInterval(3600)
+        completion(Timeline(entries: entries, policy: .after(refresh)))
     }
 
     private func readData() -> YayaWidgetData {
@@ -214,10 +218,8 @@ struct YayaScheduleWidgetView: View {
         Group {
             if family == .systemSmall {
                 smallContent
-            } else if family == .systemMedium {
-                mediumContent
             } else {
-                largeContent
+                mediumContent
             }
         }
     }
@@ -239,34 +241,24 @@ struct YayaScheduleWidgetView: View {
         }
     }
 
-    private var largeContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            ddlCard(compact: false)
-                .frame(width: 246, alignment: .leading)
-            scheduleTimelineCard(compact: false, tall: true)
-        }
-    }
-
     private var header: some View {
-        let compactHeader = family != .systemLarge
         HStack(alignment: .center, spacing: 8) {
             ZStack {
                 Circle().fill(Color.white.opacity(0.34))
                 Circle()
                     .fill(entry.data.isFresh ? palette.warm : palette.muted.opacity(0.52))
-                    .frame(width: compactHeader ? 6 : 7, height: compactHeader ? 6 : 7)
+                    .frame(width: 6, height: 6)
             }
-            .frame(width: compactHeader ? 16 : 18, height: compactHeader ? 16 : 18)
+            .frame(width: 16, height: 16)
 
             VStack(alignment: .leading, spacing: 0) {
                 Text("鸦鸦日程")
-                    .font(.system(size: family == .systemSmall ? 13 : (compactHeader ? 15 : 17), weight: .black, design: .rounded))
+                    .font(.system(size: family == .systemSmall ? 13 : 15, weight: .black, design: .rounded))
                     .foregroundColor(palette.ink)
                     .lineLimit(1)
                 if family != .systemSmall {
                     Text(dayText)
-                        .font(.system(size: compactHeader ? 9 : 11, weight: .bold, design: .rounded))
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
                         .foregroundColor(palette.muted)
                         .lineLimit(1)
                 }
@@ -341,40 +333,46 @@ struct YayaScheduleWidgetView: View {
         )
     }
 
-    private func scheduleTimelineCard(compact: Bool, tall: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: compact ? 2 : 10) {
-            HStack(spacing: compact ? 5 : 6) {
-                Capsule()
-                    .fill(palette.warm)
-                    .frame(width: compact ? 4 : 5, height: compact ? 18 : 18)
-                Text(scheduleLabel)
-                    .font(.system(size: compact ? 8 : 11, weight: .black, design: .rounded))
-                    .foregroundColor(palette.muted)
+    private func scheduleTimelineCard(compact: Bool) -> some View {
+        ZStack(alignment: .leading) {
+            movingScheduleLine(compact: compact)
+                .padding(.horizontal, compact ? 12 : 14)
+                .padding(.vertical, compact ? 8 : 10)
+
+            VStack(alignment: .leading, spacing: compact ? 2 : 3) {
+                HStack(spacing: 5) {
+                    Capsule()
+                        .fill(palette.warm)
+                        .frame(width: 4, height: compact ? 18 : 20)
+                    Text(scheduleLabel)
+                        .font(.system(size: compact ? 8 : 9, weight: .black, design: .rounded))
+                        .foregroundColor(palette.muted)
+                        .lineLimit(1)
+                }
+
+                Text(entry.data.scheduleTitle.isEmpty ? "暂无安排" : entry.data.scheduleTitle)
+                    .font(.system(size: compact ? 13 : 16, weight: .black, design: .rounded))
+                    .foregroundColor(palette.ink)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+
+                scheduleTimeText
             }
-
-            Text(entry.data.scheduleTitle.isEmpty ? "暂无安排" : entry.data.scheduleTitle)
-                .font(.system(size: compact ? 13 : (tall ? 24 : 21), weight: .black, design: .rounded))
-                .foregroundColor(palette.ink)
-                .lineLimit(tall ? 2 : 1)
-                .minimumScaleFactor(0.82)
-
-            scheduleTimeText
-
-            scheduleTimeline(compact: compact, tall: tall)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, compact ? 11 : 14)
+            .padding(.vertical, compact ? 7 : 10)
         }
-        .padding(.horizontal, compact ? 11 : 16)
-        .padding(.vertical, compact ? 5 : 14)
-        .frame(maxWidth: .infinity, minHeight: tall ? 180 : (compact ? 72 : 98), maxHeight: compact ? 72 : nil, alignment: tall ? .topLeading : .leading)
+        .frame(maxWidth: .infinity, minHeight: compact ? 72 : 82, maxHeight: compact ? 72 : 82, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: palette.radius + (tall ? CGFloat(4) : CGFloat(0)), style: .continuous)
+            RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
                 .fill(palette.scheduleFill)
                 .overlay(
-                    RoundedRectangle(cornerRadius: palette.radius + (tall ? CGFloat(4) : CGFloat(0)), style: .continuous)
+                    RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
                         .stroke(palette.border, lineWidth: 1)
                 )
                 .shadow(color: palette.shadow, radius: 14, x: 0, y: 9)
         )
+        .clipShape(RoundedRectangle(cornerRadius: palette.radius, style: .continuous))
     }
 
     private var scheduleTimeText: some View {
@@ -382,7 +380,7 @@ struct YayaScheduleWidgetView: View {
         return Group {
             if !parts.isEmpty {
                 Text(parts.joined(separator: " · "))
-                    .font(.system(size: family != .systemLarge ? 8 : 12, weight: .semibold, design: .rounded))
+                    .font(.system(size: 8, weight: .semibold, design: .rounded))
                     .foregroundColor(palette.muted)
                     .lineLimit(1)
                     .minimumScaleFactor(0.76)
@@ -390,63 +388,45 @@ struct YayaScheduleWidgetView: View {
         }
     }
 
-    private func scheduleTimeline(compact: Bool, tall: Bool) -> some View {
+    private func movingScheduleLine(compact: Bool) -> some View {
         GeometryReader { proxy in
             let width = max(1, proxy.size.width)
-            let cursorSize: CGFloat = compact ? 8 : 11
-            let lineY: CGFloat = compact ? 6 : 12
-            let startX = cursorSize / 2
-            let endX = width - cursorSize / 2
-            let travel = max(1, endX - startX)
-            let cursorX = startX + travel * CGFloat(progress)
-
+            let height = max(1, proxy.size.height)
+            let rawX = width * CGFloat(scheduleLineProgress)
+            let lineX = min(max(rawX, 0.6), width - 0.6)
             ZStack(alignment: .topLeading) {
                 Path { path in
-                    path.move(to: CGPoint(x: startX, y: lineY))
-                    path.addLine(to: CGPoint(x: endX, y: lineY))
+                    path.move(to: CGPoint(x: lineX, y: 0))
+                    path.addLine(to: CGPoint(x: lineX, y: height))
                 }
                 .stroke(
-                    palette.muted.opacity(0.45),
-                    style: StrokeStyle(lineWidth: compact ? 1.1 : 1.4, lineCap: .round, dash: [1.8, 5.2])
+                    palette.warm.opacity(entry.data.scheduleActive ? 0.46 : 0.24),
+                    style: StrokeStyle(lineWidth: compact ? 0.9 : 1.05, lineCap: .round, dash: [2, 5])
                 )
 
-                Circle()
-                    .fill(palette.muted.opacity(0.52))
-                    .frame(width: compact ? 5 : 7, height: compact ? 5 : 7)
-                    .position(x: startX, y: lineY)
-
-                Circle()
-                    .fill(palette.muted.opacity(0.52))
-                    .frame(width: compact ? 5 : 7, height: compact ? 5 : 7)
-                    .position(x: endX, y: lineY)
-
-                ZStack {
-                    Circle()
-                        .fill(palette.warm.opacity(entry.data.scheduleActive ? 0.24 : 0.12))
-                        .frame(width: compact ? 18 : 24, height: compact ? 18 : 24)
-                    Circle()
-                        .fill(palette.warm.opacity(entry.data.scheduleActive ? 0.95 : 0.58))
-                        .frame(width: cursorSize, height: cursorSize)
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(0.88), lineWidth: 1)
-                        )
+                Path { path in
+                    path.move(to: CGPoint(x: lineX + 1.8, y: 0))
+                    path.addLine(to: CGPoint(x: lineX + 1.8, y: height))
                 }
-                .position(x: cursorX, y: lineY)
-
-                if !compact, let range = scheduleTimeRange {
-                    HStack {
-                        Text(range.start)
-                        Spacer(minLength: 0)
-                        Text(range.end)
-                    }
-                    .font(.system(size: tall ? 10 : 9, weight: .bold, design: .rounded))
-                    .foregroundColor(palette.muted.opacity(0.78))
-                    .offset(y: lineY + 8)
-                }
+                .stroke(
+                    Color.white.opacity(entry.data.scheduleActive ? 0.36 : 0.2),
+                    style: StrokeStyle(lineWidth: 0.7, lineCap: .round, dash: [2, 5])
+                )
             }
         }
-        .frame(height: compact ? 10 : (tall ? 32 : 28))
+    }
+
+    private var scheduleLineProgress: Double {
+        if entry.data.scheduleActive,
+           let range = scheduleTimeRange,
+           let start = clockMinutes(range.start),
+           let end = clockMinutes(range.end),
+           end > start {
+            let parts = Calendar.current.dateComponents([.hour, .minute], from: entry.date)
+            let now = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+            return min(max(Double(now - start) / Double(end - start), 0), 1)
+        }
+        return progress
     }
 
     private var widgetBackground: some View {
@@ -486,6 +466,14 @@ struct YayaScheduleWidgetView: View {
         min(max(entry.data.scheduleProgress, 0), 100) / 100
     }
 
+    private func clockMinutes(_ value: String) -> Int? {
+        let parts = value.split(separator: ":")
+        guard parts.count == 2,
+              let hour = Int(parts[0]),
+              let minute = Int(parts[1]) else { return nil }
+        return hour * 60 + minute
+    }
+
     private var scheduleTimeRange: (start: String, end: String)? {
         let text = entry.data.scheduleTime
             .replacingOccurrences(of: "–", with: "-")
@@ -501,7 +489,7 @@ struct YayaScheduleWidgetView: View {
     }
 
     private var widgetPadding: CGFloat {
-        family == .systemLarge ? 14 : 8
+        8
     }
 
     private var dayText: String {
@@ -539,6 +527,6 @@ struct YayaScheduleWidget: Widget {
         }
         .configurationDisplayName("鸦鸦日程")
         .description("显示最近 DDL 与最近日程。")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+        .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
