@@ -52,6 +52,7 @@
     ["30", "半小时前"],
     ["10", "十分钟前"]
   ];
+  const DEFAULT_REMINDER_VALUE = "10";
 
   const UI_MODULE_REGISTRY = window.YayaUiModules;
   const UI_MODULES = UI_MODULE_REGISTRY?.MODULES || [
@@ -2399,7 +2400,12 @@
     if (enabledLabel) enabledLabel.textContent = enabled ? "已开启" : "开启";
     if (options) options.hidden = !enabled;
     if (permission) permission.hidden = !enabled;
-    control.querySelectorAll('input[name="reminders"]').forEach((input) => {
+    const reminderInputs = Array.from(control.querySelectorAll('input[name="reminders"]'));
+    if (enabled && !reminderInputs.some((input) => input.checked)) {
+      const fallback = reminderInputs.find((input) => input.value === DEFAULT_REMINDER_VALUE) || reminderInputs[reminderInputs.length - 1];
+      if (fallback) fallback.checked = true;
+    }
+    reminderInputs.forEach((input) => {
       input.disabled = !enabled;
       if (!enabled) input.checked = false;
       input.closest(".reminder-chip")?.classList.toggle("active", enabled && input.checked);
@@ -3471,7 +3477,7 @@
       topic: normalizeText(data.get("topic")) || target || "DDL",
       content: normalizeText(data.get("content")),
       targetKey,
-      reminders: data.getAll("reminders")
+      reminders: reminderValuesFromForm(data)
     });
     if (!ddl) return;
     if (editing) {
@@ -3494,7 +3500,7 @@
       endTime: data.get("endTime"),
       title: normalizeText(data.get("title")),
       place: normalizeText(data.get("place")),
-      reminders: data.getAll("reminders"),
+      reminders: reminderValuesFromForm(data),
       syncToDdl: data.get("syncToDdl") === "1"
     });
     if (!schedule.title) return;
@@ -4609,6 +4615,13 @@
     return ok;
   }
 
+  function reminderValuesFromForm(data) {
+    const enabled = data.get("reminderEnabled") === "1";
+    if (!enabled) return [];
+    const values = normalizeReminderValues(data.getAll("reminders"));
+    return values.length ? values : [DEFAULT_REMINDER_VALUE];
+  }
+
   function nativeReminderPayload() {
     const manualDdlPayload = state.ddls
       .filter((ddl) => !isCompleted(ddl.id))
@@ -4683,6 +4696,7 @@
     });
     if (ok && options.retry !== false) {
       queueNativeNotificationSync({ requestPermission: false, force: true, retry: false, reason: "confirm", delay: 420 });
+      window.setTimeout(() => syncNativeNotifications({ requestPermission: false, force: true, retry: false, reason: "confirm-late" }), 1500);
     }
     return ok;
   }

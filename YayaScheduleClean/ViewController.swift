@@ -708,13 +708,26 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 continue
             }
 
+            var hasFutureNotification = false
+            var fallbackMinutes: Int?
             for reminder in reminders {
                 guard let minutes = Int(stringValue(reminder)), minutes > 0 else { continue }
+                if fallbackMinutes == nil || minutes < (fallbackMinutes ?? minutes) {
+                    fallbackMinutes = minutes
+                }
                 let fireDate = deadline.addingTimeInterval(TimeInterval(-minutes * 60))
                 if fireDate <= now.addingTimeInterval(1) { continue }
                 let identifier = "reminder-\(safeAlarmKey)-\(minutes)"
                 let title = "\(titlePrefix)\(topic)"
                 let body = "\(ddlReminderLabel(minutes)) · \(timeLabel) \(date) \(time)" + (detail.isEmpty ? "" : "\n\(detail)")
+                plans.append(ReminderNotificationPlan(identifier: identifier, title: title, body: body, fireDate: fireDate))
+                hasFutureNotification = true
+            }
+            if !hasFutureNotification, let fallbackMinutes, deadline > now.addingTimeInterval(1) {
+                let fireDate = min(now.addingTimeInterval(5), deadline)
+                let identifier = "reminder-\(safeAlarmKey)-catchup-\(fallbackMinutes)"
+                let title = "\(titlePrefix)\(topic)"
+                let body = "最近提醒 · \(timeLabel) \(date) \(time)" + (detail.isEmpty ? "" : "\n\(detail)")
                 plans.append(ReminderNotificationPlan(identifier: identifier, title: title, body: body, fireDate: fireDate))
             }
         }
