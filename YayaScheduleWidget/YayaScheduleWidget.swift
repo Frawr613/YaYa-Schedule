@@ -343,7 +343,7 @@ struct YayaScheduleWidgetView: View {
                 HStack(spacing: 5) {
                     Capsule()
                         .fill(palette.warm)
-                        .frame(width: 4, height: compact ? 18 : 20)
+                        .frame(width: 4, height: compact ? 16 : 18)
                     Text(scheduleLabel)
                         .font(.system(size: compact ? 8 : 9, weight: .black, design: .rounded))
                         .foregroundColor(palette.muted)
@@ -356,7 +356,7 @@ struct YayaScheduleWidgetView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
 
-                scheduleTimeText
+                scheduleTimeBlock(compact: compact)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, compact ? 11 : 14)
@@ -364,18 +364,31 @@ struct YayaScheduleWidgetView: View {
         }
         .frame(maxWidth: .infinity, minHeight: compact ? 72 : 82, maxHeight: compact ? 72 : 82, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
-                .fill(palette.scheduleFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
-                        .stroke(palette.border, lineWidth: 1)
-                )
-                .shadow(color: palette.shadow, radius: 14, x: 0, y: 9)
+            ZStack {
+                RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
+                    .fill(palette.scheduleFill)
+                RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.24),
+                                palette.warm.opacity(0.06),
+                                Color.clear
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .blendMode(.screen)
+                RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
+                    .stroke(palette.border, lineWidth: 1)
+                    .shadow(color: palette.shadow, radius: 14, x: 0, y: 9)
+            }
         )
         .clipShape(RoundedRectangle(cornerRadius: palette.radius, style: .continuous))
     }
 
-    private var scheduleTimeText: some View {
+    private func scheduleTimeBlock(compact: Bool) -> some View {
         let parts = [entry.data.scheduleTime, entry.data.schedulePlace].filter { !$0.isEmpty }
         return Group {
             if !parts.isEmpty {
@@ -384,6 +397,16 @@ struct YayaScheduleWidgetView: View {
                     .foregroundColor(palette.muted)
                     .lineLimit(1)
                     .minimumScaleFactor(0.76)
+                    .padding(.horizontal, compact ? 7 : 8)
+                    .padding(.vertical, compact ? 3 : 4)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color.white.opacity(0.28))
+                            .overlay(
+                                Capsule(style: .continuous)
+                                    .stroke(Color.white.opacity(0.46), lineWidth: 0.8)
+                            )
+                    )
             }
         }
     }
@@ -395,13 +418,29 @@ struct YayaScheduleWidgetView: View {
             let rawX = width * CGFloat(scheduleLineProgress)
             let lineX = min(max(rawX, 0.6), width - 0.6)
             ZStack(alignment: .topLeading) {
+                Rectangle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.clear,
+                                palette.warm.opacity(entry.data.scheduleActive ? 0.11 : 0.05),
+                                Color.white.opacity(entry.data.scheduleActive ? 0.08 : 0.04),
+                                Color.clear
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: compact ? 22 : 28, height: height)
+                    .position(x: lineX, y: height / 2)
+
                 Path { path in
                     path.move(to: CGPoint(x: lineX, y: 0))
                     path.addLine(to: CGPoint(x: lineX, y: height))
                 }
                 .stroke(
-                    palette.warm.opacity(entry.data.scheduleActive ? 0.46 : 0.24),
-                    style: StrokeStyle(lineWidth: compact ? 0.9 : 1.05, lineCap: .round, dash: [2, 5])
+                    palette.warm.opacity(entry.data.scheduleActive ? 0.36 : 0.2),
+                    style: StrokeStyle(lineWidth: compact ? 0.8 : 0.95, lineCap: .round, dash: [2, 5])
                 )
 
                 Path { path in
