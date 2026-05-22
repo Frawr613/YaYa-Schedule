@@ -102,9 +102,9 @@
       name: "平台桥接层",
       files: ["platform-bridge.js", "app.js"],
       owns: ["Android 原生保存", "通知", "桌面图标", "桌面小组件", "教务 WebView", "Web 预览降级"],
-      provides: ["统一平台 API", "原生能力探测", "Widget 更新", "安全降级"],
+      provides: ["统一平台 API", "原生能力探测", "Widget 更新", "Widget 主题同步", "安全降级"],
       effects: originalEffectAnchors.platform,
-      dependsOn: ["commands", "cache"],
+      dependsOn: ["commands", "cache", "theme"],
       handoffTo: ["boot"]
     },
     {

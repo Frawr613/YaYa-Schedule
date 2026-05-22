@@ -3381,6 +3381,7 @@
     state.themeAccent = "";
     state.themeVars = {};
     commit("预设主题已保存并应用", { immediate: true, skipCache: true, skipNative: true });
+    updateNativeWidget();
     openModal("settings");
   }
 
@@ -3391,6 +3392,7 @@
     state.themeAccent = "";
     state.themeVars = sanitizeThemeVars(customThemeVarsFromDraft(draft));
     commit("自定义主题已保存并应用", { immediate: true, skipCache: true, skipNative: true });
+    updateNativeWidget();
     openModal("theme");
   }
 
@@ -4603,8 +4605,24 @@
       current.place || "",
       current.typeLabel || "",
       progress,
-      progress > 0 && progress < 100
+      progress > 0 && progress < 100,
+      widgetThemePayload()
     ]);
+  }
+
+  function widgetThemePayload() {
+    const vars = resolvedThemeVars();
+    const cool = THEME_PRESETS.coolGlass;
+    return {
+      themeId: normalizeThemeId(state.theme),
+      accent: normalizeColor(vars.accent, cool.accent),
+      warm: normalizeColor(vars.warm, cool.warm),
+      bg: normalizeColor(vars.bg, cool.bg),
+      ink: normalizeColor(vars.ink, cool.ink),
+      muted: normalizeColor(vars.muted, cool.muted),
+      glassAlpha: clamp(Number(vars.glassAlpha), 18, 96),
+      radius: clamp(Number(vars.radius), 10, 30)
+    };
   }
 
   function nextFloatingLayer() {

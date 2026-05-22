@@ -75,7 +75,7 @@
       return this.scheduleReminderNotifications(payload);
     },
     updateHomeWidget(payload) {
-      const value = Array.isArray(payload) ? JSON.stringify(payload) : String(payload || "");
+      const value = typeof payload === "string" ? payload : JSON.stringify(payload || {});
       return nativeCall("updateHomeWidget", [value], false);
     }
   };

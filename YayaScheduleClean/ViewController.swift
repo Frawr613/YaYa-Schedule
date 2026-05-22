@@ -620,6 +620,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             "scheduleLabel": stringValue(values[safe: 5], fallback: "最近日程"),
             "scheduleProgress": progress,
             "scheduleActive": boolValue(values[safe: 7]),
+            "theme": widgetThemePayload(values[safe: 8]),
             "updatedAt": Date().timeIntervalSince1970
         ]
 
@@ -637,8 +638,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         if let values = raw as? [Any] { return values }
         if let text = raw as? String,
            let data = text.data(using: .utf8),
-           let values = try? JSONSerialization.jsonObject(with: data) as? [Any] {
-            return values
+           let object = try? JSONSerialization.jsonObject(with: data) {
+            if let values = object as? [Any] {
+                return values
+            }
+            if let dictionary = object as? [String: Any] {
+                return widgetValues(from: dictionary)
+            }
         }
         if let dictionary = raw as? [String: Any] {
             return [
@@ -649,10 +655,43 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 dictionary["schedulePlace"] ?? "",
                 dictionary["scheduleLabel"] ?? "",
                 dictionary["scheduleProgress"] ?? 0,
-                dictionary["scheduleActive"] ?? false
+                dictionary["scheduleActive"] ?? false,
+                dictionary["theme"] ?? [:]
             ]
         }
         return []
+    }
+
+    private func widgetThemePayload(_ raw: Any?) -> [String: Any] {
+        var dictionary: [String: Any] = [:]
+        if let raw = raw as? [String: Any] {
+            dictionary = raw
+        } else if let text = raw as? String,
+                  let data = text.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data),
+                  let raw = object as? [String: Any] {
+            dictionary = raw
+        }
+
+        return [
+            "themeId": stringValue(dictionary["themeId"], fallback: "coolGlass"),
+            "accent": normalizedWidgetColor(dictionary["accent"], fallback: "#2563eb"),
+            "warm": normalizedWidgetColor(dictionary["warm"], fallback: "#14b8a6"),
+            "bg": normalizedWidgetColor(dictionary["bg"], fallback: "#edf5ff"),
+            "ink": normalizedWidgetColor(dictionary["ink"], fallback: "#14213d"),
+            "muted": normalizedWidgetColor(dictionary["muted"], fallback: "#64748b"),
+            "glassAlpha": min(max(numberValue(dictionary["glassAlpha"]), 18), 96),
+            "radius": min(max(numberValue(dictionary["radius"]), 10), 30)
+        ]
+    }
+
+    private func normalizedWidgetColor(_ value: Any?, fallback: String) -> String {
+        let text = stringValue(value).trimmingCharacters(in: .whitespacesAndNewlines)
+        let pattern = "^#[0-9a-fA-F]{6}$"
+        if text.range(of: pattern, options: .regularExpression) != nil {
+            return text.lowercased()
+        }
+        return fallback
     }
 
     private func ddlReminderLabel(_ minutes: Int) -> String {
@@ -755,7 +794,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               return post("scheduleReminderNotifications", { payload: String(payload || "[]") });
             },
             updateHomeWidget: function(payload) {
-              var value = Array.isArray(payload) ? JSON.stringify(payload) : String(payload || "[]");
+              var value = typeof payload === "string" ? payload : JSON.stringify(payload || {});
               return post("updateHomeWidget", { payload: value });
             }
           };

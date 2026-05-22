@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import WidgetKit
 
@@ -13,6 +14,7 @@ struct YayaWidgetData: Decodable {
     let scheduleLabel: String
     let scheduleProgress: Double
     let scheduleActive: Bool
+    let theme: YayaWidgetTheme?
     let updatedAt: Double
 
     static let empty = YayaWidgetData(
@@ -24,12 +26,142 @@ struct YayaWidgetData: Decodable {
         scheduleLabel: "最近日程",
         scheduleProgress: 0,
         scheduleActive: false,
+        theme: .fallback,
         updatedAt: 0
     )
+
+    var resolvedTheme: YayaWidgetTheme {
+        theme ?? .fallback
+    }
 
     var isFresh: Bool {
         guard updatedAt > 0 else { return false }
         return Date().timeIntervalSince1970 - updatedAt < 60 * 60 * 12
+    }
+}
+
+struct YayaWidgetTheme: Decodable {
+    let themeId: String
+    let accent: String
+    let warm: String
+    let bg: String
+    let ink: String
+    let muted: String
+    let glassAlpha: Double?
+    let radius: Double?
+
+    static let fallback = YayaWidgetTheme(
+        themeId: "coolGlass",
+        accent: "#2563eb",
+        warm: "#14b8a6",
+        bg: "#edf5ff",
+        ink: "#14213d",
+        muted: "#64748b",
+        glassAlpha: 68,
+        radius: 18
+    )
+}
+
+private struct YayaRGB {
+    let r: Double
+    let g: Double
+    let b: Double
+
+    static let white = YayaRGB(r: 1, g: 1, b: 1)
+    static let black = YayaRGB(r: 0, g: 0, b: 0)
+
+    static func hex(_ value: String, fallback: YayaRGB) -> YayaRGB {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.hasPrefix("#"), text.count == 7 else { return fallback }
+        let hex = String(text.dropFirst())
+        guard let intValue = Int(hex, radix: 16) else { return fallback }
+        return YayaRGB(
+            r: Double((intValue >> 16) & 0xff) / 255,
+            g: Double((intValue >> 8) & 0xff) / 255,
+            b: Double(intValue & 0xff) / 255
+        )
+    }
+
+    func color(alpha: Double = 1) -> Color {
+        Color(red: r, green: g, blue: b).opacity(alpha)
+    }
+
+    func mixed(with other: YayaRGB, amount: Double) -> YayaRGB {
+        let value = min(max(amount, 0), 1)
+        return YayaRGB(
+            r: r * (1 - value) + other.r * value,
+            g: g * (1 - value) + other.g * value,
+            b: b * (1 - value) + other.b * value
+        )
+    }
+
+    var luminance: Double {
+        func channel(_ value: Double) -> Double {
+            value <= 0.03928 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+    }
+}
+
+private struct YayaWidgetPalette {
+    let bgTop: Color
+    let bgMid: Color
+    let bgBottom: Color
+    let accent: Color
+    let warm: Color
+    let ink: Color
+    let muted: Color
+    let cardFill: Color
+    let scheduleFill: Color
+    let border: Color
+    let shadow: Color
+    let glow: Color
+    let radius: CGFloat
+
+    static func from(_ theme: YayaWidgetTheme) -> YayaWidgetPalette {
+        let fallback = YayaWidgetTheme.fallback
+        let accent = YayaRGB.hex(theme.accent, fallback: YayaRGB.hex(fallback.accent, fallback: .black))
+        let warm = YayaRGB.hex(theme.warm, fallback: YayaRGB.hex(fallback.warm, fallback: .black))
+        let bg = YayaRGB.hex(theme.bg, fallback: YayaRGB.hex(fallback.bg, fallback: .white))
+        let ink = YayaRGB.hex(theme.ink, fallback: YayaRGB.hex(fallback.ink, fallback: .black))
+        let muted = YayaRGB.hex(theme.muted, fallback: YayaRGB.hex(fallback.muted, fallback: .black))
+        let isDark = bg.luminance < 0.32 || ink.luminance > 0.72
+        let glassAlpha = min(max(theme.glassAlpha ?? 68, 24), 96) / 100
+        let radius = CGFloat(min(max(theme.radius ?? 18, 12), 30))
+
+        if isDark {
+            return YayaWidgetPalette(
+                bgTop: bg.mixed(with: accent, amount: 0.18).color(),
+                bgMid: bg.color(),
+                bgBottom: bg.mixed(with: warm, amount: 0.22).color(),
+                accent: accent.color(),
+                warm: warm.color(),
+                ink: Color.white.opacity(0.92),
+                muted: Color.white.opacity(0.68),
+                cardFill: Color.white.opacity(max(0.12, glassAlpha * 0.22)),
+                scheduleFill: warm.mixed(with: YayaRGB.white, amount: 0.12).color(alpha: max(0.12, glassAlpha * 0.2)),
+                border: Color.white.opacity(0.24),
+                shadow: Color.black.opacity(0.24),
+                glow: accent.color(alpha: 0.22),
+                radius: radius
+            )
+        }
+
+        return YayaWidgetPalette(
+            bgTop: bg.mixed(with: YayaRGB.white, amount: 0.34).color(),
+            bgMid: bg.mixed(with: accent, amount: 0.08).color(),
+            bgBottom: bg.mixed(with: warm, amount: 0.12).color(),
+            accent: accent.color(),
+            warm: warm.color(),
+            ink: ink.color(),
+            muted: muted.color(alpha: 0.82),
+            cardFill: YayaRGB.white.mixed(with: accent, amount: 0.08).color(alpha: max(0.48, glassAlpha * 0.78)),
+            scheduleFill: YayaRGB.white.mixed(with: warm, amount: 0.1).color(alpha: max(0.48, glassAlpha * 0.76)),
+            border: Color.white.opacity(max(0.5, glassAlpha * 0.88)),
+            shadow: accent.color(alpha: 0.12),
+            glow: accent.color(alpha: 0.16),
+            radius: radius
+        )
     }
 }
 
@@ -86,15 +218,15 @@ struct YayaScheduleWidgetView: View {
                         label: "DDL",
                         title: entry.data.ddlTitle,
                         detail: entry.data.ddlTime,
-                        tint: Color(red: 0.92, green: 0.96, blue: 1.0),
-                        accent: Color(red: 0.35, green: 0.52, blue: 0.96)
+                        fill: palette.cardFill,
+                        accent: palette.accent
                     )
                     summaryCard(
                         label: scheduleLabel,
                         title: entry.data.scheduleTitle,
                         detail: scheduleDetail,
-                        tint: Color(red: 0.88, green: 0.98, blue: 0.98),
-                        accent: Color(red: 0.16, green: 0.68, blue: 0.72)
+                        fill: palette.scheduleFill,
+                        accent: palette.warm
                     )
                 }
             } else {
@@ -102,15 +234,15 @@ struct YayaScheduleWidgetView: View {
                     label: "DDL",
                     title: entry.data.ddlTitle,
                     detail: entry.data.ddlTime,
-                    tint: Color(red: 0.92, green: 0.96, blue: 1.0),
-                    accent: Color(red: 0.35, green: 0.52, blue: 0.96)
+                    fill: palette.cardFill,
+                    accent: palette.accent
                 )
                 summaryCard(
                     label: scheduleLabel,
                     title: entry.data.scheduleTitle,
                     detail: scheduleDetail,
-                    tint: Color(red: 0.88, green: 0.98, blue: 0.98),
-                    accent: Color(red: 0.16, green: 0.68, blue: 0.72)
+                    fill: palette.scheduleFill,
+                    accent: palette.warm
                 )
             }
             if family != .systemSmall {
@@ -124,7 +256,7 @@ struct YayaScheduleWidgetView: View {
             ZStack {
                 Circle().fill(Color.white.opacity(0.34))
                 Circle()
-                    .fill(entry.data.isFresh ? Color(red: 0.21, green: 0.78, blue: 0.68) : Color.white.opacity(0.52))
+                    .fill(entry.data.isFresh ? palette.warm : palette.muted.opacity(0.52))
                     .frame(width: 7, height: 7)
             }
             .frame(width: 18, height: 18)
@@ -132,12 +264,12 @@ struct YayaScheduleWidgetView: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text("鸦鸦日程")
                     .font(.system(size: family == .systemSmall ? 15 : 17, weight: .black, design: .rounded))
-                    .foregroundColor(Color(red: 0.06, green: 0.09, blue: 0.15))
+                    .foregroundColor(palette.ink)
                     .lineLimit(1)
                 if family != .systemSmall {
                     Text(dayText)
                         .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundColor(Color(red: 0.13, green: 0.18, blue: 0.29).opacity(0.68))
+                        .foregroundColor(palette.muted)
                         .lineLimit(1)
                 }
             }
@@ -153,7 +285,7 @@ struct YayaScheduleWidgetView: View {
                         Capsule().fill(Color.white.opacity(0.34))
                         Capsule()
                             .fill(LinearGradient(
-                                colors: [Color(red: 0.32, green: 0.50, blue: 0.95), Color(red: 0.11, green: 0.70, blue: 0.72)],
+                                colors: [palette.accent, palette.warm],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             ))
@@ -164,12 +296,12 @@ struct YayaScheduleWidgetView: View {
             }
             Text(entry.data.isFresh ? "本地缓存已同步" : "打开 App 同步最新日程")
                 .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundColor(Color(red: 0.10, green: 0.14, blue: 0.24).opacity(0.7))
+                .foregroundColor(palette.muted)
                 .lineLimit(1)
         }
     }
 
-    private func summaryCard(label: String, title: String, detail: String, tint: Color, accent: Color) -> some View {
+    private func summaryCard(label: String, title: String, detail: String, fill: Color, accent: Color) -> some View {
         VStack(alignment: .leading, spacing: family == .systemSmall ? 4 : 6) {
             HStack(spacing: 6) {
                 Capsule()
@@ -177,37 +309,37 @@ struct YayaScheduleWidgetView: View {
                     .frame(width: 5, height: 16)
                 Text(label)
                     .font(.system(size: 11, weight: .black, design: .rounded))
-                    .foregroundColor(Color(red: 0.08, green: 0.12, blue: 0.20))
+                    .foregroundColor(palette.ink)
                     .lineLimit(1)
             }
             Text(title.isEmpty ? "暂无内容" : title)
                 .font(.system(size: family == .systemSmall ? 14 : 16, weight: .black, design: .rounded))
-                .foregroundColor(Color(red: 0.05, green: 0.07, blue: 0.12))
+                .foregroundColor(palette.ink)
                 .lineLimit(1)
             Text(detail.isEmpty ? "打开鸦鸦日程同步" : detail)
                 .font(.system(size: family == .systemSmall ? 11 : 12, weight: .semibold, design: .rounded))
-                .foregroundColor(Color(red: 0.15, green: 0.20, blue: 0.31).opacity(0.72))
+                .foregroundColor(palette.muted)
                 .lineLimit(1)
         }
         .padding(family == .systemSmall ? 9 : 11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(tint.opacity(0.62))
+            RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
+                .fill(fill)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.white.opacity(0.72), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
+                        .stroke(palette.border, lineWidth: 1)
                 )
-                .shadow(color: Color(red: 0.16, green: 0.30, blue: 0.55).opacity(0.12), radius: 12, x: 0, y: 8)
+                .shadow(color: palette.shadow, radius: 12, x: 0, y: 8)
         )
     }
 
     private var widgetBackground: some View {
         LinearGradient(
             colors: [
-                Color(red: 0.92, green: 0.96, blue: 1.0),
-                Color(red: 0.78, green: 0.88, blue: 0.98),
-                Color(red: 0.70, green: 0.84, blue: 0.94)
+                palette.bgTop,
+                palette.bgMid,
+                palette.bgBottom
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
@@ -221,10 +353,14 @@ struct YayaScheduleWidgetView: View {
                 .blur(radius: 24)
                 .offset(x: -48, y: -36)
             Circle()
-                .fill(Color(red: 0.19, green: 0.50, blue: 0.96).opacity(0.16))
+                .fill(palette.glow)
                 .blur(radius: 28)
                 .offset(x: 56, y: 48)
         }
+    }
+
+    private var palette: YayaWidgetPalette {
+        YayaWidgetPalette.from(entry.data.resolvedTheme)
     }
 
     private var scheduleLabel: String {
