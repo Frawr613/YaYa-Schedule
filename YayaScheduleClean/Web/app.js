@@ -25,6 +25,7 @@
   const INPUT_UI_PATCH_VERSION = "20260522-template-input-ui-v1";
   const PORTAL_OPEN_COOLDOWN_MS = 1400;
   const SCHEDULE_OVERVIEW_PAGES = ["custom", "recurring-active", "recurring-ended"];
+  const SPECIAL_OVERVIEW_PAGES = ["move", "cancel"];
 
   const PERIOD_TIMES = {
     1: ["08:00", "08:45"],
@@ -238,6 +239,7 @@
       ddls: state.ddls.length,
       completedDdls: state.completedDdls.length,
       ddlView: state.ddlView === "completed" ? "completed" : "active",
+      specialOverviewPage: normalizeSpecialOverviewPage(state.specialOverviewPage),
       notes: noteCount
     });
     window.YayaLayers.registerRuntime("cache", {
@@ -264,6 +266,7 @@
       autoLockCurrentWeek: true,
       autoLockCurrentTerm: true,
       ddlView: state.ddlView === "completed" ? "completed" : "active",
+      specialOverviewPage: normalizeSpecialOverviewPage(state.specialOverviewPage),
       rendered: {
         status: Boolean(els.statusBar),
         ddl: Boolean(els.ddlStrip),
@@ -338,6 +341,7 @@
       ddlView: "active",
       courseOverviewPage: "",
       scheduleOverviewPage: "custom",
+      specialOverviewPage: "move",
       uiTemplate: "classicOriginal",
       theme: "coolGlass",
       themeAccent: "",
@@ -465,6 +469,7 @@
     state.dateLookupMode = state.dateLookupMode === "week" ? "week" : "date";
     state.ddlView = state.ddlView === "completed" ? "completed" : "active";
     state.scheduleOverviewPage = normalizeScheduleOverviewPage(state.scheduleOverviewPage);
+    state.specialOverviewPage = normalizeSpecialOverviewPage(state.specialOverviewPage);
     state.courseOverviewPage = String(state.courseOverviewPage || "");
     state.ddlDoneFilterQuery = normalizeText(state.ddlDoneFilterQuery);
     state.ddlDoneFilterStart = validDateInputValue(state.ddlDoneFilterStart);
@@ -602,6 +607,7 @@
       ddlView: state.ddlView,
       courseOverviewPage: state.courseOverviewPage,
       scheduleOverviewPage: state.scheduleOverviewPage,
+      specialOverviewPage: state.specialOverviewPage,
       uiTemplate: state.uiTemplate,
       theme: state.theme,
       themeAccent: state.themeAccent,
@@ -625,7 +631,7 @@
       updateNativeWidget();
     }
     registerArchitectureRuntime("commit");
-    scheduleRenderAll({ force: options.forceRender });
+    scheduleRenderAll({ force: options.forceRender === true || !options.skipCache });
   }
 
   function dataSignature() {
@@ -1024,6 +1030,7 @@
       state.ddlView,
       state.courseOverviewPage,
       state.scheduleOverviewPage,
+      state.specialOverviewPage,
       state.ddlDoneFilterQuery,
       state.ddlDoneFilterStart,
       state.ddlDoneFilterStartTime,
@@ -1624,6 +1631,16 @@
     return page;
   }
 
+  function normalizeSpecialOverviewPage(page) {
+    return SPECIAL_OVERVIEW_PAGES.includes(page) ? page : "move";
+  }
+
+  function activeSpecialOverviewPage() {
+    const page = normalizeSpecialOverviewPage(state.specialOverviewPage);
+    if (state.specialOverviewPage !== page) state.specialOverviewPage = page;
+    return page;
+  }
+
   function setOverviewPageMotion(kind, fromPage, toPage, order) {
     if (!toPage || fromPage === toPage) {
       overviewPageMotion = null;
@@ -1668,6 +1685,22 @@
       const active = id === activePage;
       return `
         <button type="button" class="modal-page-chip schedule-status-tab ${active ? "active" : ""}" data-action="set-schedule-overview-page" data-page="${escapeAttr(id)}" role="tab" aria-selected="${active ? "true" : "false"}">
+          <strong>${escapeHtml(label)}</strong>
+          <span>${count}项</span>
+        </button>
+      `;
+    }).join("");
+  }
+
+  function renderSpecialOverviewTabs(activePage, moves, cancels) {
+    const pages = [
+      ["move", "移动", moves.length],
+      ["cancel", "取消", cancels.length]
+    ];
+    return pages.map(([id, label, count]) => {
+      const active = id === activePage;
+      return `
+        <button type="button" class="modal-page-chip special-status-tab ${active ? "active" : ""}" data-action="set-special-overview-page" data-page="${escapeAttr(id)}" role="tab" aria-selected="${active ? "true" : "false"}">
           <strong>${escapeHtml(label)}</strong>
           <span>${count}项</span>
         </button>
@@ -1757,24 +1790,32 @@
   function renderSpecialsModal() {
     const moves = state.specialChanges.filter((item) => item.action === "move");
     const cancels = state.specialChanges.filter((item) => item.action === "cancel");
+    const activePage = activeSpecialOverviewPage();
     const renderList = (items) => items.map((item) => `
+      ${renderSwipeShell("special", item.id, `
       <article class="list-card special-card">
         <div>
           <strong>${escapeHtml(targetTitle(item.targetKey) || "特殊变更")}</strong>
           <span>${escapeHtml(item.action === "cancel" ? "取消" : "移动")} · ${escapeHtml(item.sourceDate)}${item.action === "move" ? ` → ${escapeHtml(item.date)}` : ""}</span>
           ${item.note ? `<small>${escapeHtml(item.note)}</small>` : ""}
         </div>
-        <div class="inline-actions">
-          <button type="button" data-action="edit-special" data-id="${escapeAttr(item.id)}">修改</button>
-          <button type="button" data-action="cancel-special" data-id="${escapeAttr(item.id)}">取消变更</button>
-        </div>
       </article>
+      `, `
+        <button type="button" data-action="edit-special" data-id="${escapeAttr(item.id)}">修改</button>
+        <button type="button" data-action="cancel-special" data-id="${escapeAttr(item.id)}">取消变更</button>
+      `)}
     `).join("");
     const headActions = `<button type="button" class="modal-head-action" data-action="new-special">新建变更</button>`;
+    const tabs = renderSpecialOverviewTabs(activePage, moves, cancels);
+    const sections = {
+      move: `<section class="modal-section"><h3>移动/调课</h3>${renderList(moves) || `<div class="empty-state">暂无移动变更</div>`}</section>`,
+      cancel: `<section class="modal-section"><h3>取消/停课</h3>${renderList(cancels) || `<div class="empty-state">暂无取消变更</div>`}</section>`
+    };
     return `
-      ${modalHead("特殊变更", "close-modal", headActions)}
-      <section class="modal-section"><h3>移动/调课</h3>${renderList(moves) || `<div class="empty-state">暂无移动变更</div>`}</section>
-      <section class="modal-section"><h3>取消/停课</h3>${renderList(cancels) || `<div class="empty-state">暂无取消变更</div>`}</section>
+      ${modalHead("特殊变更", "close-modal", headActions, tabs)}
+      <div class="modal-page-stage special-overview-page"${modalPageMotionAttr("specials", activePage)}>
+        ${sections[activePage] || sections.move}
+      </div>
     `;
   }
 
@@ -2615,7 +2656,18 @@
     if (action === "new-recurring") openModal("recurring-form");
     if (action === "edit-recurring") openModal("recurring-form", { id: target.dataset.id });
     if (action === "delete-recurring") deleteRecurring(target.dataset.id);
-    if (action === "open-specials") openModal("specials");
+    if (action === "open-specials") {
+      state.specialOverviewPage = normalizeSpecialOverviewPage(state.specialOverviewPage);
+      openModal("specials");
+    }
+    if (action === "set-special-overview-page") {
+      const nextPage = normalizeSpecialOverviewPage(target.dataset.page || "");
+      setOverviewPageMotion("specials", state.specialOverviewPage, nextPage, SPECIAL_OVERVIEW_PAGES);
+      state.specialOverviewPage = nextPage;
+      persist();
+      closeSwipeShells();
+      renderModal();
+    }
     if (action === "new-special") openModal("special-form");
     if (action === "edit-special") openModal("special-form", { id: target.dataset.id });
     if (action === "cancel-special" || action === "delete-special") cancelSpecialChange(target.dataset.id);
@@ -4555,7 +4607,7 @@
   }
 
   function nativeReminderPayload() {
-    const ddlPayload = state.ddls
+    const manualDdlPayload = state.ddls
       .filter((ddl) => !isCompleted(ddl.id))
       .filter((ddl) => normalizeReminderValues(ddl.reminders).length)
       .map((ddl) => ({
@@ -4568,7 +4620,23 @@
         kind: "ddl",
         timeLabel: "截止"
       }));
+    const syncedDdlPayload = state.customSchedules
+      .filter((item) => item.syncToDdl && !isCompleted(targetKeyForCustom(item.id)))
+      .filter((item) => normalizeReminderValues(item.reminders).length)
+      .map((item) => ({
+        id: targetKeyForCustom(item.id),
+        date: item.date,
+        time: item.startTime || "23:59",
+        topic: item.title || "日程",
+        content: item.place || "",
+        reminders: normalizeReminderValues(item.reminders),
+        kind: "ddl",
+        timeLabel: "截止",
+        sourceType: "schedule",
+        sourceId: item.id
+      }));
     const schedulePayload = state.customSchedules
+      .filter((item) => !item.syncToDdl)
       .filter((item) => !isCompleted(targetKeyForCustom(item.id)))
       .filter((item) => normalizeReminderValues(item.reminders).length)
       .map((item) => ({
@@ -4581,7 +4649,7 @@
         kind: "schedule",
         timeLabel: "开始"
       }));
-    return [...ddlPayload, ...schedulePayload].filter((item) => validDate(item.date));
+    return [...manualDdlPayload, ...syncedDdlPayload, ...schedulePayload].filter((item) => validDate(item.date));
   }
 
   function syncNativeNotifications(options = {}) {

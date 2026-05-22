@@ -27,6 +27,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private let widgetPayloadKey = "homeWidgetPayload"
     private let reminderNotificationIdsKey = "reminderNotificationIds"
     private let reminderNotificationPayloadKey = "reminderNotificationPayload"
+    private let reminderScheduledCountKey = "reminderScheduledCount"
+    private let reminderLastSyncAtKey = "reminderLastSyncAt"
     private let legacyDdlNotificationIdsKey = "ddlNotificationIds"
     private let legacyDdlNotificationPayloadKey = "ddlNotificationPayload"
     private let accountUsernameKey = "portalUsername"
@@ -38,6 +40,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var pendingImportJson = ""
     private var portalSessionActive = false
     private var lastPortalOpenAt: TimeInterval = 0
+    private var reminderScheduleGeneration = 0
 
     override func loadView() {
         let configuration = WKWebViewConfiguration()
@@ -81,6 +84,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return
         }
         if isTrustedAcademicURL(url) {
+            injectPortalNavigationHelper()
             injectPortalAccountHelper()
             injectAcademicImportControls()
         }
@@ -215,6 +219,49 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         UIApplication.shared.setAlternateIconName(iconName)
     }
 
+    private func injectPortalNavigationHelper() {
+        let script = """
+        (function() {
+          if (window.__yayaPortalNavigationHelper) return;
+          window.__yayaPortalNavigationHelper = true;
+          function forceSelf() {
+            try {
+              window.open = function(url) {
+                if (url) {
+                  try { location.href = url; } catch (error) { window.location.href = url; }
+                }
+                return window;
+              };
+            } catch (error) {}
+            try {
+              Array.prototype.slice.call(document.querySelectorAll('a[target],form[target],area[target]')).forEach(function(node) {
+                try { node.setAttribute('target', '_self'); } catch (error) {}
+              });
+            } catch (error) {}
+          }
+          document.addEventListener('click', function(event) {
+            try {
+              var link = event.target && event.target.closest && event.target.closest('a[target],area[target]');
+              if (link && link.href) link.setAttribute('target', '_self');
+            } catch (error) {}
+          }, true);
+          forceSelf();
+          try {
+            new MutationObserver(forceSelf).observe(document.documentElement, {
+              subtree: true,
+              childList: true,
+              attributes: true,
+              attributeFilter: ['target']
+            });
+          } catch (error) {}
+          setTimeout(forceSelf, 300);
+          setTimeout(forceSelf, 1000);
+          setTimeout(forceSelf, 2400);
+        })();
+        """
+        webView.evaluateJavaScript(script)
+    }
+
     private func captureAcademicPage(_ body: [String: Any]) {
         let url = stringValue(body["url"])
         guard isTrustedAcademicURL(URL(string: url)) else { return }
@@ -279,15 +326,54 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           }
           function clickLike(el) {
             if (!el) return false;
-            try { el.click(); return true; } catch (error) { return false; }
+            try {
+              if (el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+              el.click();
+              return true;
+            } catch (error) {
+              try {
+                el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: el.ownerDocument.defaultView || window }));
+                return true;
+              } catch (innerError) {
+                return false;
+              }
+            }
+          }
+          function allDocs() {
+            var docs = [];
+            function add(doc) {
+              if (!doc || docs.indexOf(doc) >= 0) return;
+              docs.push(doc);
+              try {
+                Array.prototype.slice.call(doc.querySelectorAll('iframe,frame')).forEach(function(frame) {
+                  try { add(frame.contentDocument || frame.contentWindow.document); } catch (error) {}
+                });
+              } catch (error) {}
+            }
+            add(document);
+            return docs;
           }
           function forceSelfWindow() {
-            Array.prototype.slice.call(document.querySelectorAll('a[target],form[target]')).forEach(function(node) {
-              try { node.setAttribute('target', '_self'); } catch (error) {}
+            allDocs().forEach(function(doc) {
+              try {
+                var win = doc.defaultView || window;
+                win.open = function(url) {
+                  if (url) {
+                    try { win.location.href = url; } catch (error) { location.href = url; }
+                  }
+                  return win;
+                };
+              } catch (error) {}
+              try {
+                Array.prototype.slice.call(doc.querySelectorAll('a[target],form[target],area[target]')).forEach(function(node) {
+                  try { node.setAttribute('target', '_self'); } catch (error) {}
+                });
+              } catch (error) {}
             });
           }
           function loginButtonNear(passwordInput) {
-            var nodes = Array.prototype.slice.call(document.querySelectorAll('button,input[type=button],input[type=submit],a,[role=button],.btn,.ant-btn,.el-button'));
+            var doc = passwordInput.ownerDocument || document;
+            var nodes = Array.prototype.slice.call(doc.querySelectorAll('button,input[type=button],input[type=submit],a,[role=button],.btn,.ant-btn,.el-button'));
             var best = null;
             var bestScore = -1;
             nodes.forEach(function(node) {
@@ -302,19 +388,40 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             });
             return bestScore >= 60 ? best : null;
           }
+          function userInputNear(passwordInput) {
+            var doc = passwordInput.ownerDocument || document;
+            var nodes = Array.prototype.slice.call(doc.querySelectorAll('input:not([type=password])')).filter(visible);
+            var best = null;
+            var bestScore = -1;
+            nodes.forEach(function(node) {
+              var meta = String([node.name, node.id, node.placeholder, node.autocomplete, node.getAttribute && node.getAttribute('aria-label')].join(' '));
+              var type = String(node.type || '').toLowerCase();
+              if (/hidden|submit|button|checkbox|radio|file|date|time|range|color/.test(type)) return;
+              var score = /user|account|login|name|id|学号|账号|用户名|工号|手机号/i.test(meta) ? 80 : 20;
+              if (passwordInput.form && passwordInput.form.contains(node)) score += 40;
+              var nr = node.getBoundingClientRect();
+              var pr = passwordInput.getBoundingClientRect();
+              if (nr.top <= pr.top && pr.top - nr.top < 260) score += 30;
+              if (score > bestScore) { bestScore = score; best = node; }
+            });
+            return best;
+          }
           var tries = 0;
           function step() {
             tries += 1;
             forceSelfWindow();
-            var passwordInput = Array.prototype.slice.call(document.querySelectorAll('input[type=password]')).filter(visible)[0];
-            if (passwordInput) {
-              var userInput = Array.prototype.slice.call(document.querySelectorAll('input:not([type=password])')).filter(visible)[0];
+            var docs = allDocs();
+            for (var i = 0; i < docs.length; i += 1) {
+              var passwordInput = Array.prototype.slice.call(docs[i].querySelectorAll('input[type=password]')).filter(visible)[0];
+              if (!passwordInput) continue;
+              var userInput = userInputNear(passwordInput);
               setValue(userInput, username);
               setValue(passwordInput, password);
               if (!window.__yayaIosLoginClicked) {
                 var button = loginButtonNear(passwordInput);
                 if (button && clickLike(button)) window.__yayaIosLoginClicked = true;
               }
+              break;
             }
             if (tries < 28) setTimeout(step, 500);
           }
@@ -463,6 +570,14 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         center.getNotificationSettings { [weak self] settings in
             center.getPendingNotificationRequests { requests in
                 guard let self else { return }
+                let reminderRequests = requests.filter { $0.identifier.hasPrefix("reminder-") }
+                let defaults = UserDefaults.standard
+                let storedCount: Int
+                if defaults.object(forKey: self.reminderScheduledCountKey) == nil {
+                    storedCount = reminderRequests.count
+                } else {
+                    storedCount = defaults.integer(forKey: self.reminderScheduledCountKey)
+                }
                 let canNotify: Bool
                 let notificationState: String
                 switch settings.authorizationStatus {
@@ -479,14 +594,33 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                     canNotify = false
                     notificationState = "unknown"
                 }
+                let soundState: String
+                let canSound: Bool
+                switch settings.soundSetting {
+                case .enabled:
+                    soundState = "enabled"
+                    canSound = true
+                case .disabled:
+                    soundState = "blocked"
+                    canSound = false
+                case .notSupported:
+                    soundState = "notSupported"
+                    canSound = true
+                @unknown default:
+                    soundState = "unknown"
+                    canSound = false
+                }
                 let payload: [String: Any] = [
                     "native": true,
                     "notifications": notificationState,
+                    "sound": soundState,
                     "exactAlarms": "ios",
-                    "scheduledCount": requests.count,
+                    "scheduledCount": storedCount,
+                    "lastSyncAt": defaults.double(forKey: self.reminderLastSyncAtKey),
                     "canNotify": canNotify,
+                    "canSound": canSound,
                     "canExact": true,
-                    "needsAction": !canNotify
+                    "needsAction": !canNotify || (canNotify && !canSound)
                 ]
                 guard JSONSerialization.isValidJSONObject(payload),
                       let data = try? JSONSerialization.data(withJSONObject: payload),
@@ -515,24 +649,35 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func scheduleReminderNotifications(_ rawPayload: String, persistPayload: Bool = true) {
+        reminderScheduleGeneration += 1
+        let generation = reminderScheduleGeneration
         let center = UNUserNotificationCenter.current()
         let defaults = UserDefaults.standard
+        let safePayload = rawPayload.isEmpty ? "[]" : rawPayload
         if persistPayload {
-            defaults.set(rawPayload.isEmpty ? "[]" : rawPayload, forKey: reminderNotificationPayloadKey)
+            defaults.set(safePayload, forKey: reminderNotificationPayloadKey)
             defaults.removeObject(forKey: legacyDdlNotificationPayloadKey)
         }
         let oldIds = (defaults.stringArray(forKey: reminderNotificationIdsKey) ?? [])
             + (defaults.stringArray(forKey: legacyDdlNotificationIdsKey) ?? [])
-        if !oldIds.isEmpty {
-            center.removePendingNotificationRequests(withIdentifiers: oldIds)
+
+        func clearPendingQueue() {
+            guard generation == reminderScheduleGeneration else { return }
+            if !oldIds.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: oldIds)
+            }
+            defaults.set([], forKey: reminderNotificationIdsKey)
+            defaults.set(0, forKey: reminderScheduledCountKey)
+            defaults.set(Date().timeIntervalSince1970, forKey: reminderLastSyncAtKey)
+            defaults.removeObject(forKey: legacyDdlNotificationIdsKey)
+            defaults.synchronize()
+            pushReminderPermissionStatus()
         }
 
-        guard let data = rawPayload.data(using: .utf8),
+        guard let data = safePayload.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data),
               let items = object as? [[String: Any]] else {
-            defaults.set([], forKey: reminderNotificationIdsKey)
-            defaults.removeObject(forKey: legacyDdlNotificationIdsKey)
-            pushReminderPermissionStatus()
+            clearPendingQueue()
             return
         }
 
@@ -573,19 +718,27 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
         let nextPlans = plans.sorted { $0.fireDate < $1.fireDate }.prefix(64)
         guard !nextPlans.isEmpty else {
-            defaults.set([], forKey: reminderNotificationIdsKey)
-            defaults.removeObject(forKey: legacyDdlNotificationIdsKey)
-            pushReminderPermissionStatus()
+            clearPendingQueue()
             return
         }
 
         ensureNotificationAuthorization { [weak self] granted in
             guard let self else { return }
+            guard generation == self.reminderScheduleGeneration else { return }
             guard granted else {
+                if !oldIds.isEmpty {
+                    center.removePendingNotificationRequests(withIdentifiers: oldIds)
+                }
                 defaults.set([], forKey: self.reminderNotificationIdsKey)
+                defaults.set(0, forKey: self.reminderScheduledCountKey)
+                defaults.set(Date().timeIntervalSince1970, forKey: self.reminderLastSyncAtKey)
                 defaults.removeObject(forKey: self.legacyDdlNotificationIdsKey)
+                defaults.synchronize()
                 self.pushReminderPermissionStatus()
                 return
+            }
+            if !oldIds.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: oldIds)
             }
             var nextIds: [String] = []
             for plan in nextPlans {
@@ -603,7 +756,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 nextIds.append(plan.identifier)
             }
             defaults.set(nextIds, forKey: self.reminderNotificationIdsKey)
+            defaults.set(nextIds.count, forKey: self.reminderScheduledCountKey)
+            defaults.set(Date().timeIntervalSince1970, forKey: self.reminderLastSyncAtKey)
             defaults.removeObject(forKey: self.legacyDdlNotificationIdsKey)
+            defaults.synchronize()
             self.pushReminderPermissionStatus()
         }
     }
@@ -743,7 +899,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private static func yayaNativeBridgeScript() -> WKUserScript {
-        let fallback = #"{"native":true,"notifications":"unknown","exactAlarms":"ios","scheduledCount":0,"canNotify":false,"canExact":true,"needsAction":true}"#
+        let fallback = #"{"native":true,"notifications":"unknown","sound":"unknown","exactAlarms":"ios","scheduledCount":0,"lastSyncAt":0,"canNotify":false,"canSound":false,"canExact":true,"needsAction":true}"#
         let source = """
         (function() {
           if (window.YayaNative && window.YayaNative.__iosBridgeReady) return;

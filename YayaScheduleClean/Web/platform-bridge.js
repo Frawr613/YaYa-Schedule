@@ -24,9 +24,12 @@
   const REMINDER_PERMISSION_FALLBACK = JSON.stringify({
     native: false,
     notifications: "preview",
+    sound: "preview",
     exactAlarms: "preview",
     scheduledCount: 0,
+    lastSyncAt: 0,
     canNotify: false,
+    canSound: false,
     canExact: false,
     needsAction: false
   });
