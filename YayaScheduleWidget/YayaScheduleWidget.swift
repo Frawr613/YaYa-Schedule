@@ -19,9 +19,9 @@ struct YayaWidgetData: Decodable {
 
     static let empty = YayaWidgetData(
         ddlTitle: "暂无 DDL",
-        ddlTime: "打开鸦鸦日程同步",
+        ddlTime: "",
         scheduleTitle: "暂无课程或日程",
-        scheduleTime: "打开鸦鸦日程同步",
+        scheduleTime: "",
         schedulePlace: "",
         scheduleLabel: "最近日程",
         scheduleProgress: 0,
@@ -224,92 +224,27 @@ struct YayaScheduleWidgetView: View {
     private var smallContent: some View {
         VStack(alignment: .leading, spacing: spacing) {
             header
-            summaryCard(
-                label: "DDL",
-                title: entry.data.ddlTitle,
-                detail: entry.data.ddlTime,
-                fill: palette.cardFill,
-                accent: palette.accent,
-                compact: true
-            )
-            compactScheduleRow
+            ddlCard(compact: true)
+            scheduleTimelineCard(compact: true)
         }
     }
 
     private var mediumContent: some View {
-        VStack(alignment: .leading, spacing: spacing) {
+        VStack(alignment: .leading, spacing: 10) {
             header
-            HStack(spacing: 10) {
-                summaryCard(
-                    label: "DDL",
-                    title: entry.data.ddlTitle,
-                    detail: entry.data.ddlTime,
-                    fill: palette.cardFill,
-                    accent: palette.accent
-                )
-                summaryCard(
-                    label: scheduleLabel,
-                    title: entry.data.scheduleTitle,
-                    detail: scheduleDetail,
-                    fill: palette.scheduleFill,
-                    accent: palette.warm
-                )
-            }
-            footer
+            ddlCard(compact: false)
+                .frame(width: 228, alignment: .leading)
+            scheduleTimelineCard(compact: false)
         }
     }
 
     private var largeContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
-            summaryCard(
-                label: "DDL",
-                title: entry.data.ddlTitle,
-                detail: entry.data.ddlTime,
-                fill: palette.cardFill,
-                accent: palette.accent
-            )
-            summaryCard(
-                label: scheduleLabel,
-                title: entry.data.scheduleTitle,
-                detail: scheduleDetail,
-                fill: palette.scheduleFill,
-                accent: palette.warm
-            )
-            Spacer(minLength: 0)
-            footerPanel
+            ddlCard(compact: false)
+                .frame(width: 246, alignment: .leading)
+            scheduleTimelineCard(compact: false, tall: true)
         }
-    }
-
-    private var compactScheduleRow: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Capsule()
-                .fill(palette.warm)
-                .frame(width: 5, height: 22)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(scheduleLabel)
-                    .font(.system(size: 10, weight: .black, design: .rounded))
-                    .foregroundColor(palette.muted)
-                    .lineLimit(1)
-                Text(entry.data.scheduleTitle.isEmpty ? "暂无安排" : entry.data.scheduleTitle)
-                    .font(.system(size: 13, weight: .black, design: .rounded))
-                    .foregroundColor(palette.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: max(14, palette.radius - 4), style: .continuous)
-                .fill(palette.scheduleFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: max(14, palette.radius - 4), style: .continuous)
-                        .stroke(palette.border.opacity(0.86), lineWidth: 1)
-                )
-        )
     }
 
     private var header: some View {
@@ -335,127 +270,132 @@ struct YayaScheduleWidgetView: View {
                 }
             }
             Spacer(minLength: 0)
-            if family != .systemSmall {
-                statusBadge
-            }
         }
     }
 
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            if entry.data.scheduleActive {
-                progressBar(height: 6)
-            }
-            Text(entry.data.isFresh ? "本地缓存已同步" : "打开 App 同步最新日程")
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundColor(palette.muted)
-                .lineLimit(1)
-        }
-    }
-
-    private var footerPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(entry.data.scheduleActive ? "进行中" : "下一项")
-                    .font(.system(size: 12, weight: .black, design: .rounded))
-                    .foregroundColor(palette.ink)
-                Spacer(minLength: 0)
-                Text(entry.data.isFresh ? "已同步" : "待同步")
-                    .font(.system(size: 11, weight: .black, design: .rounded))
-                    .foregroundColor(palette.muted)
-            }
-            if entry.data.scheduleActive {
-                progressBar(height: 8)
-            } else {
-                idleBar(height: 8)
-            }
-            Text(entry.data.isFresh ? "今日节奏已同步" : "打开鸦鸦同步最新安排")
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundColor(palette.muted)
-                .lineLimit(1)
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
-                .fill(palette.cardFill.opacity(0.72))
-                .overlay(
-                    RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
-                        .stroke(palette.border.opacity(0.72), lineWidth: 1)
-                )
-        )
-    }
-
-    private var statusBadge: some View {
-        Text(entry.data.isFresh ? "已同步" : "待同步")
-            .font(.system(size: 11, weight: .black, design: .rounded))
-            .foregroundColor(palette.ink)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(
-                Capsule()
-                    .fill(palette.cardFill.opacity(0.86))
-                    .overlay(Capsule().stroke(palette.border.opacity(0.68), lineWidth: 1))
-            )
-    }
-
-    private func progressBar(height: CGFloat) -> some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.34))
-                Capsule()
-                    .fill(LinearGradient(
-                        colors: [palette.accent, palette.warm],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    ))
-                    .frame(width: max(height, proxy.size.width * CGFloat(progress)))
-            }
-        }
-        .frame(height: height)
-    }
-
-    private func idleBar(height: CGFloat) -> some View {
-        Capsule()
-            .fill(Color.white.opacity(0.28))
-            .overlay(
-                Capsule()
-                    .stroke(palette.border.opacity(0.62), lineWidth: 1)
-            )
-            .frame(height: height)
-    }
-
-    private func summaryCard(label: String, title: String, detail: String, fill: Color, accent: Color, compact: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: compact ? 4 : 6) {
+    private func ddlCard(compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: compact ? 4 : 5) {
             HStack(spacing: 6) {
                 Capsule()
-                    .fill(accent)
+                    .fill(palette.accent)
                     .frame(width: 5, height: compact ? 14 : 16)
-                Text(label)
+                Text("最近 DDL")
                     .font(.system(size: compact ? 10 : 11, weight: .black, design: .rounded))
                     .foregroundColor(palette.ink)
                     .lineLimit(1)
             }
-            Text(title.isEmpty ? "暂无内容" : title)
-                .font(.system(size: compact ? 16 : 16, weight: .black, design: .rounded))
+            Text(entry.data.ddlTitle.isEmpty ? "暂无 DDL" : entry.data.ddlTitle)
+                .font(.system(size: compact ? 16 : 17, weight: .black, design: .rounded))
                 .foregroundColor(palette.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.82)
-            Text(detail.isEmpty ? "打开鸦鸦日程同步" : detail)
-                .font(.system(size: compact ? 11 : 12, weight: .semibold, design: .rounded))
-                .foregroundColor(palette.muted)
-                .lineLimit(1)
+            if !entry.data.ddlTime.isEmpty {
+                Text(entry.data.ddlTime)
+                    .font(.system(size: compact ? 11 : 12, weight: .semibold, design: .rounded))
+                    .foregroundColor(palette.muted)
+                    .lineLimit(1)
+            }
         }
         .padding(compact ? 10 : 11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
-                .fill(fill)
+                .fill(palette.cardFill)
                 .overlay(
                     RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
                         .stroke(palette.border, lineWidth: 1)
                 )
                 .shadow(color: palette.shadow, radius: 12, x: 0, y: 8)
         )
+    }
+
+    private func scheduleTimelineCard(compact: Bool, tall: Bool = false) -> some View {
+        HStack(alignment: .top, spacing: compact ? 9 : 13) {
+            VStack(alignment: .leading, spacing: compact ? 6 : 8) {
+                HStack(spacing: 6) {
+                    Capsule()
+                        .fill(palette.warm)
+                        .frame(width: 5, height: compact ? 16 : 18)
+                    Text(scheduleLabel)
+                        .font(.system(size: compact ? 10 : 11, weight: .black, design: .rounded))
+                        .foregroundColor(palette.muted)
+                        .lineLimit(1)
+                }
+
+                Text(entry.data.scheduleTitle.isEmpty ? "暂无安排" : entry.data.scheduleTitle)
+                    .font(.system(size: compact ? 15 : (tall ? 24 : 21), weight: .black, design: .rounded))
+                    .foregroundColor(palette.ink)
+                    .lineLimit(tall ? 2 : 1)
+                    .minimumScaleFactor(0.82)
+
+                scheduleTimeText
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            timelineRail(compact: compact, tall: tall)
+        }
+        .padding(compact ? 11 : 16)
+        .frame(maxWidth: .infinity, minHeight: tall ? 180 : nil, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: palette.radius + (tall ? CGFloat(4) : CGFloat(0)), style: .continuous)
+                .fill(palette.scheduleFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: palette.radius + (tall ? CGFloat(4) : CGFloat(0)), style: .continuous)
+                        .stroke(palette.border, lineWidth: 1)
+                )
+                .shadow(color: palette.shadow, radius: 14, x: 0, y: 9)
+        )
+    }
+
+    private var scheduleTimeText: some View {
+        let parts = [entry.data.scheduleTime, entry.data.schedulePlace].filter { !$0.isEmpty }
+        return Group {
+            if !parts.isEmpty {
+                Text(parts.joined(separator: " · "))
+                    .font(.system(size: family == .systemSmall ? 10 : 12, weight: .semibold, design: .rounded))
+                    .foregroundColor(palette.muted)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func timelineRail(compact: Bool, tall: Bool) -> some View {
+        GeometryReader { proxy in
+            let height = proxy.size.height
+            let cursorSize: CGFloat = compact ? 9 : 11
+            let travel = max(1, height - cursorSize)
+            let y = travel * CGFloat(progress)
+            ZStack(alignment: .top) {
+                Capsule()
+                    .fill(Color.white.opacity(0.34))
+                    .frame(width: compact ? 4 : 5)
+
+                Rectangle()
+                    .fill(LinearGradient(
+                        colors: [
+                            Color.clear,
+                            palette.warm.opacity(entry.data.scheduleActive ? 0.18 : 0.08),
+                            Color.clear
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ))
+                    .frame(width: compact ? 24 : 34)
+                    .offset(y: max(-18, y - 22))
+
+                Capsule()
+                    .fill(palette.warm.opacity(entry.data.scheduleActive ? 0.76 : 0.28))
+                    .frame(width: compact ? 4 : 5, height: compact ? 34 : 46)
+                    .offset(y: max(0, y - (compact ? 18 : 24)))
+
+                Circle()
+                    .fill(palette.ink.opacity(entry.data.scheduleActive ? 0.84 : 0.36))
+                    .frame(width: cursorSize, height: cursorSize)
+                    .offset(y: y)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: compact ? 26 : 36, minHeight: tall ? 130 : (compact ? 70 : 86))
     }
 
     private var widgetBackground: some View {
@@ -489,12 +429,6 @@ struct YayaScheduleWidgetView: View {
 
     private var scheduleLabel: String {
         entry.data.scheduleLabel.isEmpty ? "最近日程" : entry.data.scheduleLabel
-    }
-
-    private var scheduleDetail: String {
-        [entry.data.scheduleTime, entry.data.schedulePlace]
-            .filter { !$0.isEmpty }
-            .joined(separator: " · ")
     }
 
     private var progress: Double {
@@ -543,7 +477,7 @@ struct YayaScheduleWidget: Widget {
             YayaScheduleWidgetView(entry: entry)
         }
         .configurationDisplayName("鸦鸦日程")
-        .description("显示最近 DDL、当前课程或日程，并跟随 App 的本地缓存刷新。")
+        .description("显示最近 DDL 与最近日程。")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
