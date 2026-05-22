@@ -274,29 +274,29 @@ struct YayaScheduleWidgetView: View {
     }
 
     private func ddlCard(compact: Bool) -> some View {
-        VStack(alignment: .leading, spacing: compact ? 4 : 5) {
+        VStack(alignment: .leading, spacing: compact ? 3 : 5) {
             HStack(spacing: 6) {
                 Capsule()
                     .fill(palette.accent)
                     .frame(width: 5, height: compact ? 14 : 16)
                 Text("最近 DDL")
-                    .font(.system(size: compact ? 10 : 11, weight: .black, design: .rounded))
+                    .font(.system(size: compact ? 9 : 11, weight: .black, design: .rounded))
                     .foregroundColor(palette.ink)
                     .lineLimit(1)
             }
             Text(entry.data.ddlTitle.isEmpty ? "暂无 DDL" : entry.data.ddlTitle)
-                .font(.system(size: compact ? 16 : 17, weight: .black, design: .rounded))
+                .font(.system(size: compact ? 15 : 17, weight: .black, design: .rounded))
                 .foregroundColor(palette.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.82)
             if !entry.data.ddlTime.isEmpty {
                 Text(entry.data.ddlTime)
-                    .font(.system(size: compact ? 11 : 12, weight: .semibold, design: .rounded))
+                    .font(.system(size: compact ? 10 : 12, weight: .semibold, design: .rounded))
                     .foregroundColor(palette.muted)
                     .lineLimit(1)
             }
         }
-        .padding(compact ? 10 : 11)
+        .padding(compact ? 9 : 11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
@@ -310,32 +310,33 @@ struct YayaScheduleWidgetView: View {
     }
 
     private func scheduleTimelineCard(compact: Bool, tall: Bool = false) -> some View {
-        HStack(alignment: .top, spacing: compact ? 9 : 13) {
-            VStack(alignment: .leading, spacing: compact ? 6 : 8) {
+        HStack(alignment: tall ? .top : .center, spacing: compact ? 8 : 13) {
+            VStack(alignment: .leading, spacing: compact ? 4 : 8) {
                 HStack(spacing: 6) {
                     Capsule()
                         .fill(palette.warm)
-                        .frame(width: 5, height: compact ? 16 : 18)
+                        .frame(width: 5, height: compact ? 14 : 18)
                     Text(scheduleLabel)
-                        .font(.system(size: compact ? 10 : 11, weight: .black, design: .rounded))
+                        .font(.system(size: compact ? 9 : 11, weight: .black, design: .rounded))
                         .foregroundColor(palette.muted)
                         .lineLimit(1)
                 }
 
                 Text(entry.data.scheduleTitle.isEmpty ? "暂无安排" : entry.data.scheduleTitle)
-                    .font(.system(size: compact ? 15 : (tall ? 24 : 21), weight: .black, design: .rounded))
+                    .font(.system(size: compact ? 14 : (tall ? 24 : 21), weight: .black, design: .rounded))
                     .foregroundColor(palette.ink)
                     .lineLimit(tall ? 2 : 1)
                     .minimumScaleFactor(0.82)
 
                 scheduleTimeText
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: tall ? .topLeading : .leading)
 
             timelineRail(compact: compact, tall: tall)
         }
-        .padding(compact ? 11 : 16)
-        .frame(maxWidth: .infinity, minHeight: tall ? 180 : nil, alignment: .topLeading)
+        .padding(.horizontal, compact ? 11 : 16)
+        .padding(.vertical, compact ? 10 : 14)
+        .frame(maxWidth: .infinity, minHeight: tall ? 180 : (compact ? 88 : 86), alignment: tall ? .topLeading : .leading)
         .background(
             RoundedRectangle(cornerRadius: palette.radius + (tall ? CGFloat(4) : CGFloat(0)), style: .continuous)
                 .fill(palette.scheduleFill)
@@ -352,7 +353,7 @@ struct YayaScheduleWidgetView: View {
         return Group {
             if !parts.isEmpty {
                 Text(parts.joined(separator: " · "))
-                    .font(.system(size: family == .systemSmall ? 10 : 12, weight: .semibold, design: .rounded))
+                    .font(.system(size: family == .systemSmall ? 9 : 12, weight: .semibold, design: .rounded))
                     .foregroundColor(palette.muted)
                     .lineLimit(1)
             }
@@ -395,7 +396,7 @@ struct YayaScheduleWidgetView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: compact ? 26 : 36, minHeight: tall ? 130 : (compact ? 70 : 86))
+        .frame(width: compact ? 24 : 36, height: tall ? 138 : (compact ? 64 : 78))
     }
 
     private var widgetBackground: some View {
