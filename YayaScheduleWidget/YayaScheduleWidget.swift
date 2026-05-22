@@ -210,26 +210,36 @@ struct YayaScheduleWidgetView: View {
     }
 
     private var content: some View {
+        Group {
+            if family == .systemSmall {
+                smallContent
+            } else if family == .systemMedium {
+                mediumContent
+            } else {
+                largeContent
+            }
+        }
+    }
+
+    private var smallContent: some View {
         VStack(alignment: .leading, spacing: spacing) {
             header
-            if family == .systemMedium {
-                HStack(spacing: 10) {
-                    summaryCard(
-                        label: "DDL",
-                        title: entry.data.ddlTitle,
-                        detail: entry.data.ddlTime,
-                        fill: palette.cardFill,
-                        accent: palette.accent
-                    )
-                    summaryCard(
-                        label: scheduleLabel,
-                        title: entry.data.scheduleTitle,
-                        detail: scheduleDetail,
-                        fill: palette.scheduleFill,
-                        accent: palette.warm
-                    )
-                }
-            } else {
+            summaryCard(
+                label: "DDL",
+                title: entry.data.ddlTitle,
+                detail: entry.data.ddlTime,
+                fill: palette.cardFill,
+                accent: palette.accent,
+                compact: true
+            )
+            compactScheduleRow
+        }
+    }
+
+    private var mediumContent: some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            header
+            HStack(spacing: 10) {
                 summaryCard(
                     label: "DDL",
                     title: entry.data.ddlTitle,
@@ -245,10 +255,61 @@ struct YayaScheduleWidgetView: View {
                     accent: palette.warm
                 )
             }
-            if family != .systemSmall {
-                footer
-            }
+            footer
         }
+    }
+
+    private var largeContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            summaryCard(
+                label: "DDL",
+                title: entry.data.ddlTitle,
+                detail: entry.data.ddlTime,
+                fill: palette.cardFill,
+                accent: palette.accent
+            )
+            summaryCard(
+                label: scheduleLabel,
+                title: entry.data.scheduleTitle,
+                detail: scheduleDetail,
+                fill: palette.scheduleFill,
+                accent: palette.warm
+            )
+            Spacer(minLength: 0)
+            footerPanel
+        }
+    }
+
+    private var compactScheduleRow: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Capsule()
+                .fill(palette.warm)
+                .frame(width: 5, height: 22)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(scheduleLabel)
+                    .font(.system(size: 10, weight: .black, design: .rounded))
+                    .foregroundColor(palette.muted)
+                    .lineLimit(1)
+                Text(entry.data.scheduleTitle.isEmpty ? "暂无安排" : entry.data.scheduleTitle)
+                    .font(.system(size: 13, weight: .black, design: .rounded))
+                    .foregroundColor(palette.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: max(14, palette.radius - 4), style: .continuous)
+                .fill(palette.scheduleFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: max(14, palette.radius - 4), style: .continuous)
+                        .stroke(palette.border.opacity(0.86), lineWidth: 1)
+                )
+        )
     }
 
     private var header: some View {
@@ -274,25 +335,16 @@ struct YayaScheduleWidgetView: View {
                 }
             }
             Spacer(minLength: 0)
+            if family != .systemSmall {
+                statusBadge
+            }
         }
     }
 
     private var footer: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             if entry.data.scheduleActive {
-                GeometryReader { proxy in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.white.opacity(0.34))
-                        Capsule()
-                            .fill(LinearGradient(
-                                colors: [palette.accent, palette.warm],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            ))
-                            .frame(width: proxy.size.width * CGFloat(progress))
-                    }
-                }
-                .frame(height: 7)
+                progressBar(height: 6)
             }
             Text(entry.data.isFresh ? "本地缓存已同步" : "打开 App 同步最新日程")
                 .font(.system(size: 11, weight: .bold, design: .rounded))
@@ -301,27 +353,99 @@ struct YayaScheduleWidgetView: View {
         }
     }
 
-    private func summaryCard(label: String, title: String, detail: String, fill: Color, accent: Color) -> some View {
-        VStack(alignment: .leading, spacing: family == .systemSmall ? 4 : 6) {
+    private var footerPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(entry.data.scheduleActive ? "进行中" : "下一项")
+                    .font(.system(size: 12, weight: .black, design: .rounded))
+                    .foregroundColor(palette.ink)
+                Spacer(minLength: 0)
+                Text(entry.data.isFresh ? "已同步" : "待同步")
+                    .font(.system(size: 11, weight: .black, design: .rounded))
+                    .foregroundColor(palette.muted)
+            }
+            if entry.data.scheduleActive {
+                progressBar(height: 8)
+            } else {
+                idleBar(height: 8)
+            }
+            Text(entry.data.isFresh ? "今日节奏已同步" : "打开鸦鸦同步最新安排")
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundColor(palette.muted)
+                .lineLimit(1)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
+                .fill(palette.cardFill.opacity(0.72))
+                .overlay(
+                    RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
+                        .stroke(palette.border.opacity(0.72), lineWidth: 1)
+                )
+        )
+    }
+
+    private var statusBadge: some View {
+        Text(entry.data.isFresh ? "已同步" : "待同步")
+            .font(.system(size: 11, weight: .black, design: .rounded))
+            .foregroundColor(palette.ink)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(palette.cardFill.opacity(0.86))
+                    .overlay(Capsule().stroke(palette.border.opacity(0.68), lineWidth: 1))
+            )
+    }
+
+    private func progressBar(height: CGFloat) -> some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.34))
+                Capsule()
+                    .fill(LinearGradient(
+                        colors: [palette.accent, palette.warm],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ))
+                    .frame(width: max(height, proxy.size.width * CGFloat(progress)))
+            }
+        }
+        .frame(height: height)
+    }
+
+    private func idleBar(height: CGFloat) -> some View {
+        Capsule()
+            .fill(Color.white.opacity(0.28))
+            .overlay(
+                Capsule()
+                    .stroke(palette.border.opacity(0.62), lineWidth: 1)
+            )
+            .frame(height: height)
+    }
+
+    private func summaryCard(label: String, title: String, detail: String, fill: Color, accent: Color, compact: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: compact ? 4 : 6) {
             HStack(spacing: 6) {
                 Capsule()
                     .fill(accent)
-                    .frame(width: 5, height: 16)
+                    .frame(width: 5, height: compact ? 14 : 16)
                 Text(label)
-                    .font(.system(size: 11, weight: .black, design: .rounded))
+                    .font(.system(size: compact ? 10 : 11, weight: .black, design: .rounded))
                     .foregroundColor(palette.ink)
                     .lineLimit(1)
             }
             Text(title.isEmpty ? "暂无内容" : title)
-                .font(.system(size: family == .systemSmall ? 14 : 16, weight: .black, design: .rounded))
+                .font(.system(size: compact ? 16 : 16, weight: .black, design: .rounded))
                 .foregroundColor(palette.ink)
                 .lineLimit(1)
+                .minimumScaleFactor(0.82)
             Text(detail.isEmpty ? "打开鸦鸦日程同步" : detail)
-                .font(.system(size: family == .systemSmall ? 11 : 12, weight: .semibold, design: .rounded))
+                .font(.system(size: compact ? 11 : 12, weight: .semibold, design: .rounded))
                 .foregroundColor(palette.muted)
                 .lineLimit(1)
         }
-        .padding(family == .systemSmall ? 9 : 11)
+        .padding(compact ? 10 : 11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
