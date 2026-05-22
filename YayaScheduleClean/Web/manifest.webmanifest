@@ -1,0 +1,16 @@
+{
+  "name": "鸦鸦日程",
+  "short_name": "鸦鸦日程",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f6faf8",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "icons/icon-cartoon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
