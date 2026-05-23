@@ -821,6 +821,7 @@
     autoLockFrame = window.requestAnimationFrame(() => {
       autoLockFrame = 0;
       lockDateLookupToCurrentWeek();
+      lockCourseOverviewToCurrentTerm();
     });
   }
 
@@ -833,6 +834,13 @@
     });
     document.querySelectorAll(".recurring-week-rail").forEach((rail) => {
       keepActiveChipVisible(rail, ".recurring-week-chip.active");
+    });
+  }
+
+  function lockCourseOverviewToCurrentTerm() {
+    document.querySelectorAll(".course-term-tab[data-current-term-chip='true']").forEach((chip) => {
+      const rail = chip.closest(".modal-page-chips");
+      keepActiveChipVisible(rail, ".course-term-tab[data-current-term-chip='true']");
     });
   }
 
