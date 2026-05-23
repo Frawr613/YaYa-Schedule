@@ -651,11 +651,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             var box = document.createElement('div');
             box.id = 'yaya-sync-panel';
             box.setAttribute('aria-label', '鸦鸦日程导入工具');
-            box.style.cssText = 'position:fixed;right:14px;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);z-index:2147483646;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;min-width:176px;max-width:min(260px,calc(100vw - 28px));padding:11px 12px 12px;border:1px solid rgba(255,255,255,.72);border-radius:24px;background:linear-gradient(145deg,rgba(255,255,255,.94),rgba(232,242,255,.78));box-shadow:0 18px 46px rgba(24,48,90,.26),inset 0 1px 0 rgba(255,255,255,.86);-webkit-backdrop-filter:blur(18px) saturate(1.35);backdrop-filter:blur(18px) saturate(1.35);font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;color:#16233a;user-select:none;-webkit-user-select:none;touch-action:none';
-            var handle = document.createElement('div');
-            handle.style.cssText = 'grid-column:1/-1;height:18px;display:grid;place-items:center;cursor:move;touch-action:none;margin:-3px 0 -1px';
-            handle.innerHTML = '<i style="display:block;width:48px;height:5px;border-radius:999px;background:linear-gradient(90deg,rgba(37,99,235,.45),rgba(20,184,166,.5));box-shadow:0 1px 0 rgba(255,255,255,.8),0 6px 12px rgba(37,99,235,.16)"></i>';
-            box.appendChild(handle);
+            box.style.cssText = 'position:fixed;right:14px;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);z-index:2147483646;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;width:min(268px,calc(100vw - 28px));min-width:176px;min-height:172px;padding:11px 12px 8px;border:1px solid rgba(255,255,255,.72);border-radius:24px;background:linear-gradient(145deg,rgba(255,255,255,.94),rgba(232,242,255,.78));box-shadow:0 18px 46px rgba(24,48,90,.26),inset 0 1px 0 rgba(255,255,255,.86);-webkit-backdrop-filter:blur(18px) saturate(1.35);backdrop-filter:blur(18px) saturate(1.35);font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;color:#16233a;user-select:none;-webkit-user-select:none;touch-action:none';
             function button(text, tone, fn) {
               var node = document.createElement('button');
               node.type = 'button';
@@ -696,6 +692,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             status.textContent = window.__yayaIosAcademicStatus || '登录后可导入课表或考试';
             status.style.cssText = 'grid-column:1 / -1;font-size:12px;font-weight:800;color:rgba(15,23,42,.72);text-align:center;padding:2px 4px 0';
             box.appendChild(status);
+            var grip = document.createElement('div');
+            grip.dataset.resize = 'true';
+            grip.textContent = '◢';
+            grip.style.cssText = 'grid-column:1/-1;justify-self:end;width:30px;height:24px;display:grid;place-items:center;color:rgba(37,99,235,.6);font-size:18px;font-weight:900;line-height:1;cursor:nwse-resize;touch-action:none';
+            box.appendChild(grip);
             function clamp(left, top) {
               var margin = 10, r = box.getBoundingClientRect();
               var maxLeft = Math.max(margin, window.innerWidth - r.width - margin);
@@ -709,22 +710,37 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               box.style.right = 'auto';
               box.style.bottom = 'auto';
             }
-            var drag = null;
-            handle.addEventListener('pointerdown', function(event) {
+            function resize(width, height) {
+              var margin = 10;
+              var nextWidth = Math.min(Math.max(width, 176), Math.max(176, window.innerWidth - margin * 2));
+              var nextHeight = Math.min(Math.max(height, 172), Math.max(172, window.innerHeight - margin * 2));
+              box.style.width = Math.round(nextWidth) + 'px';
+              box.style.height = Math.round(nextHeight) + 'px';
               var r = box.getBoundingClientRect();
-              drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: r.left, top: r.top };
-              try { handle.setPointerCapture(event.pointerId); } catch (error) {}
+              place(r.left, r.top);
+            }
+            var drag = null;
+            box.addEventListener('pointerdown', function(event) {
+              if (event.target && event.target.closest && event.target.closest('button,input,select,textarea,a')) return;
+              var r = box.getBoundingClientRect();
+              var isResize = event.target && event.target.closest && event.target.closest('[data-resize]');
+              drag = { id: event.pointerId, mode: isResize ? 'resize' : 'drag', x: event.clientX, y: event.clientY, left: r.left, top: r.top, width: r.width, height: r.height };
+              try { box.setPointerCapture(event.pointerId); } catch (error) {}
               event.preventDefault();
               event.stopPropagation();
             }, true);
             window.addEventListener('pointermove', function(event) {
               if (!drag) return;
-              place(drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y);
+              if (drag.mode === 'resize') {
+                resize(drag.width + event.clientX - drag.x, drag.height + event.clientY - drag.y);
+              } else {
+                place(drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y);
+              }
               event.preventDefault();
             }, true);
             function end(event) {
               if (!drag) return;
-              try { handle.releasePointerCapture(drag.id); } catch (error) {}
+              try { box.releasePointerCapture(drag.id); } catch (error) {}
               drag = null;
             }
             window.addEventListener('pointerup', end, true);
