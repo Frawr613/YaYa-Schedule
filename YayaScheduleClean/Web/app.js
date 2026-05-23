@@ -4348,7 +4348,7 @@
   function activeDdlList() {
     const manual = state.ddls.filter((ddl) => !isCompleted(ddl.id));
     const schedule = state.customSchedules
-      .filter((item) => item.syncToDdl && !isCompleted(targetKeyForCustom(item.id)))
+      .filter((item) => item.syncToDdl && item.reminders?.length && !isCompleted(targetKeyForCustom(item.id)))
       .map((item) => ({
         id: targetKeyForCustom(item.id),
         date: item.date,
@@ -5124,7 +5124,7 @@
       title: normalizeText(item?.title || "日程"),
       place: normalizeText(item?.place),
       reminders,
-      syncToDdl: !!item?.syncToDdl
+      syncToDdl: !!item?.syncToDdl && reminders.length > 0
     };
   }
 
