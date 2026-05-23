@@ -1595,8 +1595,8 @@
         <p>首页读取本地缓存，只在保存、导入、切换日期时局部更新。</p>
         <p>教务导入需要进入信息门户的网页端。打开门户后，依次进入“办事大厅 - 教学管理 - 教务管理系统”。</p>
         <p>课表导入请在“网上选课 - 我的课表”界面先检索对应学期课表，再使用视窗内的“导入课表”；考试页使用“导入考试”。</p>
-        <p>采集时会优先识别当前学年学期、选中字段和课表标题；未识别时再用内置日期选择控件手动修正开学日期。</p>
-        <p>确认学期窗同样使用独立控件，不嵌入教务网页。确认后点“返回鸦鸦”写入本地课表库；同一学期会更新课表，不覆盖手动日程、DDL 和备注。</p>
+        <p>课表采集后，请在确认学期窗中用内置日期控件和学期控件手动选择开学日期、学年和学期。</p>
+        <p>确认学期窗使用独立控件，不嵌入教务网页。确认后点“返回鸦鸦”写入本地课表库；同一学期会更新课表，不覆盖手动日程、DDL 和备注。</p>
         <p>DDL 是独立任务；日程可以勾选“同步到 DDL”，完成 DDL 不会删除原日程。</p>
         <p>特殊变更只处理移动和取消。备注说明请从日程详情里的普通备注入口管理。</p>
         <p>主题编辑先保存再应用。保存新主题后请等待几秒，让本地缓存和页面渲染完成；列表和日期面板会优先读取本地缓存，减少实时渲染造成的卡顿。</p>
@@ -2230,23 +2230,21 @@
   }
 
   function renderTermImportModal() {
-    const info = pendingImport?.termInfo || emptyTermInfo();
     const rows = pendingImport?.rows || [];
-    const detected = Boolean(info.detected && info.kind);
-    const termSelection = termSelectionFromInfo(info);
     const stored = state.terms.length
       ? state.terms.map((term) => `${term.label || "课表"} ${term.termStart}`).slice(0, 3).join(" / ")
       : "";
-    const startValue = detected ? info.startDate : state.termStart || DEFAULT_TERM_START;
+    const startValue = state.termStart || DEFAULT_TERM_START;
+    const termSelection = termSelectionFromDate(startValue);
     return `
       ${modalHead("确认学期")}
       <form id="termImportForm" class="form-stack term-import-panel">
-        <section class="term-auto-card ${detected ? "is-detected" : "is-fallback"}">
+        <section class="term-auto-card is-fallback">
           <div>
-            <span>自动检索</span>
-            <strong>${escapeHtml(detected ? info.label : "未识别到明确学期")}</strong>
+            <span>手动选择</span>
+            <strong>开学日期与学期</strong>
           </div>
-          <small>${escapeHtml(detected ? "已根据教务字段、页面标题和课表文本给出建议" : "请按原版流程手动确认开学日期和学期名称")}</small>
+          <small>请按当前课表页面对应的实际学期手动选择，导入过程只使用你的手动选择。</small>
         </section>
         <section class="term-start-field term-internal-date-field">
           <span>开学日期</span>
@@ -2313,18 +2311,6 @@
 
   function termKindLabel(kind) {
     return TERM_KIND_OPTIONS.find(([value]) => value === kind)?.[1] || "秋季学期";
-  }
-
-  function termSelectionFromInfo(info = {}) {
-    const label = normalizeText(info.label);
-    const match = label.match(/(20\d{2})\s*[-—–~至]\s*(20\d{2})/);
-    if (match) {
-      return {
-        yearValue: normalizeAcademicYearValue(`${match[1]}-${match[2]}`),
-        kind: normalizeTermKind(info.kind || label) || "autumn"
-      };
-    }
-    return termSelectionFromDate(info.startDate || state.termStart || DEFAULT_TERM_START);
   }
 
   function termSelectionFromDate(dateString) {
@@ -3997,28 +3983,22 @@
       return;
     }
     const sourceName = payload.title || "教务系统同步";
-    const termInfo = detectTermInfo(payload.title || "", `${text}\n${html}`);
     if (payload.confirmedTerm) {
       const payloadLabel = normalizeText(payload.termLabel);
       const placeholderLabel = payloadLabel === "新课表" || payloadLabel === "未识别学期";
-      const payloadDetected = payload.termDetected === true || payload.termDetected === "true";
-      const detectedLabel = payloadDetected && payloadLabel && !placeholderLabel ? payloadLabel : "";
-      const manualLabel = !payloadDetected && payloadLabel && !placeholderLabel ? payloadLabel : "";
-      const appDetectedLabel = termInfo.detected && termInfo.kind && termInfo.label !== "未识别学期" ? termInfo.label : "";
-      const label = manualLabel || detectedLabel || appDetectedLabel || sourceName || "课表";
+      const label = payloadLabel && !placeholderLabel ? payloadLabel : sourceName || "课表";
       const labelInfo = parseImportedTermText(label);
       const termStart = validDate(payload.termStart)
         ? String(payload.termStart)
-        : (labelInfo?.startDate || (termInfo.detected && termInfo.kind ? termInfo.startDate : "") || state.termStart || DEFAULT_TERM_START);
-      const confirmedInfo = labelInfo || (label === appDetectedLabel ? termInfo : emptyTermInfo());
-      commitImportedTerm(rows, sourceName, { ...confirmedInfo, label, startDate: termStart, termStart, detected: true });
+        : (labelInfo?.startDate || state.termStart || DEFAULT_TERM_START);
+      const confirmedInfo = labelInfo || emptyTermInfo();
+      commitImportedTerm(rows, sourceName, { ...confirmedInfo, label, startDate: termStart, termStart, detected: false });
       return;
     }
     pendingImport = {
       rows,
       sourceName,
-      rawText: `${payload.title || ""}\n${text}\n${html}`,
-      termInfo
+      rawText: `${payload.title || ""}\n${text}\n${html}`
     };
     openModal("term-import");
   }
@@ -4038,8 +4018,7 @@
       pendingImport = {
         rows,
         sourceName: file.name,
-        rawText: text,
-        termInfo: detectTermInfo(file.name, text)
+        rawText: text
       };
       openModal("term-import");
     } catch (error) {
@@ -4055,7 +4034,7 @@
     const termStart = validDate(data.get("termStart")) ? String(data.get("termStart")) : DEFAULT_TERM_START;
     const label = buildTermLabelFromSelection(data.get("termYear"), data.get("termKind"));
     const labelInfo = parseImportedTermText(label);
-    const meta = { ...(labelInfo || pendingImport.termInfo), label, startDate: termStart, termStart, detected: true };
+    const meta = { ...(labelInfo || emptyTermInfo()), label, startDate: termStart, termStart, detected: false };
     commitImportedTerm(pendingImport.rows, pendingImport.sourceName, meta);
     pendingImport = null;
     closeModal();
@@ -4435,80 +4414,6 @@
     return exams.filter(Boolean);
   }
 
-  function detectTermInfo(sourceNameOrText, text = "") {
-    const sourceName = text ? String(sourceNameOrText || "") : "";
-    const raw = text ? `${sourceName}\n${text || ""}` : String(sourceNameOrText || "");
-    const guesses = [];
-    extractLabelledTermCandidates(raw, true).forEach((candidate) => addTermGuess(guesses, candidate, "selected-label", 132));
-    extractDomTermCandidates(raw).forEach((candidate) => addTermGuess(guesses, candidate, "selected-dom", 126));
-    addTermGuess(guesses, raw, "structured-field", 118, { parser: parseStrictZfTermFields });
-    extractCourseTitleTermCandidates(raw).forEach((candidate) => addTermGuess(guesses, candidate, "course-title", 102));
-    extractLabelledTermCandidates(raw, false).forEach((candidate) => addTermGuess(guesses, candidate, "labelled-field", 84));
-    if (sourceName) addTermGuess(guesses, sourceName, "source-name", 76, { allowAmbiguous: true });
-    const allTerms = extractAllImportedTermInfos(raw);
-    if (allTerms.length === 1 && allTerms[0]?.kind) addTermGuess(guesses, allTerms[0], "single-page-term", 64);
-    if (allTerms.length > 1) {
-      allTerms.forEach((info) => addTermGuess(guesses, info, "page-term-list", 42, { penalty: 18 }));
-    }
-    return chooseTermGuess(guesses, allTerms.length) || emptyTermInfo();
-  }
-
-  function termInfoKey(info) {
-    return `${normalizeText(info?.label)}|${normalizeText(info?.kind)}`;
-  }
-
-  function addTermGuess(list, candidate, source, baseScore, options = {}) {
-    const rawText = typeof candidate === "string" ? candidate : "";
-    const parsed = typeof candidate === "string"
-      ? (options.parser ? options.parser(candidate) : parseClearTermCandidate(candidate))
-      : candidate;
-    if (!parsed?.kind) return;
-    const info = { ...parsed, detected: true };
-    const key = termInfoKey(info);
-    if (!key || key === "|") return;
-    const normalized = normalizeText(rawText || info.label);
-    const same = list.find((item) => item.key === key);
-    const explicitTerm = /春季|秋季|夏季|春|秋|夏|上学期|下学期|第?\s*[一二三123]\s*学期|12|16|0?[123]/.test(normalized);
-    const selected = /当前|已选|选中|正在查询|selected|checked|aria-selected|aria-checked/i.test(normalized);
-    const structured = /xnm|xndm|xn|xqm|xqdm|xq|学年学期/i.test(normalized);
-    const title = /课表标题|我的课表|个人课表|学生课表|课程表|课表|标题/i.test(normalized);
-    const multiTermPenalty = termCandidateCount(normalized) > 1 ? Math.min(32, (termCandidateCount(normalized) - 1) * 12) : 0;
-    const score = baseScore
-      + (selected ? 24 : 0)
-      + (structured ? 18 : 0)
-      + (title ? 10 : 0)
-      + (explicitTerm ? 8 : 0)
-      - (options.penalty || 0)
-      - multiTermPenalty;
-    const guess = {
-      key,
-      score,
-      source,
-      info: {
-        ...info,
-        confidence: Math.max(0, Math.min(100, Math.round(score / 1.7))),
-        source
-      }
-    };
-    if (!same || guess.score > same.score) {
-      if (same) list.splice(list.indexOf(same), 1);
-      list.push(guess);
-    }
-  }
-
-  function chooseTermGuess(guesses, pageTermCount = 0) {
-    const ranked = guesses
-      .filter((guess) => guess?.info?.kind && guess.score >= 46)
-      .sort((a, b) => b.score - a.score);
-    if (!ranked.length) return null;
-    const [best, second] = ranked;
-    const strongSources = new Set(["selected-label", "selected-dom", "structured-field", "course-title"]);
-    if (strongSources.has(best.source) && best.score >= 90) return best.info;
-    if (second && second.key !== best.key && best.score - second.score < 18) return null;
-    if (pageTermCount > 1 && best.score < 84) return null;
-    return best.info;
-  }
-
   function buildTermInfo(firstYear, secondYear, termText) {
     return buildDetectedTermInfo(firstYear, secondYear, termText);
   }
@@ -4604,212 +4509,6 @@
       return buildDetectedTermInfo(firstYear, firstYear + 1, match[2]);
     }
     return null;
-  }
-
-  function addUniqueTermCandidate(list, value) {
-    const text = normalizeText(value);
-    if (!text || !/20\d{2}/.test(text) || list.includes(text)) return;
-    list.push(text);
-  }
-
-  function termCandidateCount(value) {
-    return (normalizeText(value).match(/20\d{2}\s*[-—–~至/]\s*20\d{2}|\b20\d{2}20\d{2}[123]\b|20\d{2}\s*年/g) || []).length;
-  }
-
-  function addFocusedTermCandidate(list, meta, value, prefix = "当前选中学期") {
-    const text = normalizeText(value);
-    if (!text || !/20\d{2}/.test(text)) return;
-    if (termCandidateCount(text) > 1 && text.length > 80) return;
-    addUniqueTermCandidate(list, `${prefix} ${normalizeText(meta)} ${text}`);
-  }
-
-  function termElementFragments(root) {
-    const fragments = [];
-    const add = (value) => {
-      const text = normalizeText(value);
-      if (text && /20\d{2}/.test(text) && !fragments.includes(text)) fragments.push(text);
-    };
-    add(root.getAttribute?.("value") || root.value || "");
-    add(root.getAttribute?.("title"));
-    add(root.getAttribute?.("aria-label"));
-    const valueSelectors = [
-      "option[selected]",
-      "option:checked",
-      ".ant-select-selection-item",
-      ".ant-select-selection-selected-value",
-      ".select2-selection__rendered",
-      ".layui-this",
-      ".el-input__inner",
-      ".el-select__selected-item",
-      "[aria-checked=true]"
-    ].join(",");
-    root.querySelectorAll?.(valueSelectors).forEach((node) => {
-      if (isExpandedTermChoiceNode(node)) return;
-      add(node.getAttribute?.("value") || node.value || "");
-      add(node.getAttribute?.("title"));
-      add(node.getAttribute?.("aria-label"));
-      add(node.textContent);
-    });
-    if (!fragments.length && !isExpandedTermChoiceNode(root) && termCandidateCount(root.textContent) <= 1) add(root.textContent);
-    return fragments
-      .sort((a, b) => termCandidateCount(a) - termCandidateCount(b) || a.length - b.length)
-      .slice(0, 4);
-  }
-
-  function isExpandedTermChoiceNode(node) {
-    if (!node?.closest) return false;
-    if (node.closest("select")) return false;
-    if (node.closest(".ant-select-selector,.ant-select-selection-item,.ant-select-selection-selected-value,.el-select__wrapper,.el-input,.select2-selection,.select2-selection__rendered,.layui-form-select,[role=combobox]")) return false;
-    return Boolean(node.closest("[role=listbox],[role=option],.ant-select-dropdown,.ant-select-item-option,.el-select-dropdown,.el-select-dropdown__item,.select2-results,.select2-results__option,.layui-anim,.dropdown-menu,.picker-panel"));
-  }
-
-  function extractCourseTitleTermCandidates(rawText) {
-    const source = String(rawText || "");
-    const candidates = [];
-    const titleRe = /课表标题|我的课表|个人课表|学生课表|课程表|课表|标题/i;
-    if (/<[a-z][\s\S]*>/i.test(source) && typeof DOMParser !== "undefined") {
-      try {
-        const doc = new DOMParser().parseFromString(source, "text/html");
-        doc.querySelectorAll("title,h1,h2,h3,h4,h5,h6,caption,legend,.title,[class*=title],[id*=title],[class*=bt],[id*=bt]").forEach((node) => {
-          const text = normalizeText(node.textContent || node.getAttribute?.("title") || "");
-          if (titleRe.test(text) && /20\d{2}/.test(text)) addUniqueTermCandidate(candidates, text);
-        });
-      } catch (error) {}
-    }
-    source.split(/[\n\r]+/).forEach((line) => {
-      const text = normalizeText(line);
-      if (titleRe.test(text) && /20\d{2}/.test(text)) addUniqueTermCandidate(candidates, text.slice(0, 220));
-    });
-    return candidates;
-  }
-
-  function extractLabelledTermCandidates(rawText, strictOnly = false) {
-    const source = String(rawText || "");
-    const candidates = [];
-    const strictPattern = /(当前选中学期|当前学期字段|当前学期|已选学期|选中学期|正在查询学期)\s*[:：-]?\s*([^。\n\r；;<>]{0,140})/g;
-    let match;
-    while ((match = strictPattern.exec(source))) addUniqueTermCandidate(candidates, `${match[1]} ${match[2]}`);
-    if (strictOnly) return candidates;
-    const loosePattern = /(学年学期|开课学期|课表学期|所在学期)\s*[:：-]?\s*([^。\n\r；;<>]{0,100})/g;
-    while ((match = loosePattern.exec(source))) addUniqueTermCandidate(candidates, `${match[1]} ${match[2]}`);
-    return candidates;
-  }
-
-  function extractDomTermCandidates(rawText) {
-    const source = String(rawText || "");
-    const candidates = [];
-    if (!/<[a-z][\s\S]*>/i.test(source) || typeof DOMParser === "undefined") return candidates;
-    try {
-      const doc = new DOMParser().parseFromString(source, "text/html");
-      const fieldRe = /学期|学年|semester|term|xq|xn/i;
-      const fieldMeta = (el) => normalizeText([
-        el.getAttribute?.("name"),
-        el.getAttribute?.("id"),
-        el.getAttribute?.("class"),
-        el.getAttribute?.("title"),
-        el.getAttribute?.("aria-label"),
-        el.getAttribute?.("placeholder"),
-        el.getAttribute?.("data-name")
-      ].join(" "));
-      const nearbyMeta = (el) => {
-        let text = "";
-        try {
-          const id = el.getAttribute?.("id");
-          let label = null;
-          if (id) {
-            doc.querySelectorAll("label[for]").forEach((node) => {
-              if (!label && node.getAttribute("for") === id) label = node;
-            });
-          }
-          if (label) text += ` ${label.textContent || ""}`;
-          let parent = el.parentElement;
-          for (let depth = 0; parent && depth < 3; depth += 1, parent = parent.parentElement) {
-            text += ` ${parent.getAttribute?.("aria-label") || ""} ${parent.getAttribute?.("title") || ""}`;
-            const namedLabel = parent.querySelector?.("label,.label,.form-label,.layui-form-label,.el-form-item__label");
-            if (namedLabel) text += ` ${namedLabel.textContent || ""}`;
-          }
-        } catch (error) {}
-        return normalizeText(text);
-      };
-      doc.querySelectorAll("option[selected], option:checked").forEach((option) => {
-        const owner = option.parentElement || option;
-        addUniqueTermCandidate(candidates, `${fieldMeta(owner)} ${nearbyMeta(owner)} ${option.value || ""} ${option.textContent || ""}`);
-      });
-      doc.querySelectorAll("select").forEach((select) => {
-        const meta = `${fieldMeta(select)} ${nearbyMeta(select)}`;
-        if (!fieldRe.test(meta) && !/20\d{2}/.test(select.textContent || "")) return;
-        Array.from(select.options || [])
-          .filter((option) => option.selected || option.hasAttribute("selected"))
-          .forEach((option) => addUniqueTermCandidate(candidates, `${meta} ${select.value || ""} ${option.value || ""} ${option.textContent || ""}`));
-      });
-      doc.querySelectorAll("input,textarea").forEach((input) => {
-        const meta = `${fieldMeta(input)} ${nearbyMeta(input)}`;
-        if (!fieldRe.test(meta)) return;
-        const type = normalizeText(input.getAttribute("type")).toLowerCase();
-        if ((type === "radio" || type === "checkbox") && !input.checked && !input.hasAttribute("checked")) return;
-        addUniqueTermCandidate(candidates, `${meta} ${input.getAttribute("value") || input.value || ""}`);
-      });
-      doc.querySelectorAll([
-        ".ant-select-selector",
-        ".ant-select-selection-item",
-        ".ant-select-selection-selected-value",
-        ".el-select",
-        ".el-select__wrapper",
-        ".layui-form-select",
-        ".select2-selection",
-        "[role=combobox]",
-        "[aria-haspopup=listbox]",
-        "[class*=semester]",
-        "[class*=term]",
-        "[id*=xq]",
-        "[id*=xn]"
-      ].join(",")).forEach((widget) => {
-        if (isExpandedTermChoiceNode(widget)) return;
-        const meta = `${fieldMeta(widget)} ${nearbyMeta(widget)}`;
-        const fragments = termElementFragments(widget);
-        fragments.forEach((fragment) => {
-          if (fieldRe.test(meta) || /学期|学年|春季|秋季|夏季|春|秋|夏|上学期|下学期|第?\s*[一二三123]\s*学期/.test(fragment)) {
-            addFocusedTermCandidate(candidates, meta, fragment);
-          }
-        });
-      });
-    } catch (error) {}
-    return candidates;
-  }
-
-  function extractAllImportedTermInfos(rawText) {
-    const content = normalizeText(rawText);
-    const terms = new Map();
-    [
-      /20\d{2}\s*[-—–~至]\s*20\d{2}\s*学年.{0,32}?(?:春季|秋季|夏季|春|秋|夏|第?\s*[一二三123]\s*学期|[上下]学期)/g,
-      /20\d{2}\s*[-—–~至]\s*20\d{2}.{0,32}?(?:春季|秋季|夏季|春|秋|夏|第?\s*[一二三123]\s*学期|[上下]学期)/g,
-      /20\d{2}\s*[-—–~至/]\s*20\d{2}\s*[-_/]?\s*(?:12|16|[123])(?:\b|学期)/g,
-      /\b20\d{2}20\d{2}[123]\b/g,
-      /20\d{2}\s*[-—–~至]\s*20\d{2}\s*学年/g,
-      /20\d{2}\s*年\s*(?:春季|秋季|夏季|春|秋|夏|第?\s*[一二三123]\s*学期|[上下]学期)/g
-    ].forEach((pattern) => {
-      let match;
-      while ((match = pattern.exec(content))) {
-        const info = parseImportedTermText(match[0]);
-        if (info) terms.set(`${info.label}|${info.kind}`, info);
-      }
-    });
-    const values = [...terms.values()];
-    const specificYears = new Set(values
-      .filter((info) => info.kind)
-      .map((info) => normalizeText(info.label).match(/^(20\d{2}-20\d{2}学年)/)?.[1])
-      .filter(Boolean));
-    return values.filter((info) => info.kind || !specificYears.has(normalizeText(info.label)));
-  }
-
-  function parseClearTermCandidate(candidate) {
-    const strictInfo = parseStrictZfTermFields(candidate);
-    if (strictInfo?.kind) return strictInfo;
-    const matches = extractAllImportedTermInfos(candidate);
-    if (matches.length > 1) return null;
-    const zfInfo = parseZfTermFields(candidate);
-    if (zfInfo?.kind) return zfInfo;
-    return parseImportedTermText(candidate);
   }
 
   function emptyTermInfo() {

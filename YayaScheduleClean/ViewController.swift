@@ -495,8 +495,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             head.addArrangedSubview(back)
             stack.addArrangedSubview(head)
 
-            let autoDetected = self.boolValue(body["termDetected"]) && !self.stringValue(body["termLabel"]).isEmpty
-            let detected = autoDetected ? self.stringValue(body["termLabel"]) : "未识别到明确学期"
+            let academicSelection = self.currentAcademicSelection()
+            var selectedYear = academicSelection.year
+            var selectedTermIndex = academicSelection.termIndex
             let autoCard = UIView()
             autoCard.backgroundColor = self.portalColor("panel", fallback: UIColor(red: 0.94, green: 0.97, blue: 1, alpha: 1)).withAlphaComponent(0.82)
             autoCard.layer.cornerRadius = max(16, self.portalRadius() - 7)
@@ -508,20 +509,18 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             autoStack.translatesAutoresizingMaskIntoConstraints = false
             autoCard.addSubview(autoStack)
             let autoLabel = UILabel()
-            autoLabel.text = "自动检索"
+            autoLabel.text = "手动选择"
             autoLabel.textColor = self.portalColor("muted", fallback: UIColor(red: 0.39, green: 0.45, blue: 0.55, alpha: 1))
             autoLabel.font = .systemFont(ofSize: 12, weight: .heavy)
             autoStack.addArrangedSubview(autoLabel)
             let detectedLabel = UILabel()
-            detectedLabel.text = detected
+            detectedLabel.text = "开学日期与学期"
             detectedLabel.textColor = self.portalColor("ink", fallback: UIColor(red: 0.08, green: 0.13, blue: 0.24, alpha: 1))
             detectedLabel.font = .systemFont(ofSize: 18, weight: .heavy)
             detectedLabel.numberOfLines = 0
             autoStack.addArrangedSubview(detectedLabel)
             let note = UILabel()
-            note.text = autoDetected
-                ? "已采集 \(pages) 页课表，确认后暂存本学期，可继续导入其他学期。"
-                : "已采集 \(pages) 页课表，请手动确认开学日期和学期名称。"
+            note.text = "已采集 \(pages) 页课表。请按当前页面实际学期手动选择，确认后可继续导入其他学期。"
             note.textColor = self.portalColor("muted", fallback: UIColor(red: 0.39, green: 0.45, blue: 0.55, alpha: 1))
             note.font = .systemFont(ofSize: 12, weight: .semibold)
             note.numberOfLines = 0
@@ -543,7 +542,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             }
 
             stack.addArrangedSubview(fieldTitle("开学日期"))
-            let initialStart = autoDetected ? self.stringValue(body["termStart"]) : ""
+            let initialStart = self.portalSuggestedTermStart(firstYear: selectedYear, termIndex: selectedTermIndex)
             let startButton = self.portalStyledButton(initialStart.isEmpty ? "选择开学日期" : initialStart, filled: false)
             startButton.contentHorizontalAlignment = .leading
             startButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .heavy)
@@ -555,8 +554,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             stack.addArrangedSubview(startButton)
 
             stack.addArrangedSubview(fieldTitle("学期"))
-            var selectedYear = self.academicYear(from: self.stringValue(body["termLabel"]), start: self.stringValue(body["termStart"]))
-            var selectedTermIndex = self.termKindIndex(from: self.stringValue(body["termLabel"]), start: self.stringValue(body["termStart"]))
             let yearOptions = (2000...2076).map { "\($0)-\($0 + 1)学年" }
             let termOptions = ["秋季学期", "春季学期", "夏季学期"]
             let yearButton = self.portalStyledButton("\(selectedYear)-\(selectedYear + 1)学年", filled: false)
@@ -574,6 +571,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 self.showPortalOptionPicker(title: "选择学年", options: yearOptions, selectedIndex: selectedYear - 2000) { index in
                     selectedYear = min(2076, max(2000, 2000 + index))
                     yearButton?.setTitle("\(selectedYear)-\(selectedYear + 1)学年", for: .normal)
+                    startButton.setTitle(self.portalSuggestedTermStart(firstYear: selectedYear, termIndex: selectedTermIndex), for: .normal)
                 }
             }, for: .touchUpInside)
             termButton.addAction(UIAction { [weak self, weak termButton] _ in
@@ -581,6 +579,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 self.showPortalOptionPicker(title: "选择学期", options: termOptions, selectedIndex: selectedTermIndex) { index in
                     selectedTermIndex = max(0, min(termOptions.count - 1, index))
                     termButton?.setTitle(termOptions[selectedTermIndex], for: .normal)
+                    startButton.setTitle(self.portalSuggestedTermStart(firstYear: selectedYear, termIndex: selectedTermIndex), for: .normal)
                 }
             }, for: .touchUpInside)
 
@@ -607,9 +606,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 let start = self.normalizedPortalDate(startButton.title(for: .normal) ?? "")
                 confirmed["kind"] = "course"
                 confirmed["termLabel"] = self.termLabel(firstYear: selectedYear, termIndex: selectedTermIndex)
-                confirmed["termStart"] = start.isEmpty ? (autoDetected ? self.stringValue(body["termStart"]) : "") : start
+                confirmed["termStart"] = start.isEmpty ? self.portalSuggestedTermStart(firstYear: selectedYear, termIndex: selectedTermIndex) : start
                 confirmed["confirmedTerm"] = true
-                confirmed["termDetected"] = autoDetected
+                confirmed["termDetected"] = false
                 self.captureAcademicPage(confirmed)
                 self.hidePortalTermOverlay()
             }, for: .touchUpInside)
@@ -643,19 +642,14 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             formatter.locale = Locale(identifier: "zh_CN")
             formatter.dateFormat = "yyyy-MM-dd"
             formatter.isLenient = false
-
-            let picker = UIDatePicker()
-            picker.datePickerMode = .date
-            picker.locale = Locale(identifier: "zh_CN")
-            if #available(iOS 13.4, *) {
-                picker.preferredDatePickerStyle = .wheels
-            }
             let currentDateText = self.normalizedPortalDate(anchor.title(for: .normal) ?? "")
             let fallbackDateText = self.normalizedPortalDate(fallbackDate)
             let seed = currentDateText.isEmpty ? fallbackDateText : currentDateText
-            if let date = formatter.date(from: seed) {
-                picker.date = date
-            }
+            let seedDate = formatter.date(from: seed) ?? Date()
+            let seedParts = Calendar.current.dateComponents([.year, .month, .day], from: seedDate)
+            var selectedYear = min(max(seedParts.year ?? 2026, 2000), 2077)
+            var selectedMonth = min(max(seedParts.month ?? 9, 1), 12)
+            var selectedDay = min(max(seedParts.day ?? 1, 1), self.portalDaysInMonth(year: selectedYear, month: selectedMonth))
 
             let card = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialLight))
             card.translatesAutoresizingMaskIntoConstraints = false
@@ -676,7 +670,52 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             title.textColor = self.portalColor("ink", fallback: UIColor(red: 0.08, green: 0.13, blue: 0.24, alpha: 1))
             title.font = .systemFont(ofSize: 18, weight: .heavy)
             stack.addArrangedSubview(title)
-            stack.addArrangedSubview(picker)
+
+            let yearOptions = (2000...2077).map { "\($0)" }
+            let monthOptions = (1...12).map { String(format: "%02d", $0) }
+            let dayOptions = (1...31).map { String(format: "%02d", $0) }
+            let pickerRow = UIStackView()
+            pickerRow.axis = .horizontal
+            pickerRow.spacing = 8
+            pickerRow.distribution = .fillProportionally
+            let yearButton = self.portalStyledButton("\(selectedYear)", filled: false)
+            let monthButton = self.portalStyledButton(String(format: "%02d", selectedMonth), filled: false)
+            let dayButton = self.portalStyledButton(String(format: "%02d", selectedDay), filled: false)
+            [yearButton, monthButton, dayButton].forEach { button in
+                button.titleLabel?.font = .systemFont(ofSize: 15, weight: .heavy)
+                button.heightAnchor.constraint(equalToConstant: 48).isActive = true
+                pickerRow.addArrangedSubview(button)
+            }
+            yearButton.widthAnchor.constraint(equalTo: monthButton.widthAnchor, multiplier: 1.35).isActive = true
+            stack.addArrangedSubview(pickerRow)
+
+            let syncDay = {
+                selectedDay = min(selectedDay, self.portalDaysInMonth(year: selectedYear, month: selectedMonth))
+                yearButton.setTitle("\(selectedYear)", for: .normal)
+                monthButton.setTitle(String(format: "%02d", selectedMonth), for: .normal)
+                dayButton.setTitle(String(format: "%02d", selectedDay), for: .normal)
+            }
+            yearButton.addAction(UIAction { [weak self] _ in
+                guard let self else { return }
+                self.showPortalOptionPicker(title: "选择年份", options: yearOptions, selectedIndex: selectedYear - 2000) { index in
+                    selectedYear = min(2077, max(2000, 2000 + index))
+                    syncDay()
+                }
+            }, for: .touchUpInside)
+            monthButton.addAction(UIAction { [weak self] _ in
+                guard let self else { return }
+                self.showPortalOptionPicker(title: "选择月份", options: monthOptions, selectedIndex: selectedMonth - 1) { index in
+                    selectedMonth = max(1, min(12, index + 1))
+                    syncDay()
+                }
+            }, for: .touchUpInside)
+            dayButton.addAction(UIAction { [weak self] _ in
+                guard let self else { return }
+                self.showPortalOptionPicker(title: "选择日期", options: dayOptions, selectedIndex: selectedDay - 1) { index in
+                    selectedDay = min(index + 1, self.portalDaysInMonth(year: selectedYear, month: selectedMonth))
+                    syncDay()
+                }
+            }, for: .touchUpInside)
 
             let row = UIStackView()
             row.axis = .horizontal
@@ -693,7 +732,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 overlay.removeFromSuperview()
             }, for: .touchUpInside)
             confirm.addAction(UIAction { _ in
-                anchor.setTitle(formatter.string(from: picker.date), for: .normal)
+                anchor.setTitle(String(format: "%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay), for: .normal)
                 overlay.removeFromSuperview()
             }, for: .touchUpInside)
 
@@ -716,6 +755,49 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil else { return "" }
         return text
+    }
+
+    private func currentAcademicSelection() -> (year: Int, termIndex: Int) {
+        let components = Calendar.current.dateComponents([.year, .month], from: Date())
+        let calendarYear = components.year ?? 2026
+        let month = components.month ?? 9
+        let termIndex = month >= 8 ? 0 : (month >= 6 ? 2 : 1)
+        let firstYear = termIndex == 0 ? calendarYear : calendarYear - 1
+        return (min(max(firstYear, 2000), 2076), termIndex)
+    }
+
+    private func portalSuggestedTermStart(firstYear: Int, termIndex: Int) -> String {
+        let index = max(0, min(2, termIndex))
+        if index == 1 { return portalNearestMonday(year: firstYear + 1, month: 2, day: 23) }
+        if index == 2 { return portalNearestMonday(year: firstYear + 1, month: 6, day: 24) }
+        return portalNearestMonday(year: firstYear, month: 9, day: 1)
+    }
+
+    private func portalNearestMonday(year: Int, month: Int, day: Int) -> String {
+        let calendar = Calendar(identifier: .gregorian)
+        var best = calendar.date(from: DateComponents(year: year, month: month, day: day)) ?? Date()
+        var bestDistance = Int.max
+        for offset in -4...4 {
+            guard let candidate = calendar.date(from: DateComponents(year: year, month: month, day: day + offset)) else { continue }
+            let distance = abs(offset)
+            if calendar.component(.weekday, from: candidate) == 2 && distance < bestDistance {
+                best = candidate
+                bestDistance = distance
+            }
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: best)
+    }
+
+    private func portalDaysInMonth(year: Int, month: Int) -> Int {
+        let calendar = Calendar(identifier: .gregorian)
+        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: 1)),
+              let range = calendar.range(of: .day, in: .month, for: date) else {
+            return 31
+        }
+        return range.count
     }
 
     private func normalizedAcademicImportKind(_ value: String) -> String {
@@ -1110,16 +1192,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             for (var i = 0; i < docs.length; i += 1) {
               var doc = docs[i];
               try {
-                var titles = kind === 'course' ? courseTitleTerms(doc) : '';
-                var terms = selectedTerms(doc);
                 var rel = relevant(doc, kind);
-                if (!rel && !terms && !titles) continue;
-                if (titles) text += '\\n' + titles;
-                text += '\\n' + terms;
-                if (rel) {
-                  html += '\\n<!-- yaya-doc-' + i + ' -->\\n' + (doc.body ? doc.body.innerHTML : (doc.documentElement ? doc.documentElement.outerHTML : ''));
-                  text += '\\n' + (doc.body ? doc.body.innerText : '');
-                }
+                if (!rel) continue;
+                html += '\\n<!-- yaya-doc-' + i + ' -->\\n' + (doc.body ? doc.body.innerHTML : (doc.documentElement ? doc.documentElement.outerHTML : ''));
+                text += '\\n' + (doc.body ? doc.body.innerText : '');
               } catch (error) {}
             }
             return { html: html, text: text };
@@ -1416,44 +1492,21 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             if (count > 1 && best.score < 84) return null;
             return best.info;
           }
-          function guessTerm(raw) {
-            var text = norm(raw), list = [], candidates, all = allTermInfos(text), i;
-            candidates = labelledTermCandidates(text, true);
-            for (i = 0; i < candidates.length; i++) {
-              addGuess(list, candidates[i], 'selected-label', 132);
-            }
-            addGuess(list, text, 'structured-field', 118, strictZfTermFields);
-            candidates = titleTermCandidates(text);
-            for (i = 0; i < candidates.length; i++) {
-              addGuess(list, candidates[i], 'course-title', 102);
-            }
-            candidates = labelledTermCandidates(text, false);
-            for (i = 0; i < candidates.length; i++) {
-              addGuess(list, candidates[i], 'labelled-field', 84);
-            }
-            if (all.length === 1 && all[0].kind) addGuess(list, all[0], 'single-page-term', 64);
-            if (all.length > 1) {
-              for (i = 0; i < all.length; i += 1) addGuess(list, all[i], 'page-term-list', 42, null, 18);
-            }
-            return chooseGuess(list, all.length) || emptyTerm();
-          }
           function setStatus(text) {
             window.__yayaIosAcademicStatus = text;
             var node = document.querySelector('[data-yaya-ios-academic-status]');
             if (node) node.textContent = text;
           }
           function confirmTerm(data) {
-            var info = guessTerm((document.title || '') + '\\n' + (data && data.text || ''));
-            var detected = !!(info && info.kind);
             return post('confirmAcademicTerm', {
               kind: 'course',
               title: (document.title || '') + ' 共' + (data && data.pages || 1) + '页',
               url: location.href,
               text: data.text,
               html: data.html,
-              termLabel: detected ? info.label : '',
-              termStart: detected ? info.start : '',
-              termDetected: detected,
+              termLabel: '',
+              termStart: '',
+              termDetected: false,
               pages: data && data.pages || 1
             });
           }
