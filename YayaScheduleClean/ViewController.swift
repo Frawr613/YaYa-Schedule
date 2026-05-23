@@ -345,6 +345,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         let button = UIButton(type: .system)
         button.setTitle(title, for: .normal)
         button.titleLabel?.font = .systemFont(ofSize: 16, weight: .heavy)
+        button.titleLabel?.numberOfLines = 2
+        button.titleLabel?.lineBreakMode = .byWordWrapping
+        button.titleLabel?.textAlignment = .center
+        button.titleLabel?.adjustsFontSizeToFitWidth = true
+        button.titleLabel?.minimumScaleFactor = 0.78
+        button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
         button.layer.cornerRadius = max(16, portalRadius() - 7)
         button.layer.borderWidth = 1
         button.layer.borderColor = UIColor.white.withAlphaComponent(0.52).cgColor
@@ -357,6 +363,85 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             button.setTitleColor(portalColor("ink", fallback: UIColor(red: 0.08, green: 0.13, blue: 0.24, alpha: 1)), for: .normal)
         }
         return button
+    }
+
+    private func showPortalOptionPicker(title: String, options: [String], selectedIndex: Int, onSelect: @escaping (Int) -> Void) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let overlay = UIView(frame: self.view.bounds)
+            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            overlay.backgroundColor = UIColor(red: 0.06, green: 0.09, blue: 0.16, alpha: 0.22)
+            overlay.isUserInteractionEnabled = true
+
+            let card = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialLight))
+            card.translatesAutoresizingMaskIntoConstraints = false
+            card.layer.cornerRadius = self.portalRadius()
+            card.layer.borderWidth = 1
+            card.layer.borderColor = UIColor.white.withAlphaComponent(0.62).cgColor
+            card.clipsToBounds = true
+            card.contentView.backgroundColor = self.portalColor("card", fallback: UIColor.white).withAlphaComponent(0.76)
+
+            let stack = UIStackView()
+            stack.axis = .vertical
+            stack.spacing = 12
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            card.contentView.addSubview(stack)
+
+            let titleLabel = UILabel()
+            titleLabel.text = title
+            titleLabel.textColor = self.portalColor("ink", fallback: UIColor(red: 0.08, green: 0.13, blue: 0.24, alpha: 1))
+            titleLabel.font = .systemFont(ofSize: 18, weight: .heavy)
+            titleLabel.numberOfLines = 0
+            stack.addArrangedSubview(titleLabel)
+
+            let scroll = UIScrollView()
+            scroll.showsVerticalScrollIndicator = true
+            let optionStack = UIStackView()
+            optionStack.axis = .vertical
+            optionStack.spacing = 8
+            optionStack.translatesAutoresizingMaskIntoConstraints = false
+            scroll.addSubview(optionStack)
+            let safeSelected = max(0, min(max(0, options.count - 1), selectedIndex))
+            for (index, option) in options.enumerated() {
+                let button = self.portalStyledButton(option, filled: index == safeSelected)
+                button.titleLabel?.font = .systemFont(ofSize: 14, weight: .heavy)
+                button.heightAnchor.constraint(equalToConstant: 46).isActive = true
+                button.addAction(UIAction { _ in
+                    onSelect(index)
+                    overlay.removeFromSuperview()
+                }, for: .touchUpInside)
+                optionStack.addArrangedSubview(button)
+            }
+            stack.addArrangedSubview(scroll)
+            scroll.heightAnchor.constraint(equalToConstant: min(360, max(150, CGFloat(options.count * 54)))).isActive = true
+            NSLayoutConstraint.activate([
+                optionStack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+                optionStack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+                optionStack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+                optionStack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+                optionStack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor)
+            ])
+
+            let cancel = self.portalStyledButton("取消", filled: false)
+            cancel.heightAnchor.constraint(equalToConstant: 48).isActive = true
+            cancel.addAction(UIAction { _ in
+                overlay.removeFromSuperview()
+            }, for: .touchUpInside)
+            stack.addArrangedSubview(cancel)
+
+            overlay.addSubview(card)
+            self.view.addSubview(overlay)
+            NSLayoutConstraint.activate([
+                card.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+                card.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+                card.widthAnchor.constraint(lessThanOrEqualToConstant: 380),
+                card.widthAnchor.constraint(equalTo: overlay.widthAnchor, constant: -48),
+                stack.topAnchor.constraint(equalTo: card.contentView.topAnchor, constant: 16),
+                stack.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 18),
+                stack.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor, constant: -18),
+                stack.bottomAnchor.constraint(equalTo: card.contentView.bottomAnchor, constant: -16)
+            ])
+        }
     }
 
     private func hidePortalTermOverlay() {
@@ -401,6 +486,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             title.text = "确认学期"
             title.textColor = self.portalColor("ink", fallback: UIColor(red: 0.08, green: 0.13, blue: 0.24, alpha: 1))
             title.font = .systemFont(ofSize: 19, weight: .heavy)
+            title.numberOfLines = 0
             let back = self.portalStyledButton("←", filled: false)
             back.titleLabel?.font = .systemFont(ofSize: 22, weight: .heavy)
             back.widthAnchor.constraint(equalToConstant: 44).isActive = true
@@ -470,36 +556,32 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
             stack.addArrangedSubview(fieldTitle("学期"))
             var selectedYear = self.academicYear(from: self.stringValue(body["termLabel"]), start: self.stringValue(body["termStart"]))
-            let selectedTermIndex = self.termKindIndex(from: self.stringValue(body["termLabel"]), start: self.stringValue(body["termStart"]))
+            var selectedTermIndex = self.termKindIndex(from: self.stringValue(body["termLabel"]), start: self.stringValue(body["termStart"]))
+            let yearOptions = (2000...2076).map { "\($0)-\($0 + 1)学年" }
+            let termOptions = ["秋季学期", "春季学期", "夏季学期"]
             let yearButton = self.portalStyledButton("\(selectedYear)-\(selectedYear + 1)学年", filled: false)
-            let termSegment = UISegmentedControl(items: ["秋", "春", "夏"])
-            termSegment.selectedSegmentIndex = selectedTermIndex
-            termSegment.selectedSegmentTintColor = self.portalColor("accent", fallback: UIColor(red: 0.15, green: 0.39, blue: 0.92, alpha: 1))
-            termSegment.setTitleTextAttributes([.foregroundColor: self.portalColor("ink", fallback: UIColor(red: 0.08, green: 0.13, blue: 0.24, alpha: 1)), .font: UIFont.systemFont(ofSize: 14, weight: .heavy)], for: .normal)
-            termSegment.setTitleTextAttributes([.foregroundColor: UIColor.white, .font: UIFont.systemFont(ofSize: 14, weight: .heavy)], for: .selected)
+            let termButton = self.portalStyledButton(termOptions[max(0, min(termOptions.count - 1, selectedTermIndex))], filled: false)
             yearButton.heightAnchor.constraint(equalToConstant: 48).isActive = true
-            termSegment.heightAnchor.constraint(equalToConstant: 48).isActive = true
-            let termRow = UIStackView(arrangedSubviews: [yearButton, termSegment])
+            termButton.heightAnchor.constraint(equalToConstant: 48).isActive = true
+            let termRow = UIStackView(arrangedSubviews: [yearButton, termButton])
             termRow.axis = .horizontal
             termRow.spacing = 10
             termRow.distribution = .fillProportionally
-            yearButton.widthAnchor.constraint(equalTo: termSegment.widthAnchor, multiplier: 1.65).isActive = true
+            yearButton.widthAnchor.constraint(equalTo: termButton.widthAnchor, multiplier: 1.45).isActive = true
             stack.addArrangedSubview(termRow)
             yearButton.addAction(UIAction { [weak self, weak yearButton] _ in
                 guard let self else { return }
-                let sheet = UIAlertController(title: "选择学年", message: nil, preferredStyle: .actionSheet)
-                for year in 2000...2076 {
-                    sheet.addAction(UIAlertAction(title: "\(year)-\(year + 1)学年", style: .default) { _ in
-                        selectedYear = year
-                        yearButton?.setTitle("\(year)-\(year + 1)学年", for: .normal)
-                    })
+                self.showPortalOptionPicker(title: "选择学年", options: yearOptions, selectedIndex: selectedYear - 2000) { index in
+                    selectedYear = min(2076, max(2000, 2000 + index))
+                    yearButton?.setTitle("\(selectedYear)-\(selectedYear + 1)学年", for: .normal)
                 }
-                sheet.addAction(UIAlertAction(title: "取消", style: .cancel))
-                if let popover = sheet.popoverPresentationController, let button = yearButton {
-                    popover.sourceView = button
-                    popover.sourceRect = button.bounds
+            }, for: .touchUpInside)
+            termButton.addAction(UIAction { [weak self, weak termButton] _ in
+                guard let self else { return }
+                self.showPortalOptionPicker(title: "选择学期", options: termOptions, selectedIndex: selectedTermIndex) { index in
+                    selectedTermIndex = max(0, min(termOptions.count - 1, index))
+                    termButton?.setTitle(termOptions[selectedTermIndex], for: .normal)
                 }
-                self.present(sheet, animated: true)
             }, for: .touchUpInside)
 
             let row = UIStackView()
@@ -524,7 +606,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 var confirmed = body
                 let start = self.normalizedPortalDate(startButton.title(for: .normal) ?? "")
                 confirmed["kind"] = "course"
-                confirmed["termLabel"] = self.termLabel(firstYear: selectedYear, termIndex: termSegment.selectedSegmentIndex)
+                confirmed["termLabel"] = self.termLabel(firstYear: selectedYear, termIndex: selectedTermIndex)
                 confirmed["termStart"] = start.isEmpty ? (autoDetected ? self.stringValue(body["termStart"]) : "") : start
                 confirmed["confirmedTerm"] = true
                 confirmed["termDetected"] = autoDetected
