@@ -143,10 +143,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             saveWidgetPayload(body["payload"] ?? body)
         case "scheduleReminderNotifications", "scheduleDdlNotifications":
             scheduleReminderNotifications(stringValue(body["payload"]))
-        case "requestNotificationPermission", "requestReminderPermissions":
-            ensureNotificationAuthorization { [weak self] _ in
-                self?.pushReminderPermissionStatus()
-            }
+        case "requestNotificationPermission":
+            requestIOSNotificationPermission(openSettingsWhenDenied: false)
+        case "requestReminderPermissions":
+            requestIOSNotificationPermission(openSettingsWhenDenied: true)
         case "savePortalAccount":
             savePortalAccount(username: stringValue(body["username"]), password: stringValue(body["password"]))
         case "setLauncherIcon":
@@ -168,10 +168,14 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        guard notification.request.content.categoryIdentifier != "reminder" else {
+            completionHandler([])
+            return
+        }
         if #available(iOS 14.0, *) {
-            completionHandler([.banner, .list, .sound])
+            completionHandler([.banner, .list])
         } else {
-            completionHandler([.alert, .sound])
+            completionHandler([.alert])
         }
     }
 
@@ -180,6 +184,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        center.removeDeliveredNotifications(withIdentifiers: [response.notification.request.identifier])
         portalSessionActive = false
         loadLocalApp()
         completionHandler()
@@ -565,6 +570,46 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         }
     }
 
+    private func requestIOSNotificationPermission(openSettingsWhenDenied: Bool) {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { [weak self] settings in
+            guard let self else { return }
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                self.rescheduleStoredReminderNotifications()
+            case .notDetermined:
+                center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, _ in
+                    if granted {
+                        self?.rescheduleStoredReminderNotifications()
+                    } else {
+                        self?.pushReminderPermissionStatus()
+                    }
+                }
+            case .denied:
+                if openSettingsWhenDenied {
+                    self.openIOSNotificationSettings()
+                } else {
+                    self.pushReminderPermissionStatus()
+                }
+            @unknown default:
+                self.pushReminderPermissionStatus()
+            }
+        }
+    }
+
+    private func openIOSNotificationSettings() {
+        DispatchQueue.main.async { [weak self] in
+            guard let url = URL(string: UIApplication.openSettingsURLString) else {
+                self?.pushReminderPermissionStatus()
+                return
+            }
+            if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url)
+            }
+            self?.pushReminderPermissionStatus()
+        }
+    }
+
     private func pushReminderPermissionStatus() {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { [weak self] settings in
@@ -581,9 +626,15 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 let canNotify: Bool
                 let notificationState: String
                 switch settings.authorizationStatus {
-                case .authorized, .provisional, .ephemeral:
+                case .authorized:
                     canNotify = true
-                    notificationState = "ready"
+                    notificationState = "granted"
+                case .provisional:
+                    canNotify = true
+                    notificationState = "provisional"
+                case .ephemeral:
+                    canNotify = true
+                    notificationState = "ephemeral"
                 case .denied:
                     canNotify = false
                     notificationState = "blocked"
@@ -614,7 +665,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                     "native": true,
                     "notifications": notificationState,
                     "sound": soundState,
-                    "exactAlarms": "ios",
+                    "exactAlarms": "not-required",
                     "scheduledCount": storedCount,
                     "lastSyncAt": defaults.double(forKey: self.reminderLastSyncAtKey),
                     "canNotify": canNotify,
@@ -708,26 +759,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 continue
             }
 
-            var hasFutureNotification = false
-            var fallbackMinutes: Int?
             for reminder in reminders {
                 guard let minutes = Int(stringValue(reminder)), minutes > 0 else { continue }
-                if fallbackMinutes == nil || minutes < (fallbackMinutes ?? minutes) {
-                    fallbackMinutes = minutes
-                }
                 let fireDate = deadline.addingTimeInterval(TimeInterval(-minutes * 60))
                 if fireDate <= now.addingTimeInterval(1) { continue }
                 let identifier = "reminder-\(safeAlarmKey)-\(minutes)"
                 let title = "\(titlePrefix)\(topic)"
                 let body = "\(ddlReminderLabel(minutes)) · \(timeLabel) \(date) \(time)" + (detail.isEmpty ? "" : "\n\(detail)")
-                plans.append(ReminderNotificationPlan(identifier: identifier, title: title, body: body, fireDate: fireDate))
-                hasFutureNotification = true
-            }
-            if !hasFutureNotification, let fallbackMinutes, deadline > now.addingTimeInterval(1) {
-                let fireDate = min(now.addingTimeInterval(5), deadline)
-                let identifier = "reminder-\(safeAlarmKey)-catchup-\(fallbackMinutes)"
-                let title = "\(titlePrefix)\(topic)"
-                let body = "最近提醒 · \(timeLabel) \(date) \(time)" + (detail.isEmpty ? "" : "\n\(detail)")
                 plans.append(ReminderNotificationPlan(identifier: identifier, title: title, body: body, fireDate: fireDate))
             }
         }
@@ -915,7 +953,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private static func yayaNativeBridgeScript() -> WKUserScript {
-        let fallback = #"{"native":true,"notifications":"unknown","sound":"unknown","exactAlarms":"ios","scheduledCount":0,"lastSyncAt":0,"canNotify":false,"canSound":false,"canExact":true,"needsAction":true}"#
+        let fallback = #"{"native":true,"notifications":"unknown","sound":"unknown","exactAlarms":"not-required","scheduledCount":0,"lastSyncAt":0,"canNotify":false,"canSound":false,"canExact":true,"needsAction":true}"#
         let source = """
         (function() {
           if (window.YayaNative && window.YayaNative.__iosBridgeReady) return;

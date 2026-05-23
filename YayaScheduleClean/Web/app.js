@@ -410,7 +410,7 @@
       if (!document.hidden) {
         refreshDateIfNeeded();
         scheduleNativeImportPull();
-        syncNativeNotifications({ requestPermission: false, force: true, retry: false, reason: "visible" });
+        syncNativeNotifications({ requestPermission: false, retry: false, reason: "visible" });
         if (state.modal) renderModal();
       } else {
         flushPersist();
@@ -2313,9 +2313,10 @@
         action: "检查权限"
       };
     }
-    const notifyReady = status.canNotify !== false && status.notifications === "granted";
-    const exactReady = status.canExact !== false && status.exactAlarms === "granted";
-    if (notifyReady && exactReady) {
+    const notifyReady = status.canNotify !== false && ["granted", "ready", "authorized", "provisional", "ephemeral"].includes(status.notifications);
+    const exactReady = status.canExact !== false && ["granted", "ready", "ios", "not-required", "notRequired"].includes(status.exactAlarms);
+    const soundReady = status.canSound !== false && !["blocked", "disabled"].includes(status.sound);
+    if (notifyReady && exactReady && soundReady) {
       return {
         state: "ready",
         title: "提醒权限已开启",
@@ -2329,6 +2330,14 @@
         title: "需要开启通知",
         detail: "允许鸦鸦日程发送 DDL 与日程提醒",
         action: "开启权限"
+      };
+    }
+    if (!soundReady) {
+      return {
+        state: "needs-action",
+        title: "需要开启通知声音",
+        detail: "iOS 通知声音关闭时，提醒会静默显示",
+        action: "打开设置"
       };
     }
     return {
@@ -4582,7 +4591,7 @@
   }
 
   function handleReminderPermissionUpdated() {
-    syncNativeNotifications({ requestPermission: false, force: true, reason: "permission" });
+    syncNativeNotifications({ requestPermission: false, force: !lastNativeReminderSignature, reason: "permission" });
     window.YayaLayers?.registerRuntime?.("platform", {
       reminderPermissionUpdatedAt: Date.now(),
       reminderStatus: reminderPermissionLabels(reminderPermissionStatus()).state
