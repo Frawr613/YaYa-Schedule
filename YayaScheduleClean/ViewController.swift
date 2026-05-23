@@ -334,13 +334,19 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         guard !username.isEmpty, !password.isEmpty else { return }
         let script = """
         (function() {
+          if (window.__yayaLoginHelperVersion === 'precision-v1') return;
+          window.__yayaLoginHelperVersion = 'precision-v1';
           var username = \(Self.javaScriptStringLiteral(username));
           var password = \(Self.javaScriptStringLiteral(password));
+          function norm(s) { return String(s || '').replace(/\\s+/g, ' ').trim(); }
+          function compact(s) { return String(s || '').replace(/\\s+/g, '').trim(); }
           function visible(el) {
             if (!el) return false;
             var r = el.getBoundingClientRect();
-            var s = window.getComputedStyle(el);
-            return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+            var s = el.ownerDocument.defaultView.getComputedStyle(el);
+            var aria = String(el.getAttribute && el.getAttribute('aria-disabled') || '');
+            var cls = String(el.className || '');
+            return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' && !el.disabled && !el.readOnly && aria !== 'true' && !/disabled|is-disabled|btn-disabled/.test(cls);
           }
           function setValue(el, value) {
             if (!el || el.value === value) return;
@@ -381,25 +387,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             add(document);
             return docs;
           }
-          function markUserGesture() {
-            try { sessionStorage.setItem('__yayaIosUserInteractedAt', String(Date.now())); } catch (error) { window.__yayaIosUserInteractedAt = Date.now(); }
-          }
-          function userPaused() {
-            var last = 0;
-            try { last = Number(sessionStorage.getItem('__yayaIosUserInteractedAt') || 0); } catch (error) { last = Number(window.__yayaIosUserInteractedAt || 0); }
-            return Date.now() - last < 6500;
-          }
-          function installUserPause() {
-            allDocs().forEach(function(doc) {
-              if (doc.__yayaUserPauseInstalled) return;
-              doc.__yayaUserPauseInstalled = true;
-              ['pointerdown','touchstart','wheel','keydown'].forEach(function(type) {
-                try { doc.addEventListener(type, markUserGesture, { capture: true, passive: true }); } catch (error) {
-                  try { doc.addEventListener(type, markUserGesture, true); } catch (innerError) {}
-                }
-              });
-            });
-          }
           function forceSelfWindow() {
             allDocs().forEach(function(doc) {
               try {
@@ -418,89 +405,105 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               } catch (error) {}
             });
           }
-          function desktopEntry() {
-            var best = null;
-            var bestScore = 0;
-            allDocs().forEach(function(doc) {
-              var nodes = [];
-              try { nodes = Array.prototype.slice.call(doc.querySelectorAll('button,a,input[type=button],input[type=submit],[role=button],.btn,.ant-btn,.el-button,div,span,li')); } catch (error) {}
-              nodes.forEach(function(node) {
-                if (!visible(node)) return;
-                var text = String([labelText(node), node.id, node.name, node.className, node.getAttribute && node.getAttribute('role')].join(' '));
-                if (/手机端|移动端|mobile|phone/i.test(text)) return;
-                var score = /电脑端|PC端|pc端|网页版|Web端|桌面端|电脑|PC|web/i.test(text) ? 110 : 0;
-                if (/进入|登录|登陆|继续|访问/.test(text)) score += 20;
-                if (score > bestScore) { best = node; bestScore = score; }
-              });
-            });
-            return bestScore >= 100 ? best : null;
+          function actionOnce(doc, action) {
+            var url = '';
+            try { url = String((doc.defaultView || window).location.href).split('#')[0]; } catch (error) { url = String(location.href).split('#')[0]; }
+            var key = '__yayaPrecision:' + action + ':' + url;
+            try {
+              if (sessionStorage.getItem(key)) return false;
+              sessionStorage.setItem(key, '1');
+              return true;
+            } catch (error) {
+              if (window[key]) return false;
+              window[key] = true;
+              return true;
+            }
           }
-          function clickDesktopEntry() {
-            if (Date.now() - (window.__yayaIosDesktopClickedAt || 0) < 5000) return false;
-            var entry = desktopEntry();
-            if (!entry) return false;
-            window.__yayaIosDesktopClickedAt = Date.now();
-            return clickLike(entry);
+          function candidates(root) {
+            try { return Array.prototype.slice.call(root.querySelectorAll('button,a,input[type=button],input[type=submit],[role=button],label,li[role=button],li[onclick],div[onclick],span[onclick],.btn,.ant-btn,.el-button,.layui-btn')); } catch (error) { return []; }
           }
-          function loginButtonNear(passwordInput) {
-            var doc = passwordInput.ownerDocument || document;
-            var nodes = Array.prototype.slice.call(doc.querySelectorAll('button,input[type=button],input[type=submit],a,[role=button],.btn,.ant-btn,.el-button'));
-            var best = null;
-            var bestScore = -1;
-            nodes.forEach(function(node) {
-              if (!visible(node)) return;
-              var label = String([node.innerText, node.value, node.id, node.className, node.name].join(' '));
-              var score = /登录|登陆|Login|Sign\\s*In|submit/i.test(label) ? 80 : 0;
-              if (passwordInput && passwordInput.form && passwordInput.form.contains(node)) score += 40;
-              var nr = node.getBoundingClientRect();
-              var pr = passwordInput.getBoundingClientRect();
-              if (nr.top >= pr.bottom - 8 && nr.top - pr.bottom < 260) score += 40;
-              if (score > bestScore) { bestScore = score; best = node; }
-            });
-            return bestScore >= 60 ? best : null;
+          function findExact(doc, accept, reject) {
+            var nodes = candidates(doc);
+            for (var i = 0; i < nodes.length; i += 1) {
+              var node = nodes[i];
+              if (!visible(node)) continue;
+              var text = compact(labelText(node));
+              var meta = compact([node.id, node.name, node.className, node.type, node.getAttribute && node.getAttribute('role')].join(' '));
+              if (reject && (reject.test(text) || reject.test(meta))) continue;
+              if (accept.test(text)) return node;
+            }
+            return null;
           }
           function userInputNear(passwordInput) {
             var doc = passwordInput.ownerDocument || document;
             var nodes = Array.prototype.slice.call(doc.querySelectorAll('input:not([type=password])')).filter(visible);
-            var best = null;
-            var bestScore = -1;
-            nodes.forEach(function(node) {
+            for (var i = 0; i < nodes.length; i += 1) {
+              var node = nodes[i];
               var meta = String([node.name, node.id, node.placeholder, node.autocomplete, node.getAttribute && node.getAttribute('aria-label')].join(' '));
               var type = String(node.type || '').toLowerCase();
-              if (/hidden|submit|button|checkbox|radio|file|date|time|range|color/.test(type)) return;
-              var score = /user|account|login|name|id|学号|账号|用户名|工号|手机号/i.test(meta) ? 80 : 20;
-              if (passwordInput.form && passwordInput.form.contains(node)) score += 40;
-              var nr = node.getBoundingClientRect();
-              var pr = passwordInput.getBoundingClientRect();
-              if (nr.top <= pr.top && pr.top - nr.top < 260) score += 30;
-              if (score > bestScore) { bestScore = score; best = node; }
-            });
-            return best;
+              if (/hidden|submit|button|checkbox|radio|file|date|time|range|color/.test(type)) continue;
+              if (/user|account|login|name|id|学号|账号|用户名|工号|手机号/i.test(meta)) return node;
+            }
+            for (var j = 0; j < nodes.length; j += 1) {
+              if (passwordInput.form && passwordInput.form.contains(nodes[j])) return nodes[j];
+            }
+            return nodes[0] || null;
           }
-          var tries = 0;
-          function step() {
-            tries += 1;
-            forceSelfWindow();
-            installUserPause();
-            if (!userPaused()) {
-              clickDesktopEntry();
-              var docs = allDocs();
-              for (var i = 0; i < docs.length; i += 1) {
-                var passwordInput = Array.prototype.slice.call(docs[i].querySelectorAll('input[type=password]')).filter(visible)[0];
-                if (!passwordInput) continue;
-                var userInput = userInputNear(passwordInput);
-                setValue(userInput, username);
-                setValue(passwordInput, password);
-                if (Date.now() - (window.__yayaIosLoginClickedAt || 0) > 5000) {
-                  var button = loginButtonNear(passwordInput);
-                  if (button && clickLike(button)) window.__yayaIosLoginClickedAt = Date.now();
-                }
-                break;
+          function findLogin(doc, passwordInput) {
+            var roots = [];
+            if (passwordInput && passwordInput.form) roots.push(passwordInput.form);
+            roots.push(doc);
+            var accept = /^(登录|登陆|Login|LogIn|SignIn|Sign\\s*In)$/i;
+            for (var r = 0; r < roots.length; r += 1) {
+              var nodes = candidates(roots[r]);
+              for (var i = 0; i < nodes.length; i += 1) {
+                var node = nodes[i];
+                if (!visible(node)) continue;
+                var text = norm(labelText(node));
+                if (accept.test(text) || String(node.type || '').toLowerCase() === 'submit') return node;
               }
             }
-            if (tries < 28) setTimeout(step, 500);
+            return null;
           }
-          step();
+          function runPrecision() {
+            forceSelfWindow();
+            var docs = allDocs();
+            for (var d = 0; d < docs.length; d += 1) {
+              var desktop = findExact(docs[d], /^(电脑端|PC端|pc端|网页版|Web端|桌面端|进入电脑端|电脑端登录)$/i, /手机端|移动端|移动门户|mobile|phone/i);
+              if (desktop && actionOnce(docs[d], 'desktop')) { clickLike(desktop); return; }
+            }
+            for (var p = 0; p < docs.length; p += 1) {
+              var doc = docs[p];
+              var passwordInput = Array.prototype.slice.call(doc.querySelectorAll('input[type=password]')).filter(visible)[0];
+              if (!passwordInput) continue;
+              var userInput = userInputNear(passwordInput);
+              setValue(userInput, username);
+              setValue(passwordInput, password);
+              var button = findLogin(doc, passwordInput);
+              if (button && actionOnce(doc, 'login')) clickLike(button);
+              return;
+            }
+            for (var e = 0; e < docs.length; e += 1) {
+              var portal = findExact(docs[e], /^(登录接入信息网络门户|登陆接入信息网络门户|接入信息网络门户|信息门户平台|数字京师)$/, /切换|切換|门户选取|门户选择|登入门户选取|登录门户选取|选择门户|选择登录门户|杂项|雜項|其他|其它|访客|游客|临时/);
+              if (portal && actionOnce(docs[e], 'portal')) { clickLike(portal); return; }
+            }
+          }
+          function observe() {
+            allDocs().forEach(function(doc) {
+              if (doc.__yayaPrecisionObserver) return;
+              try {
+                doc.__yayaPrecisionObserver = new MutationObserver(function() {
+                  clearTimeout(window.__yayaPrecisionTimer);
+                  window.__yayaPrecisionTimer = setTimeout(runPrecision, 180);
+                });
+                doc.__yayaPrecisionObserver.observe(doc.documentElement || doc, { subtree: true, childList: true, attributes: true });
+              } catch (error) {
+              }
+            });
+          }
+          runPrecision();
+          setTimeout(runPrecision, 650);
+          observe();
         })();
         """
         webView.evaluateJavaScript(script)
