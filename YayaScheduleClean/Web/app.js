@@ -831,6 +831,9 @@
     document.querySelectorAll(".date-day-rail").forEach((rail) => {
       keepActiveChipVisible(rail, ".date-day-chip.active");
     });
+    document.querySelectorAll(".recurring-week-rail").forEach((rail) => {
+      keepActiveChipVisible(rail, ".recurring-week-chip.active");
+    });
   }
 
   function keepActiveChipVisible(rail, selector) {
@@ -2083,6 +2086,7 @@
       endDate: "",
       termStart: state.termStart
     };
+    const baseTermStart = base.termStart || state.termStart || DEFAULT_TERM_START;
     const data = {
       ...base,
       title: draftField(draft, "title", base.title || ""),
@@ -2092,16 +2096,21 @@
       startTime: draftField(draft, "startTime", base.startTime || "08:00"),
       endTime: draftField(draft, "endTime", base.endTime || "09:40"),
       startDate: draftField(draft, "startDate", base.startDate || ""),
-      endDate: draftField(draft, "endDate", base.endDate || "")
+      endDate: draftField(draft, "endDate", base.endDate || ""),
+      termStart: draftField(draft, "termStart", baseTermStart)
     };
+    const linkedRange = recurringDateRangeFromWeeks(data.weeks, data.dayIndex, data.termStart);
+    if (!data.startDate && linkedRange.startDate) data.startDate = linkedRange.startDate;
+    if (!data.endDate && linkedRange.endDate) data.endDate = linkedRange.endDate;
     return `
       ${modalHead(editing ? "修改常驻日程" : "添加常驻日程", "open-schedules")}
       <form id="recurringForm" class="form-stack">
+        <input type="hidden" name="termStart" value="${escapeAttr(data.termStart || state.termStart || DEFAULT_TERM_START)}" />
         <label><span>内容</span><input name="title" type="text" value="${escapeAttr(data.title)}" maxlength="40" required /></label>
         <label><span>地点</span><input name="place" type="text" value="${escapeAttr(data.place || "")}" maxlength="60" /></label>
         <div class="form-grid">
           <label><span>星期</span>${daySelect(data.dayIndex)}</label>
-          <label><span>周次</span><input name="weeks" type="text" value="${escapeAttr(formatWeeks(data.weeks))}" placeholder="1-16 或 1-16单" required /></label>
+          ${renderRecurringWeekPicker(data.weeks)}
         </div>
         <div class="form-grid">
           ${renderTimeField("startTime", "开始", data.startTime)}
@@ -2113,6 +2122,27 @@
         </div>
         <button type="submit" class="primary">保存</button>
       </form>
+    `;
+  }
+
+  function renderRecurringWeekPicker(weeks = []) {
+    const selected = new Set(weeks.map(Number));
+    const value = formatWeeks(weeks);
+    const inputUi = templateInputUi();
+    return `
+      <section class="recurring-week-field" ${inputUiAttrs("week", inputUi)} data-recurring-week-picker data-last-weeks="${escapeAttr(value)}">
+        <span>周次</span>
+        <div class="recurring-week-control">
+          <input class="recurring-week-input" name="weeks" type="text" value="${escapeAttr(value)}" placeholder="1-16 或 1,3,5" autocomplete="off" inputmode="text" required data-recurring-weeks-input data-input-component="${escapeAttr(inputUi.variant)}" />
+          <strong data-recurring-week-summary>${escapeHtml(value ? `第 ${value} 周` : "请选择周次")}</strong>
+        </div>
+        <div class="recurring-week-rail" aria-label="选择常驻日程周次">
+          ${Array.from({ length: MAX_WEEK }, (_, index) => {
+            const week = index + 1;
+            return `<button type="button" class="recurring-week-chip ${selected.has(week) ? "active" : ""}" data-action="toggle-recurring-week" data-week="${week}" aria-pressed="${selected.has(week) ? "true" : "false"}">第${week}周</button>`;
+          }).join("")}
+        </div>
+      </section>
     `;
   }
 
@@ -2861,6 +2891,10 @@
       persist();
       scheduleRenderAll({ force: true });
     }
+    if (action === "toggle-recurring-week") {
+      toggleRecurringWeek(target);
+      return;
+    }
     if (action === "open-courses") {
       const currentPage = currentCourseOverviewPage();
       if (state.courseOverviewPage !== currentPage) {
@@ -2960,6 +2994,9 @@
 
   function handleInput(event) {
     captureModalFormDraft(event.target);
+    if (event.target.closest?.("#recurringForm") && event.target.name === "weeks") {
+      syncRecurringWeekLink(event.target, "weeks");
+    }
     const editor = event.target.closest?.("[data-custom-theme-editor]");
     if (editor) syncCustomThemeEditorInput(event.target, editor);
   }
@@ -2977,6 +3014,9 @@
     }
     if (event.target.closest?.("#termImportForm") && (event.target.name === "termYear" || event.target.name === "termKind")) {
       syncTermStartFromSelection(event.target.closest("#termImportForm"));
+    }
+    if (event.target.closest?.("#recurringForm") && ["weeks", "dayIndex", "startDate", "endDate"].includes(event.target.name)) {
+      syncRecurringWeekLink(event.target, event.target.name);
     }
     if (event.target.matches?.("[data-date-input]")) {
       syncInternalDateLabel(event.target);
@@ -3042,6 +3082,157 @@
     input.value = start;
     input.setAttribute("value", start);
     syncInternalDateLabel(input);
+  }
+
+  function toggleRecurringWeek(button) {
+    const form = button?.closest?.("#recurringForm");
+    const input = form?.elements?.weeks;
+    if (!form || !input) return;
+    const oldWeeks = recurringWeeksFromForm(form);
+    const week = clamp(Number(button.dataset.week), 1, MAX_WEEK);
+    const selected = new Set(oldWeeks);
+    if (selected.has(week)) selected.delete(week);
+    else selected.add(week);
+    setRecurringWeeksValue(form, [...selected].sort((a, b) => a - b));
+    syncRecurringFromWeeks(form, oldWeeks);
+    captureModalFormDraft(input);
+  }
+
+  function syncRecurringWeekLink(target, source) {
+    const form = target?.closest?.("#recurringForm");
+    if (!form) return;
+    if (source === "startDate" || source === "endDate") {
+      syncRecurringFromDates(form, source);
+    } else {
+      const oldWeeks = parseWeeks(form.querySelector("[data-recurring-week-picker]")?.dataset.lastWeeks || "");
+      syncRecurringFromWeeks(form, oldWeeks, { forceDates: source === "dayIndex" });
+    }
+    captureModalFormDraft(target);
+  }
+
+  function syncRecurringFromWeeks(form, oldWeeks = [], options = {}) {
+    const weeks = recurringWeeksFromForm(form);
+    setRecurringWeeksValue(form, weeks);
+    const bounds = recurringWeekBounds(weeks);
+    if (!bounds) {
+      setRecurringDateValue(form.elements.startDate, "");
+      setRecurringDateValue(form.elements.endDate, "");
+      return;
+    }
+    const oldBounds = recurringWeekBounds(oldWeeks);
+    const boundaryChanged = options.forceDates
+      || !oldBounds
+      || oldBounds.start !== bounds.start
+      || oldBounds.end !== bounds.end;
+    if (!boundaryChanged) return;
+    const dayIndex = clamp(Number(form.elements.dayIndex?.value), 0, 6);
+    const range = recurringDateRangeFromWeeks(weeks, dayIndex, recurringFormTermStart(form));
+    setRecurringDateValue(form.elements.startDate, range.startDate);
+    setRecurringDateValue(form.elements.endDate, range.endDate);
+  }
+
+  function syncRecurringFromDates(form, source) {
+    const startInput = form.elements.startDate;
+    const endInput = form.elements.endDate;
+    const startDate = validDate(startInput?.value) ? startInput.value : "";
+    const endDate = validDate(endInput?.value) ? endInput.value : "";
+    const referenceDate = startDate || endDate;
+    if (!referenceDate) return;
+    const termStart = termStartForDate(referenceDate);
+    setRecurringTermStart(form, termStart);
+    if (source === "startDate" || (!startDate && source === "endDate")) {
+      setRecurringDayValue(form, dateInfo(referenceDate).dayIndex);
+    }
+    const startWeek = recurringWeekForDate(startDate || endDate, termStart);
+    const endWeek = recurringWeekForDate(endDate || startDate, termStart);
+    const first = Math.min(startWeek, endWeek);
+    const last = Math.max(startWeek, endWeek);
+    const weeks = Array.from({ length: last - first + 1 }, (_, index) => first + index);
+    setRecurringWeeksValue(form, weeks);
+    const dayIndex = clamp(Number(form.elements.dayIndex?.value), 0, 6);
+    const range = recurringDateRangeFromWeeks(weeks, dayIndex, termStart);
+    setRecurringDateValue(startInput, range.startDate);
+    setRecurringDateValue(endInput, range.endDate);
+  }
+
+  function recurringWeeksFromForm(form) {
+    return parseWeeks(form?.elements?.weeks?.value || "");
+  }
+
+  function recurringWeekBounds(weeks = []) {
+    const sorted = [...new Set(weeks.map(Number).filter((week) => week > 0 && week <= MAX_WEEK))].sort((a, b) => a - b);
+    if (!sorted.length) return null;
+    return { start: sorted[0], end: sorted[sorted.length - 1] };
+  }
+
+  function recurringDateRangeFromWeeks(weeks = [], dayIndex = 0, termStart = state.termStart || DEFAULT_TERM_START) {
+    const bounds = recurringWeekBounds(weeks);
+    if (!bounds) return { startDate: "", endDate: "" };
+    const safeDay = clamp(Number(dayIndex), 0, 6);
+    const safeTermStart = validDate(termStart) ? termStart : state.termStart || DEFAULT_TERM_START;
+    return {
+      startDate: dateForWeekDay(safeTermStart, bounds.start, safeDay),
+      endDate: dateForWeekDay(safeTermStart, bounds.end, safeDay)
+    };
+  }
+
+  function recurringWeekForDate(date, termStart = state.termStart || DEFAULT_TERM_START) {
+    if (!validDate(date)) return 1;
+    const safeTermStart = validDate(termStart) ? termStart : state.termStart || DEFAULT_TERM_START;
+    const diff = Math.floor((toDate(date) - toDate(safeTermStart)) / 86400000);
+    return clamp(Math.floor(diff / 7) + 1, 1, MAX_WEEK);
+  }
+
+  function recurringFormTermStart(form) {
+    const value = form?.elements?.termStart?.value;
+    return validDate(value) ? value : state.termStart || DEFAULT_TERM_START;
+  }
+
+  function setRecurringTermStart(form, value) {
+    const input = form?.elements?.termStart;
+    if (!input || !validDate(value)) return;
+    input.value = value;
+    input.setAttribute("value", value);
+  }
+
+  function setRecurringWeeksValue(form, weeks = []) {
+    const input = form?.elements?.weeks;
+    if (!input) return;
+    const normalized = [...new Set(weeks.map(Number).filter((week) => week > 0 && week <= MAX_WEEK))].sort((a, b) => a - b);
+    const value = formatWeeks(normalized);
+    input.value = value;
+    input.setAttribute("value", value);
+    const picker = form.querySelector("[data-recurring-week-picker]");
+    if (picker) picker.dataset.lastWeeks = value;
+    form.querySelector("[data-recurring-week-summary]")?.replaceChildren(document.createTextNode(value ? `第 ${value} 周` : "请选择周次"));
+    const selected = new Set(normalized);
+    form.querySelectorAll("[data-week]").forEach((chip) => {
+      const active = selected.has(Number(chip.dataset.week));
+      chip.classList.toggle("active", active);
+      chip.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    keepActiveChipVisible(form.querySelector(".recurring-week-rail"), ".recurring-week-chip.active");
+  }
+
+  function setRecurringDateValue(input, value) {
+    if (!input) return;
+    const normalized = validDate(value) ? value : "";
+    input.value = normalized;
+    input.setAttribute("value", normalized);
+    syncInternalDateLabel(input);
+  }
+
+  function setRecurringDayValue(form, value) {
+    const input = form?.elements?.dayIndex;
+    const next = String(clamp(Number(value), 0, 6));
+    if (!input) return;
+    input.value = next;
+    input.setAttribute("value", next);
+    const select = input.closest("[data-internal-select]");
+    const label = select?.querySelector("[data-internal-select-label]");
+    const option = Array.from(select?.querySelectorAll("[data-option-value]") || []).find((node) => node.dataset.optionValue === next);
+    label?.replaceChildren(document.createTextNode(option?.dataset.optionLabel || `周${DAYS[Number(next)]}`));
+    select?.classList.toggle("has-value", true);
   }
 
   function handleKeydown(event) {
@@ -3806,7 +3997,7 @@
       endTime: data.get("endTime"),
       startDate: data.get("startDate"),
       endDate: data.get("endDate"),
-      termStart: state.termStart || DEFAULT_TERM_START
+      termStart: validDate(data.get("termStart")) ? data.get("termStart") : state.termStart || DEFAULT_TERM_START
     });
     if (!item.title || !item.weeks.length) return;
     if (editing) {

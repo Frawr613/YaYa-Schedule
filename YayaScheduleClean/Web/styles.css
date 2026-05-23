@@ -1494,7 +1494,8 @@ body[data-input-ui="compactInput"] {
 }
 
 .date-week-rail,
-.date-day-rail {
+.date-day-rail,
+.recurring-week-rail {
   display: flex;
   gap: 8px;
   min-width: 0;
@@ -1505,12 +1506,14 @@ body[data-input-ui="compactInput"] {
 }
 
 .date-week-rail::-webkit-scrollbar,
-.date-day-rail::-webkit-scrollbar {
+.date-day-rail::-webkit-scrollbar,
+.recurring-week-rail::-webkit-scrollbar {
   display: none;
 }
 
 .date-week-chip,
-.date-day-chip {
+.date-day-chip,
+.recurring-week-chip {
   flex: 0 0 auto;
   min-width: 86px;
   min-height: 44px;
@@ -1543,7 +1546,8 @@ body[data-input-ui="compactInput"] {
 }
 
 .date-week-chip.active,
-.date-day-chip.active {
+.date-day-chip.active,
+.recurring-week-chip.active {
   color: var(--tpl-action-text, #111827);
   background: var(--tpl-primary-action, var(--accent));
   border-color: color-mix(in srgb, var(--tpl-brand, var(--accent)) 52%, white);
@@ -1556,7 +1560,8 @@ body[data-input-ui="compactInput"] {
 }
 
 .date-week-chip.active::after,
-.date-day-chip.active::after {
+.date-day-chip.active::after,
+.recurring-week-chip.active::after {
   content: "";
   position: absolute;
   top: 6px;
@@ -1570,6 +1575,68 @@ body[data-input-ui="compactInput"] {
 
 .date-day-chip.active span {
   color: inherit;
+}
+
+.recurring-week-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.recurring-week-field > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.recurring-week-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.recurring-week-input {
+  width: 100%;
+  min-height: var(--input-ui-min-height, 46px);
+  padding: 0 var(--input-ui-padding-x, 12px);
+  border: 1px solid var(--input-ui-border, var(--glass-border));
+  border-radius: var(--input-ui-radius, 16px);
+  color: var(--input-ui-text, var(--ink));
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0.12)),
+    var(--input-ui-bg, var(--glass-control-bg));
+  box-shadow: var(--input-ui-inset, var(--glass-inset)), var(--input-ui-shadow, 0 10px 24px color-mix(in srgb, var(--accent) 10%, transparent));
+  font-weight: 850;
+  outline: none;
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.64)) saturate(1.16);
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.64)) saturate(1.16);
+}
+
+.recurring-week-input::placeholder {
+  color: var(--input-ui-muted, var(--muted));
+}
+
+.recurring-week-control strong {
+  display: inline-grid;
+  place-items: center;
+  min-height: 32px;
+  max-width: 132px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--input-ui-accent, var(--accent));
+  background: color-mix(in srgb, var(--input-ui-accent, var(--accent)) 11%, rgba(255, 255, 255, 0.32));
+  border: 1px solid color-mix(in srgb, var(--input-ui-border, var(--glass-border)) 72%, transparent);
+  font-size: 12px;
+  font-weight: 950;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recurring-week-rail {
+  padding-bottom: 2px;
 }
 
 .date-lookup label,
