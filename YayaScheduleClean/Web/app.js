@@ -2248,7 +2248,10 @@
           </div>
           <small>${escapeHtml(detected ? "已根据教务字段、页面标题和课表文本给出建议" : "请按原版流程手动确认开学日期和学期名称")}</small>
         </section>
-        ${renderDateField("termStart", "开学日期", startValue, { className: "term-start-field" })}
+        <section class="term-start-field term-internal-date-field">
+          <span>开学日期</span>
+          ${internalDateSelect("termStart", startValue, { title: "选择开学日期", required: true })}
+        </section>
         ${renderTermSelectFields(termSelection)}
         <p class="form-note term-import-note">
           将导入 ${rows.length} 门课程。相同学期会更新课表，不覆盖手动日程、DDL 和备注。
@@ -2646,6 +2649,36 @@
     `;
   }
 
+  function internalDateSelect(name, value, options = {}) {
+    const normalized = validDate(value) ? value : options.optional ? "" : todayString();
+    const inputUi = templateInputUi();
+    const required = options.required === false || options.optional ? "" : " data-internal-required=\"true\"";
+    const min = options.min ? ` data-date-min="${escapeAttr(options.min)}"` : "";
+    const max = options.max ? ` data-date-max="${escapeAttr(options.max)}"` : "";
+    const optional = options.optional ? ` data-date-optional="true"` : "";
+    const ariaLabel = options.title || options.ariaLabel || "选择日期";
+    return `
+      <span class="internal-date" ${inputUiAttrs("date", inputUi)} data-internal-date data-picker-title="${escapeAttr(ariaLabel)}" data-placeholder="${escapeAttr(options.placeholder || "请选择日期")}">
+        <input class="date-input internal-date-input" name="${escapeAttr(name)}" type="text" inputmode="none" tabindex="-1" readonly data-date-input data-input-component="${escapeAttr(inputUi.variant)}" value="${escapeAttr(normalized)}"${required}${min}${max}${optional} aria-label="${escapeAttr(ariaLabel)}" />
+        <button type="button" class="internal-date-button" data-internal-date-open data-input-ui-button aria-haspopup="dialog" aria-label="${escapeAttr(`${ariaLabel}：${internalDateDisplay(normalized, options.placeholder || "请选择日期")}`)}">
+          <span data-internal-date-label>${escapeHtml(internalDateDisplay(normalized, options.placeholder || "请选择日期"))}</span>
+          <b aria-hidden="true">日</b>
+        </button>
+      </span>
+    `;
+  }
+
+  function internalDateDisplay(value, placeholder = "请选择日期") {
+    return validDate(value) ? pickerDateLabel(value) : placeholder;
+  }
+
+  function syncInternalDateLabel(input) {
+    const wrapper = input?.closest?.("[data-internal-date]");
+    if (!wrapper) return;
+    const label = wrapper.querySelector("[data-internal-date-label]");
+    if (label) label.textContent = internalDateDisplay(input.value, wrapper.dataset.placeholder || "请选择日期");
+  }
+
   function flattenInternalOptions(groups = []) {
     return groups.flatMap((group) => {
       const groupLabel = String(group?.label || "");
@@ -2904,9 +2937,11 @@
   }
 
   function pickerInputFromClick(event) {
+    const dateButton = event.target.closest?.("[data-internal-date-open]");
+    if (dateButton) return dateButton.closest("[data-internal-date]")?.querySelector("[data-date-input]") || null;
     const direct = event.target.closest?.("[data-time-input],[data-date-input]");
     if (direct) return direct;
-    const shell = event.target.closest?.(".picker-input-shell,.time-field,.date-field,.date-picker");
+    const shell = event.target.closest?.(".picker-input-shell,.time-field,.date-field,.date-picker,.internal-date");
     return shell?.querySelector?.("[data-time-input],[data-date-input]") || null;
   }
 
@@ -2929,6 +2964,9 @@
     }
     if (event.target.closest?.("#termImportForm") && (event.target.name === "termYear" || event.target.name === "termKind")) {
       syncTermStartFromSelection(event.target.closest("#termImportForm"));
+    }
+    if (event.target.matches?.("[data-date-input]")) {
+      syncInternalDateLabel(event.target);
     }
     if (event.target.id === "focusDateInput") {
       state.focusDate = validDate(event.target.value) ? event.target.value : todayString();
@@ -2990,6 +3028,7 @@
     if (!input || !validDate(start)) return;
     input.value = start;
     input.setAttribute("value", start);
+    syncInternalDateLabel(input);
   }
 
   function handleKeydown(event) {
@@ -3360,6 +3399,7 @@
     if (!target || target.disabled) return false;
     target.value = value;
     target.setAttribute("value", value);
+    if (kind === "date") syncInternalDateLabel(target);
     target.dispatchEvent(new Event("input", { bubbles: true }));
     target.dispatchEvent(new Event("change", { bubbles: true }));
     return true;

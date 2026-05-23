@@ -2815,11 +2815,19 @@ body[data-template="compact"] .dashboard-panel {
 }
 
 .term-start-field {
+  display: grid;
+  gap: 8px;
   padding: 12px;
   border: 1px solid color-mix(in srgb, var(--input-ui-accent, var(--accent)) 16%, var(--input-ui-border, var(--glass-border)));
   border-radius: var(--input-ui-radius, var(--glass-control-radius, var(--radius)));
   background: color-mix(in srgb, var(--input-ui-bg, var(--glass-control-bg)) 80%, transparent);
   box-shadow: var(--input-ui-inset, var(--glass-inset));
+}
+
+.term-start-field > span {
+  color: var(--input-ui-muted, var(--muted));
+  font-size: 12px;
+  font-weight: 850;
 }
 
 .term-select-field {
@@ -3027,12 +3035,27 @@ body[data-template="compact"] .dashboard-panel {
   font-weight: 900;
 }
 
-.internal-select {
+.internal-select,
+.internal-date {
   display: grid;
   min-width: 0;
 }
 
-.internal-select-button {
+.internal-date {
+  position: relative;
+}
+
+.internal-date-input {
+  position: absolute;
+  inset: auto auto 0 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.internal-select-button,
+.internal-date-button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -3048,7 +3071,8 @@ body[data-template="compact"] .dashboard-panel {
   box-shadow: var(--glass-inset), 0 10px 22px color-mix(in srgb, var(--accent) 9%, transparent);
 }
 
-.internal-select-button span {
+.internal-select-button span,
+.internal-date-button span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3058,7 +3082,8 @@ body[data-template="compact"] .dashboard-panel {
   font-weight: 850;
 }
 
-.internal-select-button b {
+.internal-select-button b,
+.internal-date-button b {
   color: var(--accent);
   font-size: 22px;
   line-height: 1;
@@ -3068,7 +3093,8 @@ body[data-template="compact"] .dashboard-panel {
   display: none !important;
 }
 
-.internal-select[data-input-ui] .internal-select-button {
+.internal-select[data-input-ui] .internal-select-button,
+.internal-date[data-input-ui] .internal-date-button {
   min-height: var(--input-ui-min-height);
   padding: 0 var(--input-ui-padding-x);
   border-color: var(--input-ui-border, var(--glass-border));
@@ -3082,11 +3108,13 @@ body[data-template="compact"] .dashboard-panel {
   backdrop-filter: blur(calc(var(--glass-blur) * 0.64)) saturate(1.16);
 }
 
-.internal-select[data-input-ui] .internal-select-button span {
+.internal-select[data-input-ui] .internal-select-button span,
+.internal-date[data-input-ui] .internal-date-button span {
   color: var(--input-ui-text, var(--ink));
 }
 
-.internal-select[data-input-ui] .internal-select-button b {
+.internal-select[data-input-ui] .internal-select-button b,
+.internal-date[data-input-ui] .internal-date-button b {
   display: grid;
   place-items: center;
   width: var(--input-ui-indicator-size);
@@ -3100,7 +3128,8 @@ body[data-template="compact"] .dashboard-panel {
   font-size: 20px;
 }
 
-body[data-input-ui="compactInput"] .internal-select[data-input-ui] .internal-select-button b {
+body[data-input-ui="compactInput"] .internal-select[data-input-ui] .internal-select-button b,
+body[data-input-ui="compactInput"] .internal-date[data-input-ui] .internal-date-button b {
   font-size: 18px;
 }
 
