@@ -3958,7 +3958,9 @@
     const raw = window.YayaPlatform?.takeImportedPage();
     if (!raw) return;
     try {
-      applyAcademicImport(JSON.parse(raw));
+      const parsed = JSON.parse(raw);
+      const imports = Array.isArray(parsed) ? parsed : [parsed];
+      imports.filter(Boolean).forEach((payload) => applyAcademicImport(payload));
     } catch (error) {
       state.notice = "教务导入失败";
       renderAll();
@@ -4639,21 +4641,26 @@
       ".layui-this",
       ".el-input__inner",
       ".el-select__selected-item",
-      ".el-select-dropdown__item.selected",
-      ".is-selected",
-      "[aria-selected=true]",
       "[aria-checked=true]"
     ].join(",");
     root.querySelectorAll?.(valueSelectors).forEach((node) => {
+      if (isExpandedTermChoiceNode(node)) return;
       add(node.getAttribute?.("value") || node.value || "");
       add(node.getAttribute?.("title"));
       add(node.getAttribute?.("aria-label"));
       add(node.textContent);
     });
-    if (!fragments.length && termCandidateCount(root.textContent) <= 1) add(root.textContent);
+    if (!fragments.length && !isExpandedTermChoiceNode(root) && termCandidateCount(root.textContent) <= 1) add(root.textContent);
     return fragments
       .sort((a, b) => termCandidateCount(a) - termCandidateCount(b) || a.length - b.length)
       .slice(0, 4);
+  }
+
+  function isExpandedTermChoiceNode(node) {
+    if (!node?.closest) return false;
+    if (node.closest("select")) return false;
+    if (node.closest(".ant-select-selector,.ant-select-selection-item,.ant-select-selection-selected-value,.el-select__wrapper,.el-input,.select2-selection,.select2-selection__rendered,.layui-form-select,[role=combobox]")) return false;
+    return Boolean(node.closest("[role=listbox],[role=option],.ant-select-dropdown,.ant-select-item-option,.el-select-dropdown,.el-select-dropdown__item,.select2-results,.select2-results__option,.layui-anim,.dropdown-menu,.picker-panel"));
   }
 
   function extractCourseTitleTermCandidates(rawText) {
@@ -4757,6 +4764,7 @@
         "[id*=xq]",
         "[id*=xn]"
       ].join(",")).forEach((widget) => {
+        if (isExpandedTermChoiceNode(widget)) return;
         const meta = `${fieldMeta(widget)} ${nearbyMeta(widget)}`;
         const fragments = termElementFragments(widget);
         fragments.forEach((fragment) => {

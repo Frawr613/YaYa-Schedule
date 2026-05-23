@@ -37,7 +37,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private let portalOpenCooldown: TimeInterval = 6
 
     private var webView: WKWebView!
-    private var pendingImportJson = ""
+    private var pendingImportJsonQueue: [String] = []
     private var portalSessionActive = false
     private var lastPortalOpenAt: TimeInterval = 0
     private var reminderScheduleGeneration = 0
@@ -294,8 +294,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               let json = String(data: data, encoding: .utf8) else {
             return
         }
-        pendingImportJson = json
-        setPortalActionStatus(boolValue(body["confirmedTerm"]) ? "已确认，点返回鸦鸦完成导入" : "已抓取，点返回鸦鸦完成导入")
+        enqueuePendingImportJson(json)
+        let count = pendingImportJsonQueue.count
+        let status = boolValue(body["confirmedTerm"])
+            ? "已暂存第 \(count) 次导入，可继续导入其他学期或返回鸦鸦"
+            : "已抓取第 \(count) 次导入，点返回鸦鸦完成导入"
+        setPortalActionStatus(status)
     }
 
     private func configurePortalUi(_ payload: String) {
@@ -430,7 +434,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             autoStack.addArrangedSubview(detectedLabel)
             let note = UILabel()
             note.text = autoDetected
-                ? "已采集 \(pages) 页课表，确认后点“返回鸦鸦”写入本地课表库。"
+                ? "已采集 \(pages) 页课表，确认后暂存本学期，可继续导入其他学期。"
                 : "已采集 \(pages) 页课表，请手动确认开学日期和学期名称。"
             note.textColor = self.portalColor("muted", fallback: UIColor(red: 0.39, green: 0.45, blue: 0.55, alpha: 1))
             note.font = .systemFont(ofSize: 12, weight: .semibold)
@@ -602,6 +606,28 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         return "\(head)\n<!-- yaya-import-truncated \(value.count) chars; preserved head and tail -->\n\(tail)"
     }
 
+    private func enqueuePendingImportJson(_ json: String) {
+        guard !json.isEmpty else { return }
+        pendingImportJsonQueue.append(json)
+    }
+
+    private func drainPendingImportPayload() -> String {
+        guard !pendingImportJsonQueue.isEmpty else { return "" }
+        let queue = pendingImportJsonQueue
+        pendingImportJsonQueue.removeAll()
+        if queue.count == 1 { return queue[0] }
+        let objects = queue.compactMap { item -> Any? in
+            guard let data = item.data(using: .utf8) else { return nil }
+            return try? JSONSerialization.jsonObject(with: data)
+        }
+        guard JSONSerialization.isValidJSONObject(objects),
+              let data = try? JSONSerialization.data(withJSONObject: objects),
+              let json = String(data: data, encoding: .utf8) else {
+            return queue.first ?? ""
+        }
+        return json
+    }
+
     private func setPortalActionStatus(_ text: String) {
         DispatchQueue.main.async { [weak self] in
             let script = """
@@ -643,9 +669,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func deliverPendingImportIfNeeded() {
-        guard !pendingImportJson.isEmpty else { return }
-        let json = pendingImportJson
-        pendingImportJson = ""
+        let json = drainPendingImportPayload()
+        guard !json.isEmpty else { return }
         let script = """
         window.__yayaPendingImport = \(Self.javaScriptStringLiteral(json));
         try { window.dispatchEvent(new Event('yaya-native-import-ready')); } catch (error) {}
@@ -841,6 +866,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 el && el.getAttribute && el.getAttribute('data-name')
               ].join(' '));
             }
+            function expandedChoiceNode(node) {
+              if (!node || !node.closest) return false;
+              if (node.closest('select')) return false;
+              if (node.closest('.ant-select-selector,.ant-select-selection-item,.ant-select-selection-selected-value,.el-select__wrapper,.el-input,.select2-selection,.select2-selection__rendered,.layui-form-select,[role=combobox]')) return false;
+              return !!node.closest('[role=listbox],[role=option],.ant-select-dropdown,.ant-select-item-option,.el-select-dropdown,.el-select-dropdown__item,.select2-results,.select2-results__option,.layui-anim,.dropdown-menu,.picker-panel');
+            }
             function nearbyLabel(el) {
               try {
                 var label = null;
@@ -870,16 +901,17 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               push(root.getAttribute && root.getAttribute('value') || root.value || '');
               push(root.getAttribute && root.getAttribute('title'));
               push(root.getAttribute && root.getAttribute('aria-label'));
-              var selector = 'option[selected],option:checked,.ant-select-selection-item,.ant-select-selection-selected-value,.select2-selection__rendered,.layui-this,.el-input__inner,.el-select__selected-item,.el-select-dropdown__item.selected,.is-selected,[aria-selected=true],[aria-checked=true]';
+              var selector = 'option[selected],option:checked,.ant-select-selection-item,.ant-select-selection-selected-value,.select2-selection__rendered,.layui-this,.el-input__inner,.el-select__selected-item,[aria-checked=true]';
               try {
                 Array.prototype.slice.call(root.querySelectorAll(selector)).forEach(function(node) {
+                  if (expandedChoiceNode(node)) return;
                   push(node.getAttribute && node.getAttribute('value') || node.value || '');
                   push(node.getAttribute && node.getAttribute('title'));
                   push(node.getAttribute && node.getAttribute('aria-label'));
                   push(node.textContent);
                 });
               } catch (error) {}
-              if (!values.length && termCount(root.textContent) <= 1) push(root.textContent);
+              if (!values.length && !expandedChoiceNode(root) && termCount(root.textContent) <= 1) push(root.textContent);
               return values.sort(function(a, b) {
                 return termCount(a) - termCount(b) || a.length - b.length;
               }).slice(0, 4);
@@ -902,6 +934,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               var widgets = doc.querySelectorAll('.ant-select,.ant-select-selector,.ant-select-selection-item,.el-select,.el-select__wrapper,.el-input,.layui-form-select,.select2-selection,[role=combobox],[aria-haspopup=listbox],[class*=semester],[class*=term],[id*=xq],[id*=xn]');
               for (var w = 0; w < widgets.length; w += 1) {
                 var widget = widgets[w];
+                if (expandedChoiceNode(widget)) continue;
                 var widgetMeta = norm(fieldMeta(widget) + ' ' + nearbyLabel(widget));
                 fragmentsOf(widget).forEach(function(widgetText) {
                   if ((/学期|学年|semester|term|xq|xn|xnm|xqm/i.test(widgetMeta) || /学期|学年|春季|秋季|夏季|春|秋|夏|上学期|下学期|第?\\s*[一二三123]\\s*学期/.test(widgetText)) && /20\\d{2}/.test(widgetText)) {
@@ -909,15 +942,29 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                   }
                 });
               }
-              var selected = doc.querySelectorAll('[aria-selected=true],[aria-checked=true],.selected,.active,.is-selected,.layui-this,.ant-select-item-option-selected,.el-select-dropdown__item.selected');
+              var selected = doc.querySelectorAll('[aria-checked=true],.selected,.layui-this');
               for (var s = 0; s < selected.length; s += 1) {
                 var item = selected[s];
+                if (expandedChoiceNode(item)) continue;
                 var itemMeta = norm(fieldMeta(item) + ' ' + nearbyLabel(item));
                 var itemText = norm(item.textContent || item.getAttribute('title') || item.getAttribute('aria-label') || '');
                 if (/20\\d{2}/.test(itemText) && (/学期|学年|semester|term|xq|xn|xnm|xqm/i.test(itemMeta) || /学期|学年|春季|秋季|夏季|春|秋|夏|上学期|下学期|第?\\s*[一二三123]\\s*学期/.test(itemText))) {
                   add('当前选中学期 ' + itemMeta + ' ' + itemText);
                 }
               }
+            } catch (error) {}
+            return out.join('\\n');
+          }
+          function courseTitleTerms(doc) {
+            var out = [];
+            function add(value) {
+              var text = norm(value);
+              if (text && /20\\d{2}/.test(text) && /课表标题|我的课表|个人课表|学生课表|课程表|课表|标题/i.test(text) && out.indexOf(text) < 0) out.push('课表标题 ' + text.slice(0, 220));
+            }
+            try {
+              Array.prototype.slice.call(doc.querySelectorAll('title,h1,h2,h3,h4,h5,h6,caption,legend,.title,[class*=title],[id*=title],[class*=bt],[id*=bt]')).forEach(function(node) {
+                add(node.textContent || node.getAttribute('title') || node.getAttribute('aria-label') || '');
+              });
             } catch (error) {}
             return out.join('\\n');
           }
@@ -936,9 +983,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             for (var i = 0; i < docs.length; i += 1) {
               var doc = docs[i];
               try {
+                var titles = kind === 'course' ? courseTitleTerms(doc) : '';
                 var terms = selectedTerms(doc);
                 var rel = relevant(doc, kind);
-                if (!rel && !terms) continue;
+                if (!rel && !terms && !titles) continue;
+                if (titles) text += '\\n' + titles;
                 text += '\\n' + terms;
                 if (rel) {
                   html += '\\n<!-- yaya-doc-' + i + ' -->\\n' + (doc.body ? doc.body.innerHTML : (doc.documentElement ? doc.documentElement.outerHTML : ''));
@@ -1267,7 +1316,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             if (node) node.textContent = text;
           }
           function confirmTerm(data) {
-            var info = guessTerm((document.title || '') + '\\n' + (data && data.text || '') + '\\n' + (data && data.html || ''));
+            var info = guessTerm((document.title || '') + '\\n' + (data && data.text || ''));
             var detected = !!(info && info.kind);
             return post('confirmAcademicTerm', {
               kind: 'course',
