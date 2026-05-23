@@ -1,6 +1,6 @@
-# 鸦鸦日程 iOS 1.0 Xcode 工程
+# 鸦鸦日程 iOS 2.0 Xcode 工程
 
-这是鸦鸦日程 iOS 1.0 的 Xcode 工程包，不内置个人课表数据。工程以当前十层 Web 架构为核心界面，外层使用 iOS 原生 Swift + WKWebView 承载，并接入 iOS 通知、小组件、教务导入和前端平台桥。
+这是鸦鸦日程 iOS 2.0 的 Xcode 工程包，不内置个人课表数据。工程以当前十层 Web 架构为核心界面，外层使用 iOS 原生 Swift + WKWebView 承载，并接入 iOS 通知、小组件、教务导入和前端平台桥。
 
 ## 已包含
 
@@ -37,4 +37,4 @@
 
 - 主 App Bundle ID：`com.xuyunfan.yayaschedule.clean`
 - 小组件 Bundle ID：`com.xuyunfan.yayaschedule.clean.widget`
-- 版本：`1.0`
+- 版本：`2.0`
