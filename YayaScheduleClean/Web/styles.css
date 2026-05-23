@@ -2664,11 +2664,13 @@ body[data-template="compact"] .dashboard-panel {
 .course-term-tab {
   align-items: center;
   flex-direction: column;
-  min-width: min(190px, 76vw);
-  max-width: min(270px, 88vw);
-  min-height: 70px;
-  padding: 8px 12px 9px;
-  gap: 5px;
+  flex-basis: min(340px, 88vw);
+  width: min(340px, 88vw);
+  min-width: min(260px, 86vw);
+  max-width: min(380px, 92vw);
+  min-height: 72px;
+  padding: 9px 16px 10px;
+  gap: 6px;
   white-space: normal;
 }
 
