@@ -41,6 +41,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var portalSessionActive = false
     private var lastPortalOpenAt: TimeInterval = 0
     private var reminderScheduleGeneration = 0
+    private var portalUiConfig: [String: Any] = [:]
+    private weak var portalTermOverlay: UIView?
 
     override func loadView() {
         let configuration = WKWebViewConfiguration()
@@ -123,6 +125,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func loadLocalApp() {
+        hidePortalTermOverlay()
         guard let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Web"),
               let webRoot = Bundle.main.resourceURL?.appendingPathComponent("Web") else {
             return
@@ -152,6 +155,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             savePortalAccount(username: stringValue(body["username"]), password: stringValue(body["password"]))
         case "setLauncherIcon":
             setLauncherIcon(stringValue(body["iconId"]))
+        case "configurePortalUi":
+            configurePortalUi(stringValue(body["payload"]))
         case "openAcademicPortal":
             openAcademicPortal()
         case "returnHome":
@@ -159,6 +164,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             loadLocalApp()
         case "captureAcademicPage":
             captureAcademicPage(body)
+        case "confirmAcademicTerm":
+            confirmAcademicTerm(body)
         default:
             break
         }
@@ -279,7 +286,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             "html": limitedImportText(stringValue(body["html"])),
             "termLabel": stringValue(body["termLabel"]),
             "termStart": stringValue(body["termStart"]),
-            "confirmedTerm": boolValue(body["confirmedTerm"])
+            "confirmedTerm": boolValue(body["confirmedTerm"]),
+            "termDetected": boolValue(body["termDetected"])
         ]
         guard JSONSerialization.isValidJSONObject(payload),
               let data = try? JSONSerialization.data(withJSONObject: payload),
@@ -287,7 +295,296 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return
         }
         pendingImportJson = json
-        setPortalActionStatus(boolValue(body["confirmedTerm"]) ? "已确认，正在返回鸦鸦导入" : "已抓取，正在返回鸦鸦导入")
+        setPortalActionStatus(boolValue(body["confirmedTerm"]) ? "已确认，点返回鸦鸦完成导入" : "已抓取，点返回鸦鸦完成导入")
+    }
+
+    private func configurePortalUi(_ payload: String) {
+        guard let data = payload.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let dictionary = object as? [String: Any] else {
+            return
+        }
+        portalUiConfig = dictionary
+    }
+
+    private func portalUiJSON() -> String {
+        guard JSONSerialization.isValidJSONObject(portalUiConfig),
+              let data = try? JSONSerialization.data(withJSONObject: portalUiConfig),
+              let json = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return json
+    }
+
+    private func portalColor(_ key: String, fallback: UIColor) -> UIColor {
+        colorFromHex(stringValue(portalUiConfig[key]), fallback: fallback)
+    }
+
+    private func colorFromHex(_ value: String, fallback: UIColor) -> UIColor {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.hasPrefix("#"), text.count == 7 else { return fallback }
+        let hex = String(text.dropFirst())
+        guard let raw = Int(hex, radix: 16) else { return fallback }
+        return UIColor(
+            red: CGFloat((raw >> 16) & 0xff) / 255.0,
+            green: CGFloat((raw >> 8) & 0xff) / 255.0,
+            blue: CGFloat(raw & 0xff) / 255.0,
+            alpha: 1.0
+        )
+    }
+
+    private func portalRadius() -> CGFloat {
+        min(max(CGFloat(numberValue(portalUiConfig["radius"])) + 4.0, 18.0), 34.0)
+    }
+
+    private func portalStyledButton(_ title: String, filled: Bool) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 16, weight: .heavy)
+        button.layer.cornerRadius = max(16, portalRadius() - 7)
+        button.layer.borderWidth = 1
+        button.layer.borderColor = UIColor.white.withAlphaComponent(0.52).cgColor
+        button.clipsToBounds = true
+        if filled {
+            button.backgroundColor = portalColor("accent", fallback: UIColor(red: 0.15, green: 0.39, blue: 0.92, alpha: 1))
+            button.setTitleColor(.white, for: .normal)
+        } else {
+            button.backgroundColor = portalColor("panel", fallback: UIColor(red: 0.94, green: 0.97, blue: 1, alpha: 1)).withAlphaComponent(0.86)
+            button.setTitleColor(portalColor("ink", fallback: UIColor(red: 0.08, green: 0.13, blue: 0.24, alpha: 1)), for: .normal)
+        }
+        return button
+    }
+
+    private func hidePortalTermOverlay() {
+        portalTermOverlay?.removeFromSuperview()
+        portalTermOverlay = nil
+    }
+
+    private func confirmAcademicTerm(_ body: [String: Any]) {
+        let pages = max(1, Int(numberValue(body["pages"])))
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.hidePortalTermOverlay()
+
+            let overlay = UIView(frame: self.view.bounds)
+            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            overlay.backgroundColor = UIColor(red: 0.06, green: 0.09, blue: 0.16, alpha: 0.22)
+            overlay.isUserInteractionEnabled = true
+
+            let card = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialLight))
+            card.translatesAutoresizingMaskIntoConstraints = false
+            card.layer.cornerRadius = self.portalRadius()
+            card.layer.borderWidth = 1
+            card.layer.borderColor = UIColor.white.withAlphaComponent(0.62).cgColor
+            card.layer.shadowColor = UIColor.black.cgColor
+            card.layer.shadowOpacity = 0.18
+            card.layer.shadowRadius = 26
+            card.layer.shadowOffset = CGSize(width: 0, height: 18)
+            card.clipsToBounds = true
+            card.contentView.backgroundColor = self.portalColor("card", fallback: UIColor.white).withAlphaComponent(0.72)
+
+            let stack = UIStackView()
+            stack.axis = .vertical
+            stack.spacing = 10
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            card.contentView.addSubview(stack)
+
+            let head = UIStackView()
+            head.axis = .horizontal
+            head.alignment = .center
+            head.spacing = 10
+            let title = UILabel()
+            title.text = "确认学期"
+            title.textColor = self.portalColor("ink", fallback: UIColor(red: 0.08, green: 0.13, blue: 0.24, alpha: 1))
+            title.font = .systemFont(ofSize: 19, weight: .heavy)
+            let back = self.portalStyledButton("←", filled: false)
+            back.titleLabel?.font = .systemFont(ofSize: 22, weight: .heavy)
+            back.widthAnchor.constraint(equalToConstant: 44).isActive = true
+            back.heightAnchor.constraint(equalToConstant: 44).isActive = true
+            head.addArrangedSubview(title)
+            head.addArrangedSubview(back)
+            stack.addArrangedSubview(head)
+
+            let autoDetected = self.boolValue(body["termDetected"]) && !self.stringValue(body["termLabel"]).isEmpty
+            let detected = autoDetected ? self.stringValue(body["termLabel"]) : "未识别到明确学期"
+            let autoCard = UIView()
+            autoCard.backgroundColor = self.portalColor("panel", fallback: UIColor(red: 0.94, green: 0.97, blue: 1, alpha: 1)).withAlphaComponent(0.82)
+            autoCard.layer.cornerRadius = max(16, self.portalRadius() - 7)
+            autoCard.layer.borderWidth = 1
+            autoCard.layer.borderColor = UIColor.white.withAlphaComponent(0.52).cgColor
+            let autoStack = UIStackView()
+            autoStack.axis = .vertical
+            autoStack.spacing = 4
+            autoStack.translatesAutoresizingMaskIntoConstraints = false
+            autoCard.addSubview(autoStack)
+            let autoLabel = UILabel()
+            autoLabel.text = "自动检索"
+            autoLabel.textColor = self.portalColor("muted", fallback: UIColor(red: 0.39, green: 0.45, blue: 0.55, alpha: 1))
+            autoLabel.font = .systemFont(ofSize: 12, weight: .heavy)
+            autoStack.addArrangedSubview(autoLabel)
+            let detectedLabel = UILabel()
+            detectedLabel.text = detected
+            detectedLabel.textColor = self.portalColor("ink", fallback: UIColor(red: 0.08, green: 0.13, blue: 0.24, alpha: 1))
+            detectedLabel.font = .systemFont(ofSize: 18, weight: .heavy)
+            detectedLabel.numberOfLines = 0
+            autoStack.addArrangedSubview(detectedLabel)
+            let note = UILabel()
+            note.text = autoDetected
+                ? "已采集 \(pages) 页课表，确认后点“返回鸦鸦”写入本地课表库。"
+                : "已采集 \(pages) 页课表，请手动确认开学日期和学期名称。"
+            note.textColor = self.portalColor("muted", fallback: UIColor(red: 0.39, green: 0.45, blue: 0.55, alpha: 1))
+            note.font = .systemFont(ofSize: 12, weight: .semibold)
+            note.numberOfLines = 0
+            autoStack.addArrangedSubview(note)
+            stack.addArrangedSubview(autoCard)
+            NSLayoutConstraint.activate([
+                autoStack.topAnchor.constraint(equalTo: autoCard.topAnchor, constant: 12),
+                autoStack.leadingAnchor.constraint(equalTo: autoCard.leadingAnchor, constant: 14),
+                autoStack.trailingAnchor.constraint(equalTo: autoCard.trailingAnchor, constant: -14),
+                autoStack.bottomAnchor.constraint(equalTo: autoCard.bottomAnchor, constant: -12)
+            ])
+
+            let startField = UITextField()
+            startField.placeholder = "YYYY-MM-DD"
+            startField.text = autoDetected ? self.stringValue(body["termStart"]) : ""
+            startField.keyboardType = .default
+            startField.clearButtonMode = .whileEditing
+            startField.borderStyle = .none
+            startField.tintColor = .clear
+
+            let termDateFormatter = DateFormatter()
+            termDateFormatter.locale = Locale(identifier: "zh_CN")
+            termDateFormatter.dateFormat = "yyyy-MM-dd"
+            termDateFormatter.isLenient = false
+            let startPicker = UIDatePicker()
+            startPicker.datePickerMode = .date
+            startPicker.locale = Locale(identifier: "zh_CN")
+            if #available(iOS 13.4, *) {
+                startPicker.preferredDatePickerStyle = .wheels
+            }
+            if let date = termDateFormatter.date(from: startField.text ?? "") {
+                startPicker.date = date
+            }
+            let syncStartDate = {
+                startField.text = termDateFormatter.string(from: startPicker.date)
+            }
+            startPicker.addAction(UIAction { _ in
+                syncStartDate()
+            }, for: .valueChanged)
+            let pickerToolbar = UIToolbar()
+            pickerToolbar.sizeToFit()
+            pickerToolbar.items = [
+                UIBarButtonItem(title: "今天", style: .plain, primaryAction: UIAction { _ in
+                    startPicker.date = Date()
+                    syncStartDate()
+                }),
+                UIBarButtonItem(systemItem: .flexibleSpace),
+                UIBarButtonItem(title: "完成", style: .done, primaryAction: UIAction { _ in
+                    syncStartDate()
+                    startField.resignFirstResponder()
+                })
+            ]
+            startField.inputView = startPicker
+            startField.inputAccessoryView = pickerToolbar
+
+            func fieldTitle(_ text: String) -> UILabel {
+                let label = UILabel()
+                label.text = text
+                label.textColor = self.portalColor("muted", fallback: UIColor(red: 0.39, green: 0.45, blue: 0.55, alpha: 1))
+                label.font = .systemFont(ofSize: 13, weight: .heavy)
+                return label
+            }
+
+            stack.addArrangedSubview(fieldTitle("开学日期"))
+            startField.font = .systemFont(ofSize: 15, weight: .bold)
+            startField.textColor = self.portalColor("ink", fallback: UIColor(red: 0.08, green: 0.13, blue: 0.24, alpha: 1))
+            startField.backgroundColor = self.portalColor("panel", fallback: UIColor(red: 0.94, green: 0.97, blue: 1, alpha: 1)).withAlphaComponent(0.86)
+            startField.layer.cornerRadius = max(15, self.portalRadius() - 8)
+            startField.layer.borderWidth = 1
+            startField.layer.borderColor = UIColor.white.withAlphaComponent(0.52).cgColor
+            startField.setLeftPaddingPoints(12)
+            startField.heightAnchor.constraint(equalToConstant: 48).isActive = true
+            stack.addArrangedSubview(startField)
+
+            stack.addArrangedSubview(fieldTitle("学期"))
+            var selectedYear = self.academicYear(from: self.stringValue(body["termLabel"]), start: self.stringValue(body["termStart"]))
+            let selectedTermIndex = self.termKindIndex(from: self.stringValue(body["termLabel"]), start: self.stringValue(body["termStart"]))
+            let yearButton = self.portalStyledButton("\(selectedYear)-\(selectedYear + 1)学年", filled: false)
+            let termSegment = UISegmentedControl(items: ["秋", "春", "夏"])
+            termSegment.selectedSegmentIndex = selectedTermIndex
+            termSegment.selectedSegmentTintColor = self.portalColor("accent", fallback: UIColor(red: 0.15, green: 0.39, blue: 0.92, alpha: 1))
+            termSegment.setTitleTextAttributes([.foregroundColor: self.portalColor("ink", fallback: UIColor(red: 0.08, green: 0.13, blue: 0.24, alpha: 1)), .font: UIFont.systemFont(ofSize: 14, weight: .heavy)], for: .normal)
+            termSegment.setTitleTextAttributes([.foregroundColor: UIColor.white, .font: UIFont.systemFont(ofSize: 14, weight: .heavy)], for: .selected)
+            yearButton.heightAnchor.constraint(equalToConstant: 48).isActive = true
+            termSegment.heightAnchor.constraint(equalToConstant: 48).isActive = true
+            let termRow = UIStackView(arrangedSubviews: [yearButton, termSegment])
+            termRow.axis = .horizontal
+            termRow.spacing = 10
+            termRow.distribution = .fillProportionally
+            yearButton.widthAnchor.constraint(equalTo: termSegment.widthAnchor, multiplier: 1.65).isActive = true
+            stack.addArrangedSubview(termRow)
+            yearButton.addAction(UIAction { [weak self, weak yearButton] _ in
+                guard let self else { return }
+                let sheet = UIAlertController(title: "选择学年", message: nil, preferredStyle: .actionSheet)
+                for year in 2000...2076 {
+                    sheet.addAction(UIAlertAction(title: "\(year)-\(year + 1)学年", style: .default) { _ in
+                        selectedYear = year
+                        yearButton?.setTitle("\(year)-\(year + 1)学年", for: .normal)
+                    })
+                }
+                sheet.addAction(UIAlertAction(title: "取消", style: .cancel))
+                if let popover = sheet.popoverPresentationController, let button = yearButton {
+                    popover.sourceView = button
+                    popover.sourceRect = button.bounds
+                }
+                self.present(sheet, animated: true)
+            }, for: .touchUpInside)
+
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.spacing = 10
+            row.distribution = .fillEqually
+            let cancel = self.portalStyledButton("取消导入", filled: false)
+            let confirm = self.portalStyledButton("确认导入", filled: true)
+            row.addArrangedSubview(cancel)
+            row.addArrangedSubview(confirm)
+            row.heightAnchor.constraint(equalToConstant: 48).isActive = true
+            stack.addArrangedSubview(row)
+
+            back.addAction(UIAction { [weak self] _ in
+                self?.hidePortalTermOverlay()
+            }, for: .touchUpInside)
+            cancel.addAction(UIAction { [weak self] _ in
+                self?.hidePortalTermOverlay()
+            }, for: .touchUpInside)
+            confirm.addAction(UIAction { [weak self] _ in
+                guard let self else { return }
+                var confirmed = body
+                let start = startField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                confirmed["kind"] = "course"
+                confirmed["termLabel"] = self.termLabel(firstYear: selectedYear, termIndex: termSegment.selectedSegmentIndex)
+                confirmed["termStart"] = start.isEmpty ? (autoDetected ? self.stringValue(body["termStart"]) : "") : start
+                confirmed["confirmedTerm"] = true
+                confirmed["termDetected"] = autoDetected
+                self.captureAcademicPage(confirmed)
+                self.hidePortalTermOverlay()
+            }, for: .touchUpInside)
+
+            overlay.addSubview(card)
+            self.view.addSubview(overlay)
+            self.portalTermOverlay = overlay
+
+            NSLayoutConstraint.activate([
+                card.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+                card.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+                card.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
+                card.widthAnchor.constraint(equalTo: overlay.widthAnchor, constant: -36),
+                stack.topAnchor.constraint(equalTo: card.contentView.topAnchor, constant: 16),
+                stack.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 18),
+                stack.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor, constant: -18),
+                stack.bottomAnchor.constraint(equalTo: card.contentView.bottomAnchor, constant: -16)
+            ])
+        }
     }
 
     private func normalizedAcademicImportKind(_ value: String) -> String {
@@ -314,6 +611,35 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             """
             self?.webView.evaluateJavaScript(script)
         }
+    }
+
+    private func academicYear(from label: String, start: String) -> Int {
+        if let match = label.range(of: #"20\d{2}\s*[-—–~至]\s*20\d{2}"#, options: .regularExpression) {
+            let first = label[match].prefix(4)
+            if let year = Int(first) { return min(max(year, 2000), 2076) }
+        }
+        if start.count >= 7, let year = Int(start.prefix(4)), let month = Int(start.dropFirst(5).prefix(2)) {
+            return min(max(month >= 8 ? year : year - 1, 2000), 2076)
+        }
+        let year = Calendar.current.component(.year, from: Date())
+        return min(max(year, 2000), 2076)
+    }
+
+    private func termKindIndex(from label: String, start: String) -> Int {
+        if label.range(of: #"夏|暑|第三|第\s*[三3]|三\s*学期"#, options: .regularExpression) != nil { return 2 }
+        if label.range(of: #"春|下|第二|第\s*[二2]|二\s*学期"#, options: .regularExpression) != nil { return 1 }
+        if label.range(of: #"秋|上|第一|第\s*[一1]|一\s*学期"#, options: .regularExpression) != nil { return 0 }
+        if start.count >= 7, let month = Int(start.dropFirst(5).prefix(2)) {
+            if month >= 6 && month < 8 { return 2 }
+            if month < 8 { return 1 }
+        }
+        return 0
+    }
+
+    private func termLabel(firstYear: Int, termIndex: Int) -> String {
+        let labels = ["秋季学期", "春季学期", "夏季学期"]
+        let safeIndex = min(max(termIndex, 0), labels.count - 1)
+        return "\(firstYear)-\(firstYear + 1)学年\(labels[safeIndex])"
     }
 
     private func deliverPendingImportIfNeeded() {
@@ -443,6 +769,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func injectAcademicImportControlsV2() {
+        let portalUiLiteral = Self.javaScriptStringLiteral(portalUiJSON())
         let script = """
         (function() {
           if (window.__yayaIosAcademicControlsV2) return;
@@ -454,6 +781,29 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               window.webkit.messageHandlers.yayaBridge.postMessage(payload);
               return true;
             } catch (error) { return false; }
+          }
+          var portalUi = {};
+          try { portalUi = JSON.parse(\(portalUiLiteral) || "{}"); } catch (error) {}
+          function portalColor(key, fallback) {
+            var value = portalUi && portalUi[key];
+            return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value) : fallback;
+          }
+          function portalNumber(key, fallback) {
+            var value = Number(portalUi && portalUi[key]);
+            return Number.isFinite(value) ? value : fallback;
+          }
+          function hexRgb(hex) {
+            hex = portalColor('_', hex).replace('#', '');
+            return { r: parseInt(hex.slice(0, 2), 16), g: parseInt(hex.slice(2, 4), 16), b: parseInt(hex.slice(4, 6), 16) };
+          }
+          function rgba(hex, alpha) {
+            var c = hexRgb(hex);
+            return 'rgba(' + c.r + ',' + c.g + ',' + c.b + ',' + alpha + ')';
+          }
+          function mixHex(first, second, weight) {
+            var a = hexRgb(first), b = hexRgb(second), w = Math.max(0, Math.min(1, Number(weight) || 0)), x = 1 - w;
+            function part(v) { return Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0'); }
+            return '#' + part(a.r * x + b.r * w) + part(a.g * x + b.g * w) + part(a.b * x + b.b * w);
           }
           function norm(s) { return String(s || '').replace(/\\s+/g, ' ').trim(); }
           function allDocs() {
@@ -472,32 +822,128 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           }
           function selectedTerms(doc) {
             var out = [];
+            function termCount(value) {
+              return (norm(value).match(/20\\d{2}\\s*[-—–~至/]\\s*20\\d{2}|\\b20\\d{2}20\\d{2}[123]\\b|20\\d{2}\\s*年/g) || []).length;
+            }
+            function add(value) {
+              var text = norm(value);
+              if (termCount(text) > 1 && text.length > 80) return;
+              if (text && /20\\d{2}/.test(text) && out.indexOf(text) < 0) out.push(text);
+            }
+            function fieldMeta(el) {
+              return norm([
+                el && el.name,
+                el && el.id,
+                el && el.className,
+                el && el.title,
+                el && el.getAttribute && el.getAttribute('aria-label'),
+                el && el.getAttribute && el.getAttribute('placeholder'),
+                el && el.getAttribute && el.getAttribute('data-name')
+              ].join(' '));
+            }
+            function nearbyLabel(el) {
+              try {
+                var label = null;
+                if (el.id) {
+                  Array.prototype.slice.call(doc.querySelectorAll('label[for]')).forEach(function(node) {
+                    if (!label && node.getAttribute('for') === el.id) label = node;
+                  });
+                }
+                var text = label ? label.textContent : '';
+                var parent = el.parentElement;
+                for (var depth = 0; parent && depth < 3; depth += 1, parent = parent.parentElement) {
+                  text += ' ' + (parent.getAttribute('aria-label') || '') + ' ' + (parent.getAttribute('title') || '');
+                  var labelled = parent.querySelector && parent.querySelector('label,.label,.form-label,.layui-form-label,.el-form-item__label');
+                  if (labelled) text += ' ' + labelled.textContent;
+                }
+                return norm(text);
+              } catch (error) {
+                return '';
+              }
+            }
+            function fragmentsOf(root) {
+              var values = [];
+              function push(value) {
+                var text = norm(value);
+                if (text && /20\\d{2}/.test(text) && values.indexOf(text) < 0) values.push(text);
+              }
+              push(root.getAttribute && root.getAttribute('value') || root.value || '');
+              push(root.getAttribute && root.getAttribute('title'));
+              push(root.getAttribute && root.getAttribute('aria-label'));
+              var selector = 'option[selected],option:checked,.ant-select-selection-item,.ant-select-selection-selected-value,.select2-selection__rendered,.layui-this,.el-input__inner,.el-select__selected-item,.el-select-dropdown__item.selected,.is-selected,[aria-selected=true],[aria-checked=true]';
+              try {
+                Array.prototype.slice.call(root.querySelectorAll(selector)).forEach(function(node) {
+                  push(node.getAttribute && node.getAttribute('value') || node.value || '');
+                  push(node.getAttribute && node.getAttribute('title'));
+                  push(node.getAttribute && node.getAttribute('aria-label'));
+                  push(node.textContent);
+                });
+              } catch (error) {}
+              if (!values.length && termCount(root.textContent) <= 1) push(root.textContent);
+              return values.sort(function(a, b) {
+                return termCount(a) - termCount(b) || a.length - b.length;
+              }).slice(0, 4);
+            }
             try {
               var nodes = doc.querySelectorAll('select,input[type=radio],input[type=checkbox],input[type=hidden],input[type=text]');
               for (var i = 0; i < nodes.length; i += 1) {
                 var el = nodes[i];
-                var meta = norm([el.name, el.id, el.className, el.title, el.getAttribute && el.getAttribute('aria-label')].join(' '));
+                var meta = norm(fieldMeta(el) + ' ' + nearbyLabel(el));
                 if (!/学期|学年|semester|term|xq|xn|xnm|xqm/i.test(meta)) continue;
                 if (el.tagName && el.tagName.toLowerCase() === 'select') {
                   var opt = el.options && el.selectedIndex >= 0 ? el.options[el.selectedIndex] : null;
-                  out.push('当前选中学期 ' + meta + ' ' + norm(el.value) + ' ' + norm(opt && (opt.text || opt.value)));
+                  add('当前选中学期 ' + meta + ' ' + norm(el.value) + ' ' + norm(opt && (opt.text || opt.value)));
                 } else {
                   var type = String(el.type || '').toLowerCase();
                   if ((type === 'radio' || type === 'checkbox') && !el.checked) continue;
-                  if (el.value || el.checked) out.push('当前学期字段 ' + meta + ' ' + norm(el.value));
+                  if (el.value || el.checked) add('当前学期字段 ' + meta + ' ' + norm(el.value));
+                }
+              }
+              var widgets = doc.querySelectorAll('.ant-select,.ant-select-selector,.ant-select-selection-item,.el-select,.el-select__wrapper,.el-input,.layui-form-select,.select2-selection,[role=combobox],[aria-haspopup=listbox],[class*=semester],[class*=term],[id*=xq],[id*=xn]');
+              for (var w = 0; w < widgets.length; w += 1) {
+                var widget = widgets[w];
+                var widgetMeta = norm(fieldMeta(widget) + ' ' + nearbyLabel(widget));
+                fragmentsOf(widget).forEach(function(widgetText) {
+                  if ((/学期|学年|semester|term|xq|xn|xnm|xqm/i.test(widgetMeta) || /学期|学年|春季|秋季|夏季|春|秋|夏|上学期|下学期|第?\\s*[一二三123]\\s*学期/.test(widgetText)) && /20\\d{2}/.test(widgetText)) {
+                    add('当前选中学期 ' + widgetMeta + ' ' + widgetText);
+                  }
+                });
+              }
+              var selected = doc.querySelectorAll('[aria-selected=true],[aria-checked=true],.selected,.active,.is-selected,.layui-this,.ant-select-item-option-selected,.el-select-dropdown__item.selected');
+              for (var s = 0; s < selected.length; s += 1) {
+                var item = selected[s];
+                var itemMeta = norm(fieldMeta(item) + ' ' + nearbyLabel(item));
+                var itemText = norm(item.textContent || item.getAttribute('title') || item.getAttribute('aria-label') || '');
+                if (/20\\d{2}/.test(itemText) && (/学期|学年|semester|term|xq|xn|xnm|xqm/i.test(itemMeta) || /学期|学年|春季|秋季|夏季|春|秋|夏|上学期|下学期|第?\\s*[一二三123]\\s*学期/.test(itemText))) {
+                  add('当前选中学期 ' + itemMeta + ' ' + itemText);
                 }
               }
             } catch (error) {}
             return out.join('\\n');
           }
-          function collect() {
+          function docText(doc) {
+            try { return doc && doc.body ? norm(doc.body.innerText) : ''; } catch (error) { return ''; }
+          }
+          function relevant(doc, kind) {
+            var text = docText(doc);
+            if (!text) return false;
+            if (kind === 'exam') return /考试|考场|考试时间|考试地点|监考|座位/.test(text);
+            return /课表|课程|上课|任课|教师|学分|节次|周次|星期|教学班/.test(text);
+          }
+          function collect(kind) {
             var html = '', text = '';
             var docs = allDocs();
             for (var i = 0; i < docs.length; i += 1) {
               var doc = docs[i];
               try {
-                html += '\\n<!-- yaya-doc-' + i + ' -->\\n' + (doc.body ? doc.body.innerHTML : (doc.documentElement ? doc.documentElement.outerHTML : ''));
-                text += '\\n' + selectedTerms(doc) + '\\n' + (doc.body ? doc.body.innerText : '');
+                var terms = selectedTerms(doc);
+                var rel = relevant(doc, kind);
+                if (!rel && !terms) continue;
+                text += '\\n' + terms;
+                if (rel) {
+                  html += '\\n<!-- yaya-doc-' + i + ' -->\\n' + (doc.body ? doc.body.innerHTML : (doc.documentElement ? doc.documentElement.outerHTML : ''));
+                  text += '\\n' + (doc.body ? doc.body.innerText : '');
+                }
               } catch (error) {}
             }
             return { html: html, text: text };
@@ -507,7 +953,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             try {
               var s = el.ownerDocument.defaultView.getComputedStyle(el);
               var r = el.getBoundingClientRect();
-              return s.display !== 'none' && s.visibility !== 'hidden' && r.width >= 0 && r.height >= 0;
+              return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
             } catch (error) { return true; }
           }
           function disabled(el) {
@@ -525,11 +971,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             var t = targetOf(el);
             return t && visible(t) && !disabled(t);
           }
-          function findNext() {
+          function findNext(kind) {
             var docs = allDocs();
             var selectors = ['.layui-laypage-next','.el-pagination .btn-next','.ant-pagination-next button','.ant-pagination-next','button[aria-label*=Next]','button[aria-label*=下一]','a[aria-label*=Next]','a[aria-label*=下一]','a[title*=下一]','button[title*=下一]','li[title*=下一]'];
             for (var d = 0; d < docs.length; d += 1) {
               var doc = docs[d];
+              if (!relevant(doc, kind)) continue;
               for (var s = 0; s < selectors.length; s += 1) {
                 try {
                   var list = doc.querySelectorAll(selectors[s]);
@@ -537,7 +984,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 } catch (error) {}
               }
               try {
-                var nodes = doc.querySelectorAll('a,button,li,span');
+                var nodes = doc.querySelectorAll('.layui-laypage a,.layui-laypage button,.el-pagination button,.el-pagination li,.ant-pagination button,.ant-pagination li,.pagination a,.pagination button,a,button,li,span');
                 for (var n = 0; n < nodes.length; n += 1) {
                   var el = nodes[n];
                   var txt = norm(el.textContent);
@@ -565,22 +1012,22 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             try {
               var pages = [], seen = {};
               for (var page = 0; page < 80; page += 1) {
-                var data = collect();
+                var data = collect(kind);
                 var key = mark(data);
                 if (key && !seen[key]) { seen[key] = 1; pages.push(data); }
-                var next = findNext();
+                var next = findNext(kind);
                 if (!next) break;
                 var before = key;
                 clickNext(next);
                 var changed = false;
                 for (var t = 0; t < 34; t += 1) {
                   await sleep(260);
-                  var now = mark(collect());
+                  var now = mark(collect(kind));
                   if (now && now !== before) { changed = true; break; }
                 }
                 if (!changed) break;
               }
-              if (!pages.length) pages.push(collect());
+              if (!pages.length) pages.push(collect(kind));
               return {
                 pages: pages.length,
                 html: pages.map(function(p, i) { return '\\n<!-- yaya-page-' + (i + 1) + ' -->\\n' + p.html; }).join('\\n'),
@@ -601,49 +1048,238 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             while (d.getDay() !== 1) d.setDate(d.getDate() + 1);
             return ymd(d);
           }
-          function guessTerm(raw) {
-            var text = norm(raw);
-            var m = text.match(/(20\\d{2})\\s*[-—–~至]\\s*(20\\d{2}).{0,40}?(春季|秋季|夏季|第?\\s*[一二12]\\s*学期|[上下]学期|12|16|[123])?/);
-            var now = new Date();
-            var first = m ? Number(m[1]) : now.getFullYear();
-            var second = m ? Number(m[2]) : first + 1;
-            var hint = m && m[3] ? m[3] : '';
-            var kind = /夏|16|03|3/.test(hint) ? 'summer' : /春|下|第二|二|2|12/.test(hint) ? 'spring' : 'autumn';
-            var label = first + '-' + second + '学年' + (kind === 'spring' ? '春季学期' : kind === 'summer' ? '夏季学期' : '秋季学期');
+          function kindOf(hint) {
+            hint = norm(hint);
+            if (/夏|暑|第三|第\\s*[三3]|三\\s*学期|16|03|3\\s*学期/.test(hint)) return 'summer';
+            if (/春|下|第二|第\\s*[二2]|二\\s*学期|2\\s*学期|12/.test(hint)) return 'spring';
+            if (/秋|上|第一|第\\s*[一1]|一\\s*学期|1\\s*学期|01/.test(hint)) return 'autumn';
+            return '';
+          }
+          function buildTerm(first, second, hint) {
+            first = Number(first);
+            second = Number(second || first + 1);
+            var kind = kindOf(hint);
+            var label = first + '-' + second + '学年' + (kind === 'spring' ? '春季学期' : kind === 'summer' ? '夏季学期' : kind === 'autumn' ? '秋季学期' : '');
             var start = kind === 'spring' ? monday(second, 2, 20) : kind === 'summer' ? monday(second, 6, 20) : monday(first, 9, 1);
-            return { label: label, start: start };
+            return { label: label, start: start, kind: kind };
+          }
+          function termFromCode(first, code, zfCode) {
+            var second = String(Number(first) + 1);
+            code = norm(code);
+            if (code === '1' || code === '01' || (zfCode && code === '3')) return buildTerm(first, second, '第一学期');
+            if (code === '2' || code === '02' || code === '12') return buildTerm(first, second, '第二学期');
+            if (code === '3' || code === '16' || code === '03') return buildTerm(first, second, '夏季');
+            return null;
+          }
+          function termFieldValue(first, rawTerm, zfCode) {
+            var second = String(Number(first) + 1);
+            var value = norm(rawTerm);
+            var code = (value.match(/^(12|16|0?[123])$/) || [])[1];
+            if (code) return termFromCode(first, code, zfCode);
+            if (kindOf(value)) return buildTerm(first, second, value);
+            return null;
+          }
+          function emptyTerm() {
+            return { label: '', start: '', kind: '', detected: false };
+          }
+          function zfTermFields(raw) {
+            var text = norm(raw);
+            var token = '(12|16|0?[123]|第?\\s*[一二三123]\\s*学期|[上下]学期|春季|秋季|夏季|[上下春秋夏暑](?:\\s*学期)?)';
+            var m = text.match(new RegExp('(?:xnm|xndm|xn|学年)[^\\d]{0,24}(20\\d{2}).{0,120}(?:xqm|xqdm|xq|学期)[^\\d一二三上下春秋夏暑]{0,24}' + token, 'i'));
+            if (m) return termFieldValue(m[1], m[2], true);
+            m = text.match(new RegExp('(?:xqm|xqdm|xq|学期)[^\\d一二三上下春秋夏暑]{0,24}' + token + '.{0,120}(?:xnm|xndm|xn|学年)[^\\d]{0,24}(20\\d{2})', 'i'));
+            if (m) return termFieldValue(m[2], m[1], true);
+            var y = text.match(/(?:xnm|xndm|xn|学年)[^\\d]{0,24}(20\\d{2})/i);
+            var t = text.match(new RegExp('(?:xqm|xqdm|xq|学期)[^\\d一二三上下春秋夏暑]{0,24}' + token, 'i'));
+            if (y && t) return termFieldValue(y[1], t[1], true);
+            return null;
+          }
+          function strictZfTermFields(raw) {
+            var text = norm(raw);
+            var year = '(?:xnm|xndm|xn|year|academicYear)';
+            var term = '(?:xqm|xqdm|xq|semester|term)';
+            var token = '(12|16|0?[123]|第?\\s*[一二三123]\\s*学期|[上下]学期|春季|秋季|夏季|[上下春秋夏暑](?:\\s*学期)?)';
+            var m = text.match(new RegExp(year + '[^\\d]{0,24}(20\\d{2}).{0,120}' + term + '[^\\d一二三上下春秋夏暑]{0,24}' + token, 'i'));
+            if (m) return termFieldValue(m[1], m[2], true);
+            m = text.match(new RegExp(term + '[^\\d一二三上下春秋夏暑]{0,24}' + token + '.{0,120}' + year + '[^\\d]{0,24}(20\\d{2})', 'i'));
+            if (m) return termFieldValue(m[2], m[1], true);
+            var y = text.match(new RegExp(year + '[^\\d]{0,24}(20\\d{2})', 'i'));
+            var t = text.match(new RegExp(term + '[^\\d一二三上下春秋夏暑]{0,24}' + token, 'i'));
+            if (y && t) return termFieldValue(y[1], t[1], true);
+            return null;
+          }
+          function parseTermCandidate(raw, allowYearOnly) {
+            var text = norm(raw);
+            var m, info;
+            info = zfTermFields(text);
+            if (info && info.kind) return info;
+            m = text.match(/(20\\d{2})\\s*[-—–~至]\\s*(20\\d{2})\\s*学年.{0,40}?(春季|秋季|夏季|春|秋|夏|第?\\s*[一二三123]\\s*学期|[上下]学期|12|16|0?[123])/);
+            if (m) return buildTerm(m[1], m[2], m[3] || '');
+            m = text.match(/(20\\d{2})\\s*[-—–~至]\\s*(20\\d{2}).{0,40}?(春季|秋季|夏季|春|秋|夏|第?\\s*[一二三123]\\s*学期|[上下]学期|12|16|0?[123])/);
+            if (m) return buildTerm(m[1], m[2], m[3] || '');
+            m = text.match(/(20\\d{2})\\s*[-—–~至/]\\s*(20\\d{2})\\s*[-_/]?\\s*(12|16|0?[123])(?:\\b|学期)/);
+            if (m) {
+              var byCode = termFromCode(m[1], m[3], false);
+              if (byCode && byCode.kind) return byCode;
+            }
+            m = text.match(/\\b(20\\d{2})(20\\d{2})([123])\\b/);
+            if (m) {
+              var compact = termFromCode(m[1], m[3], false);
+              if (compact && compact.kind) return compact;
+            }
+            m = text.match(/(20\\d{2})\\s*年\\s*(春季|秋季|夏季|春|秋|夏|第?\\s*[一二三123]\\s*学期|[上下]学期)/);
+            if (m) {
+              var year = Number(m[1]), kind = kindOf(m[2]);
+              return buildTerm(kind === 'autumn' ? year : year - 1, kind === 'autumn' ? year + 1 : year, m[2]);
+            }
+            if (allowYearOnly) {
+              m = text.match(/(20\\d{2})\\s*[-—–~至]\\s*(20\\d{2})\\s*学年/);
+              if (m) return buildTerm(m[1], m[2], '');
+            }
+            return null;
+          }
+          function addTermCandidate(list, value) {
+            var text = norm(value);
+            if (text && /20\\d{2}/.test(text) && list.indexOf(text) < 0) list.push(text);
+          }
+          function titleTermCandidates(text) {
+            var list = [];
+            var lines = String(text || '').split(/[\\n\\r]+/);
+            for (var i = 0; i < lines.length; i++) {
+              var line = norm(lines[i]);
+              if (/课表标题|我的课表|个人课表|学生课表|课程表|课表|标题/i.test(line) && /20\\d{2}/.test(line)) addTermCandidate(list, line.slice(0, 220));
+            }
+            return list;
+          }
+          function labelledTermCandidates(text, strictOnly) {
+            var list = [], m;
+            var strict = /(当前选中学期|当前学期字段|当前学期|已选学期|选中学期|正在查询学期)\\s*[:：-]?\\s*([^。\\n\\r；;<>]{0,140})/g;
+            while ((m = strict.exec(text))) addTermCandidate(list, m[1] + ' ' + m[2]);
+            if (strictOnly) return list;
+            var loose = /(学年学期|开课学期|课表学期|所在学期)\\s*[:：-]?\\s*([^。\\n\\r；;<>]{0,100})/g;
+            while ((m = loose.exec(text))) addTermCandidate(list, m[1] + ' ' + m[2]);
+            return list;
+          }
+          function allTermInfos(raw) {
+            var text = norm(raw), out = [], seen = {};
+            var patterns = [
+              /20\\d{2}\\s*[-—–~至]\\s*20\\d{2}\\s*学年.{0,32}?(?:春季|秋季|夏季|春|秋|夏|第?\\s*[一二三123]\\s*学期|[上下]学期)/g,
+              /20\\d{2}\\s*[-—–~至]\\s*20\\d{2}.{0,32}?(?:春季|秋季|夏季|春|秋|夏|第?\\s*[一二三123]\\s*学期|[上下]学期)/g,
+              /20\\d{2}\\s*[-—–~至/]\\s*20\\d{2}\\s*[-_/]?\\s*(?:12|16|0?[123])(?:\\b|学期)/g,
+              /\\b20\\d{2}20\\d{2}[123]\\b/g,
+              /20\\d{2}\\s*[-—–~至]\\s*20\\d{2}\\s*学年/g,
+              /20\\d{2}\\s*年\\s*(?:春季|秋季|夏季|春|秋|夏|第?\\s*[一二三123]\\s*学期|[上下]学期)/g
+            ];
+            for (var p = 0; p < patterns.length; p++) {
+              var re = patterns[p], m;
+              while ((m = re.exec(text))) {
+                var info = parseTermCandidate(m[0], true);
+                if (!info) continue;
+                var key = info.label + '|' + info.kind;
+                if (!seen[key]) {
+                  seen[key] = 1;
+                  out.push(info);
+                }
+              }
+            }
+            var specific = {};
+            for (var i = 0; i < out.length; i++) {
+              var prefix = (norm(out[i].label).match(/^(20\\d{2}-20\\d{2}学年)/) || [])[1];
+              if (prefix && out[i].kind) specific[prefix] = 1;
+            }
+            return out.filter(function(info) {
+              var prefix = (norm(info.label).match(/^(20\\d{2}-20\\d{2}学年)/) || [])[1];
+              return info.kind || !specific[prefix];
+            });
+          }
+          function clearTermCandidate(candidate) {
+            var strictInfo = strictZfTermFields(candidate);
+            if (strictInfo && strictInfo.kind) return strictInfo;
+            var matches = allTermInfos(candidate);
+            if (matches.length > 1) return null;
+            var zfInfo = zfTermFields(candidate);
+            if (zfInfo && zfInfo.kind) return zfInfo;
+            return parseTermCandidate(candidate, true);
+          }
+          function termKey(info) {
+            return norm(info && info.label) + '|' + norm(info && info.kind);
+          }
+          function addGuess(list, candidate, source, base, parser, penalty) {
+            var raw = typeof candidate === 'string' ? candidate : '';
+            var info = typeof candidate === 'string' ? (parser ? parser(candidate) : clearTermCandidate(candidate)) : candidate;
+            if (!info || !info.kind) return;
+            var key = termKey(info);
+            if (!key || key === '|') return;
+            var text = norm(raw || info.label);
+            var selected = /当前|已选|选中|正在查询|selected|checked|aria-selected|aria-checked/i.test(text);
+            var structured = /xnm|xndm|xn|xqm|xqdm|xq|学年学期/i.test(text);
+            var title = /课表标题|我的课表|个人课表|学生课表|课程表|课表|标题/i.test(text);
+            var explicit = /春季|秋季|夏季|春|秋|夏|上学期|下学期|第?\\s*[一二三123]\\s*学期|12|16|0?[123]/.test(text);
+            var count = (text.match(/20\\d{2}\\s*[-—–~至/]\\s*20\\d{2}|\\b20\\d{2}20\\d{2}[123]\\b|20\\d{2}\\s*年/g) || []).length;
+            var score = base + (selected ? 24 : 0) + (structured ? 18 : 0) + (title ? 10 : 0) + (explicit ? 8 : 0) - (penalty || 0) - (count > 1 ? Math.min(32, (count - 1) * 12) : 0);
+            var same = null;
+            for (var i = 0; i < list.length; i += 1) {
+              if (list[i].key === key) { same = list[i]; break; }
+            }
+            var guess = { key: key, score: score, source: source, info: info };
+            if (!same || guess.score > same.score) {
+              if (same) list.splice(list.indexOf(same), 1);
+              list.push(guess);
+            }
+          }
+          function chooseGuess(list, count) {
+            list = list.filter(function(guess) {
+              return guess && guess.info && guess.info.kind && guess.score >= 46;
+            }).sort(function(a, b) {
+              return b.score - a.score;
+            });
+            if (!list.length) return null;
+            var best = list[0], second = list[1];
+            if (/selected-label|selected-dom|structured-field|course-title/.test(best.source) && best.score >= 90) return best.info;
+            if (second && second.key !== best.key && best.score - second.score < 18) return null;
+            if (count > 1 && best.score < 84) return null;
+            return best.info;
+          }
+          function guessTerm(raw) {
+            var text = norm(raw), list = [], candidates, all = allTermInfos(text), i;
+            candidates = labelledTermCandidates(text, true);
+            for (i = 0; i < candidates.length; i++) {
+              addGuess(list, candidates[i], 'selected-label', 132);
+            }
+            addGuess(list, text, 'structured-field', 118, strictZfTermFields);
+            candidates = titleTermCandidates(text);
+            for (i = 0; i < candidates.length; i++) {
+              addGuess(list, candidates[i], 'course-title', 102);
+            }
+            candidates = labelledTermCandidates(text, false);
+            for (i = 0; i < candidates.length; i++) {
+              addGuess(list, candidates[i], 'labelled-field', 84);
+            }
+            if (all.length === 1 && all[0].kind) addGuess(list, all[0], 'single-page-term', 64);
+            if (all.length > 1) {
+              for (i = 0; i < all.length; i += 1) addGuess(list, all[i], 'page-term-list', 42, null, 18);
+            }
+            return chooseGuess(list, all.length) || emptyTerm();
           }
           function setStatus(text) {
             window.__yayaIosAcademicStatus = text;
             var node = document.querySelector('[data-yaya-ios-academic-status]');
             if (node) node.textContent = text;
           }
-          function showTermDialog(data) {
-            var old = document.getElementById('yaya-term-confirm');
-            if (old) old.remove();
-            var info = guessTerm((data && data.text || '') + '\\n' + (data && data.html || ''));
-            var back = document.createElement('div');
-            back.id = 'yaya-term-confirm';
-            back.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:18px;background:rgba(15,23,42,.22);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);touch-action:none';
-            ['touchmove','wheel','pointerdown'].forEach(function(type) {
-              back.addEventListener(type, function(event) {
-                if (event.target === back) { event.preventDefault(); event.stopPropagation(); }
-              }, { capture: true, passive: false });
+          function confirmTerm(data) {
+            var info = guessTerm((document.title || '') + '\\n' + (data && data.text || '') + '\\n' + (data && data.html || ''));
+            var detected = !!(info && info.kind);
+            return post('confirmAcademicTerm', {
+              kind: 'course',
+              title: (document.title || '') + ' 共' + (data && data.pages || 1) + '页',
+              url: location.href,
+              text: data.text,
+              html: data.html,
+              termLabel: detected ? info.label : '',
+              termStart: detected ? info.start : '',
+              termDetected: detected,
+              pages: data && data.pages || 1
             });
-            var card = document.createElement('form');
-            card.style.cssText = 'width:min(360px,calc(100vw - 28px));display:grid;gap:12px;padding:16px;border-radius:24px;border:1px solid rgba(255,255,255,.72);background:linear-gradient(145deg,rgba(255,255,255,.96),rgba(232,242,255,.86));box-shadow:0 22px 52px rgba(24,48,90,.28),inset 0 1px 0 rgba(255,255,255,.9);font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;color:#16233a';
-            card.innerHTML = '<strong style="font-size:18px">确认学期</strong><span style="font-size:12px;color:rgba(22,35,58,.68)">已采集 ' + (data && data.pages || 1) + ' 页课表，请确认后写入鸦鸦日程。</span><label style="display:grid;gap:6px;font-weight:800;font-size:13px">开学日期<input name="termStart" type="date" value="' + info.start + '" style="height:44px;border-radius:15px;border:1px solid rgba(37,99,235,.18);padding:0 12px;font:inherit"></label><label style="display:grid;gap:6px;font-weight:800;font-size:13px">学期名称<input name="termLabel" type="text" value="' + info.label + '" style="height:44px;border-radius:15px;border:1px solid rgba(37,99,235,.18);padding:0 12px;font:inherit"></label><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><button type="button" data-cancel style="height:46px;border:0;border-radius:16px;background:rgba(100,116,139,.14);font-weight:900;color:#334155">取消</button><button type="submit" style="height:46px;border:0;border-radius:16px;background:linear-gradient(135deg,#2563eb,#14b8a6);font-weight:900;color:white">确认导入</button></div>';
-            card.querySelector('[data-cancel]').onclick = function() { back.remove(); };
-            card.onsubmit = function(event) {
-              event.preventDefault();
-              var label = card.elements.termLabel.value || info.label;
-              var start = card.elements.termStart.value || info.start;
-              post('captureAcademicPage', { kind: 'course', title: (document.title || '') + ' 共' + (data && data.pages || 1) + '页', url: location.href, text: data.text, html: data.html, termLabel: label, termStart: start, confirmedTerm: true });
-              setStatus('已确认，正在返回鸦鸦导入');
-              setTimeout(function() { post('returnHome'); }, 160);
-            };
-            back.appendChild(card);
-            document.documentElement.appendChild(back);
           }
           function makePanel() {
             var old = document.getElementById('yaya-sync-panel');
@@ -651,15 +1287,25 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             var box = document.createElement('div');
             box.id = 'yaya-sync-panel';
             box.setAttribute('aria-label', '鸦鸦日程导入工具');
-            box.style.cssText = 'position:fixed;right:14px;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);z-index:2147483646;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;width:min(268px,calc(100vw - 28px));min-width:176px;min-height:172px;padding:11px 12px 8px;border:1px solid rgba(255,255,255,.72);border-radius:24px;background:linear-gradient(145deg,rgba(255,255,255,.94),rgba(232,242,255,.78));box-shadow:0 18px 46px rgba(24,48,90,.26),inset 0 1px 0 rgba(255,255,255,.86);-webkit-backdrop-filter:blur(18px) saturate(1.35);backdrop-filter:blur(18px) saturate(1.35);font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;color:#16233a;user-select:none;-webkit-user-select:none;touch-action:none';
+            var accent = portalColor('accent', '#2563eb');
+            var warm = portalColor('warm', '#14b8a6');
+            var ink = portalColor('ink', '#16233a');
+            var muted = portalColor('muted', '#526073');
+            var panel = portalColor('panel', '#eff6ff');
+            var card = portalColor('card', '#ffffff');
+            var radius = Math.max(20, Math.min(36, portalNumber('radius', 22) + 4));
+            var control = mixHex(panel, accent, 0.08);
+            box.style.cssText = 'position:fixed;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);z-index:2147483646;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:minmax(48px,1fr) minmax(48px,1fr) auto auto;gap:10px;width:min(320px,calc(100vw - 20px));min-width:188px;min-height:164px;max-width:calc(100vw - 20px);max-height:calc(100vh - 20px);overflow:hidden;padding:11px 12px 8px;border:1px solid rgba(255,255,255,.72);border-radius:' + radius + 'px;background:linear-gradient(145deg,' + rgba(card,.94) + ',' + rgba(control,.82) + ');box-shadow:0 18px 46px ' + rgba(accent,.24) + ',inset 0 1px 0 rgba(255,255,255,.86);-webkit-backdrop-filter:blur(18px) saturate(1.35);backdrop-filter:blur(18px) saturate(1.35);font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;color:' + ink + ';user-select:none;-webkit-user-select:none;touch-action:none';
             function button(text, tone, fn) {
               var node = document.createElement('button');
               node.type = 'button';
               node.textContent = text;
               var skin = tone === 'home'
-                ? 'linear-gradient(135deg,rgba(255,255,255,.92),rgba(239,246,255,.74));color:#1f3b66;border-color:rgba(37,99,235,.18)'
-                : tone === 'exam' ? 'linear-gradient(135deg,#5b6ee1,#8b5cf6)' : 'linear-gradient(135deg,#2563eb,#14b8a6)';
-              node.style.cssText = 'min-height:48px;border:1px solid rgba(255,255,255,.64);border-radius:17px;padding:0 14px;font-size:14px;font-weight:900;line-height:1.12;color:#fff;background:' + skin + ';box-shadow:0 10px 22px rgba(42,87,150,.20),inset 0 1px 0 rgba(255,255,255,.42);touch-action:manipulation';
+                ? 'linear-gradient(135deg,' + rgba(card,.92) + ',' + rgba(panel,.78) + ')'
+                : tone === 'exam' ? 'linear-gradient(135deg,' + mixHex(accent, warm, .28) + ',' + mixHex(warm, '#7c3aed', .32) + ')' : 'linear-gradient(135deg,' + accent + ',' + warm + ')';
+              var toneColor = tone === 'home' ? ink : '#fff';
+              var toneBorder = tone === 'home' ? rgba(accent,.18) : 'rgba(255,255,255,.64)';
+              node.style.cssText = 'height:100%;min-height:0;border:1px solid ' + toneBorder + ';border-radius:' + Math.max(16, radius - 7) + 'px;padding:0 14px;font-size:14px;font-weight:900;line-height:1.12;color:' + toneColor + ';background:' + skin + ';box-shadow:0 10px 22px ' + rgba(accent,.20) + ',inset 0 1px 0 rgba(255,255,255,.42);touch-action:manipulation;white-space:normal';
               if (tone === 'home') node.style.gridColumn = '1/-1';
               node.onclick = function(event) { event.preventDefault(); event.stopPropagation(); fn(node); };
               box.appendChild(node);
@@ -671,8 +1317,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               crawl('course').then(function(data) {
                 node.textContent = '导入课表';
                 if (!data) { setStatus('未抓取到内容，请换页面重试'); return; }
-                setStatus('请在弹窗确认学期');
-                showTermDialog(data);
+                setStatus('请在视窗确认学期');
+                confirmTerm(data);
               });
             });
             button('导入考试', 'exam', function(node) {
@@ -682,20 +1328,19 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 node.textContent = '导入考试';
                 if (!data) { setStatus('未抓取到内容，请换页面重试'); return; }
                 post('captureAcademicPage', { kind: 'exam', title: (document.title || '') + ' 共' + (data.pages || 1) + '页', url: location.href, text: data.text, html: data.html });
-                setStatus('已抓取，正在返回鸦鸦导入');
-                setTimeout(function() { post('returnHome'); }, 180);
+                setStatus('已抓取，点返回鸦鸦完成导入');
               });
             });
             button('返回鸦鸦', 'home', function() { post('returnHome'); });
             var status = document.createElement('div');
             status.setAttribute('data-yaya-ios-academic-status', 'true');
             status.textContent = window.__yayaIosAcademicStatus || '登录后可导入课表或考试';
-            status.style.cssText = 'grid-column:1 / -1;font-size:12px;font-weight:800;color:rgba(15,23,42,.72);text-align:center;padding:2px 4px 0';
+            status.style.cssText = 'grid-column:1 / -1;font-size:12px;font-weight:800;color:' + rgba(muted,.86) + ';text-align:center;padding:2px 4px 0';
             box.appendChild(status);
             var grip = document.createElement('div');
             grip.dataset.resize = 'true';
             grip.textContent = '◢';
-            grip.style.cssText = 'grid-column:1/-1;justify-self:end;width:30px;height:24px;display:grid;place-items:center;color:rgba(37,99,235,.6);font-size:18px;font-weight:900;line-height:1;cursor:nwse-resize;touch-action:none';
+            grip.style.cssText = 'grid-column:1/-1;justify-self:end;width:30px;height:24px;display:grid;place-items:center;color:' + rgba(accent,.62) + ';font-size:18px;font-weight:900;line-height:1;cursor:nwse-resize;touch-action:none';
             box.appendChild(grip);
             function clamp(left, top) {
               var margin = 10, r = box.getBoundingClientRect();
@@ -712,8 +1357,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             }
             function resize(width, height) {
               var margin = 10;
-              var nextWidth = Math.min(Math.max(width, 176), Math.max(176, window.innerWidth - margin * 2));
-              var nextHeight = Math.min(Math.max(height, 172), Math.max(172, window.innerHeight - margin * 2));
+              var nextWidth = Math.min(Math.max(width, 188), Math.max(188, window.innerWidth - margin * 2));
+              var nextHeight = Math.min(Math.max(height, 164), Math.max(164, window.innerHeight - margin * 2));
               box.style.width = Math.round(nextWidth) + 'px';
               box.style.height = Math.round(nextHeight) + 'px';
               var r = box.getBoundingClientRect();
@@ -1196,6 +1841,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             setLauncherIcon: function(iconId) {
               return post("setLauncherIcon", { iconId: String(iconId || "") });
             },
+            configurePortalUi: function(payload) {
+              var value = typeof payload === "string" ? payload : JSON.stringify(payload || {});
+              return post("configurePortalUi", { payload: value });
+            },
             openAcademicPortal: function() {
               return post("openAcademicPortal");
             },
@@ -1236,5 +1885,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 private extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+private extension UITextField {
+    func setLeftPaddingPoints(_ amount: CGFloat) {
+        let padding = UIView(frame: CGRect(x: 0, y: 0, width: amount, height: 1))
+        leftView = padding
+        leftViewMode = .always
     }
 }

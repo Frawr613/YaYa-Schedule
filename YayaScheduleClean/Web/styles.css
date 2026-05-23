@@ -69,6 +69,9 @@
 
 * {
   box-sizing: border-box;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 html,
@@ -104,6 +107,15 @@ body {
   overflow-x: hidden;
   overscroll-behavior-y: contain;
   -webkit-tap-highlight-color: transparent;
+}
+
+input,
+textarea,
+[contenteditable="true"],
+[contenteditable="plaintext-only"] {
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 body::after {
@@ -1096,6 +1108,48 @@ body[data-input-ui="compactInput"] {
   animation: pickerLiftIn var(--float-duration) var(--float-pop-ease) both;
 }
 
+.picker-card .card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.picker-card .card-head h2 {
+  margin: 0;
+}
+
+.return-button {
+  min-width: 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--input-ui-text, var(--ink));
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.18)),
+    var(--input-ui-bg, var(--glass-control-bg));
+  border-color: var(--input-ui-border, var(--glass-border));
+  box-shadow: var(--input-ui-inset, var(--glass-inset));
+}
+
+.original-date-picker-card {
+  gap: 14px;
+  border-color: var(--input-ui-border, var(--glass-border));
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.58)),
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--accent) 12%, transparent),
+      color-mix(in srgb, var(--accent-warm) 10%, transparent),
+      color-mix(in srgb, #10b981 8%, transparent)),
+    var(--input-ui-panel, var(--glass-panel-bg));
+  -webkit-backdrop-filter: blur(22px) saturate(1.25);
+  backdrop-filter: blur(22px) saturate(1.25);
+}
+
 .date-picker-card {
   width: min(460px, 100%);
 }
@@ -1309,6 +1363,46 @@ body[data-input-ui="compactInput"] {
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.prompt-actions.single {
+  justify-content: stretch;
+}
+
+.prompt-cancel,
+.prompt-confirm {
+  min-height: 46px;
+  padding-inline: 16px;
+  border-radius: var(--input-ui-radius, var(--glass-control-radius, var(--radius)));
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.prompt-cancel {
+  color: var(--input-ui-text, var(--ink));
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.18)),
+    var(--input-ui-bg, var(--glass-control-bg));
+  border-color: var(--input-ui-border, var(--glass-border));
+  box-shadow: var(--input-ui-inset, var(--glass-inset));
+}
+
+.prompt-confirm {
+  color: var(--tpl-action-text, #fff);
+  background: var(--input-ui-action, var(--tpl-primary-action, var(--accent)));
+  border-color: color-mix(in srgb, white 28%, transparent);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--input-ui-accent, var(--accent)) 20%, transparent), var(--input-ui-inset, var(--glass-inset));
+}
+
+.date-picker-actions {
+  justify-content: flex-end;
 }
 
 .day-actions {
@@ -2655,6 +2749,140 @@ body[data-template="compact"] .dashboard-panel {
 .form-note {
   margin: 0;
   font-size: 13px;
+}
+
+.modal-card.term-import {
+  width: min(440px, calc(100vw - 24px));
+}
+
+.term-import-panel {
+  gap: 14px;
+}
+
+.term-auto-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--input-ui-border, var(--glass-border)) 76%, transparent);
+  border-radius: var(--input-ui-radius, var(--glass-control-radius, var(--radius)));
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--input-ui-accent, var(--accent)) 13%, transparent),
+      color-mix(in srgb, var(--accent-warm) 10%, transparent)),
+    var(--input-ui-bg, var(--glass-control-bg));
+  box-shadow: var(--input-ui-inset, var(--glass-inset));
+}
+
+.term-auto-card > div {
+  display: grid;
+  gap: 4px;
+}
+
+.term-auto-card span,
+.term-auto-card small,
+.term-import-note {
+  color: var(--input-ui-muted, var(--muted));
+}
+
+.term-auto-card span {
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.term-auto-card strong {
+  color: var(--input-ui-text, var(--ink));
+  font-size: 18px;
+  font-weight: 950;
+  line-height: 1.18;
+}
+
+.term-auto-card small {
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.term-auto-card.is-detected {
+  border-color: color-mix(in srgb, var(--input-ui-accent, var(--accent)) 38%, var(--glass-border));
+}
+
+.term-auto-card.is-fallback {
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--accent-warm) 12%, transparent),
+      rgba(255, 255, 255, 0.22)),
+    var(--input-ui-bg, var(--glass-control-bg));
+}
+
+.term-start-field {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--input-ui-accent, var(--accent)) 16%, var(--input-ui-border, var(--glass-border)));
+  border-radius: var(--input-ui-radius, var(--glass-control-radius, var(--radius)));
+  background: color-mix(in srgb, var(--input-ui-bg, var(--glass-control-bg)) 80%, transparent);
+  box-shadow: var(--input-ui-inset, var(--glass-inset));
+}
+
+.term-select-field {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--input-ui-accent, var(--accent)) 16%, var(--input-ui-border, var(--glass-border)));
+  border-radius: var(--input-ui-radius, var(--glass-control-radius, var(--radius)));
+  background: color-mix(in srgb, var(--input-ui-bg, var(--glass-control-bg)) 80%, transparent);
+  box-shadow: var(--input-ui-inset, var(--glass-inset));
+}
+
+.term-select-field legend {
+  padding: 0;
+  color: var(--input-ui-muted, var(--muted));
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.term-select-preview {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 13px;
+  border: 1px solid color-mix(in srgb, var(--input-ui-accent, var(--accent)) 28%, var(--input-ui-border, var(--glass-border)));
+  border-radius: calc(var(--input-ui-radius, var(--glass-control-radius, var(--radius))) + 2px);
+  color: var(--input-ui-text, var(--ink));
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--input-ui-accent, var(--accent)) 16%, rgba(255, 255, 255, 0.26)),
+      color-mix(in srgb, var(--glass-sheen, rgba(255, 255, 255, 0.72)) 34%, transparent)),
+    var(--input-ui-bg, var(--glass-control-bg));
+  box-shadow: var(--input-ui-inset, var(--glass-inset)), 0 10px 24px color-mix(in srgb, var(--input-ui-accent, var(--accent)) 12%, transparent);
+  font-size: 15px;
+  font-weight: 950;
+  line-height: 1.25;
+  user-select: none;
+}
+
+.term-select-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(110px, 0.65fr);
+  gap: 10px;
+}
+
+.term-select-grid label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.term-select-grid label > span {
+  color: var(--input-ui-muted, var(--muted));
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.term-import-actions {
+  justify-content: stretch;
+}
+
+.term-import-actions > button {
+  flex: 1 1 150px;
 }
 
 .setting-grid,

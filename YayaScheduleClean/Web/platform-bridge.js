@@ -38,7 +38,7 @@
 
   global.YayaPlatform = {
     layer: "platform",
-    capabilities: ["savePortalAccount", "setLauncherIcon", "openAcademicPortal", "takeImportedPage", "getReminderPermissionStatus", "requestReminderPermissions", "requestNotificationPermission", "requestBackgroundRunPermission", "scheduleReminderNotifications", "scheduleDdlNotifications", "updateHomeWidget"],
+    capabilities: ["savePortalAccount", "setLauncherIcon", "configurePortalUi", "openAcademicPortal", "takeImportedPage", "getReminderPermissionStatus", "requestReminderPermissions", "requestNotificationPermission", "requestBackgroundRunPermission", "scheduleReminderNotifications", "scheduleDdlNotifications", "updateHomeWidget"],
     isNative() {
       return Boolean(global.YayaNative);
     },
@@ -48,6 +48,12 @@
     setLauncherIcon(iconId) {
       if (!hasNativeMethod("setLauncherIcon")) return false;
       nativeCall("setLauncherIcon", [iconId], false);
+      return true;
+    },
+    configurePortalUi(config) {
+      if (!hasNativeMethod("configurePortalUi")) return false;
+      const payload = typeof config === "string" ? config : JSON.stringify(config || {});
+      nativeCall("configurePortalUi", [payload], false);
       return true;
     },
     openAcademicPortal() {
@@ -83,7 +89,7 @@
       return this.scheduleReminderNotifications(payload);
     },
     updateHomeWidget(payload) {
-      const value = typeof payload === "string" ? payload : JSON.stringify(payload || {});
+      const value = Array.isArray(payload) ? JSON.stringify(payload) : String(payload || "");
       return nativeCall("updateHomeWidget", [value], false);
     }
   };

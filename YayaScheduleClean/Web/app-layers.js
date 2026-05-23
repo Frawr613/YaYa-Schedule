@@ -101,10 +101,10 @@
       id: "platform",
       name: "平台桥接层",
       files: ["platform-bridge.js", "app.js"],
-      owns: ["Android 原生保存", "iOS 本地通知", "通知", "后台运行权限", "桌面图标", "桌面小组件", "教务 WebView", "Web 预览降级"],
-      provides: ["统一平台 API", "原生能力探测", "后台提醒状态", "Widget 更新", "Widget 主题同步", "安全降级"],
+      owns: ["Android 原生保存", "通知", "后台运行权限", "桌面图标", "桌面小组件", "教务 WebView", "iOS 教务 WebView", "单层网页登录", "Web 预览降级"],
+      provides: ["统一平台 API", "原生能力探测", "后台提醒状态", "Widget 更新", "教务导入回传", "安全降级"],
       effects: originalEffectAnchors.platform,
-      dependsOn: ["commands", "cache", "theme"],
+      dependsOn: ["commands", "cache"],
       handoffTo: ["boot"]
     },
     {
