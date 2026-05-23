@@ -84,8 +84,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return
         }
         if isTrustedAcademicURL(url) {
-            injectPortalNavigationHelper()
-            injectPortalAccountHelper()
             injectAcademicImportControlsV2()
         }
     }
