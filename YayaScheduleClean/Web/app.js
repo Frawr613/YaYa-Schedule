@@ -1725,6 +1725,32 @@
     return ` data-page-motion="${escapeAttr(overviewPageMotion.direction)}"`;
   }
 
+  function splitCourseTermLabel(label) {
+    const text = normalizeText(label || "课表");
+    const fullYear = text.match(/^(.*?20\d{2}\s*[-—–~至/]\s*20\d{2}\s*学年)\s*(.*)$/);
+    if (fullYear) {
+      return {
+        year: normalizeText(fullYear[1]) || text,
+        term: normalizeText(fullYear[2])
+      };
+    }
+    const compactYear = text.match(/^(20\d{2}\s*[-—–~至/]\s*20\d{2})\s*(.*)$/);
+    if (compactYear) {
+      return {
+        year: `${compactYear[1].replace(/[—–~至/]/, "-")}学年`,
+        term: normalizeText(compactYear[2])
+      };
+    }
+    return { year: text, term: "" };
+  }
+
+  function renderCourseTermLabel(label, className = "course-term-label") {
+    const text = label || "课表";
+    const parts = splitCourseTermLabel(text);
+    const termLine = parts.term ? `<i>${escapeHtml(parts.term)}</i>` : "";
+    return `<span class="${className}" title="${escapeAttr(text)}"><b>${escapeHtml(parts.year)}</b>${termLine}</span>`;
+  }
+
   function renderCourseOverviewTabs(terms, activeId, currentTermId) {
     return terms.map((term) => {
       const groups = groupCoursesByName(term);
@@ -1733,7 +1759,7 @@
       const label = term.label || "课表";
       return `
         <button type="button" class="modal-page-chip course-term-tab ${active ? "active" : ""}" data-action="set-course-overview-page" data-term-id="${escapeAttr(term.id)}" role="tab" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(label)}，${groups.length}门课程" title="${escapeAttr(label)}" ${isCurrent ? `data-current-term-chip="true"` : ""}>
-          <strong>${escapeHtml(label)}</strong>
+          <strong>${renderCourseTermLabel(label)}</strong>
           <span>${groups.length}门</span>
           ${isCurrent ? `<small>当前</small>` : ""}
         </button>
@@ -1787,7 +1813,7 @@
       <div class="modal-page-stage course-overview-page"${modalPageMotionAttr("courses", activeTermId)}>
         <section class="modal-section course-term-section ${isCurrent ? "is-current" : ""}" data-course-term-id="${escapeAttr(activeTerm.id)}" ${isCurrent ? `data-current-term="true"` : ""}>
           <div class="course-term-head">
-            <h3 title="${escapeAttr(activeTerm.label || "课表")}">${escapeHtml(activeTerm.label || "课表")}</h3>
+            <h3 title="${escapeAttr(activeTerm.label || "课表")}">${renderCourseTermLabel(activeTerm.label || "课表", "course-term-title-label")}</h3>
             ${isCurrent ? `<span class="course-term-current">当前学期</span>` : ""}
           </div>
           <div class="course-grid">

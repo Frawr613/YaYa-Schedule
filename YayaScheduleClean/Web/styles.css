@@ -2664,9 +2664,9 @@ body[data-template="compact"] .dashboard-panel {
 .course-term-tab {
   align-items: center;
   flex-direction: column;
-  min-width: min(176px, 72vw);
-  max-width: min(260px, 86vw);
-  min-height: 58px;
+  min-width: min(190px, 76vw);
+  max-width: min(270px, 88vw);
+  min-height: 70px;
   padding: 8px 12px 9px;
   gap: 5px;
   white-space: normal;
@@ -2678,10 +2678,34 @@ body[data-template="compact"] .dashboard-panel {
   overflow: visible;
   text-overflow: clip;
   white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
   text-align: center;
   line-height: 1.24;
+}
+
+.course-term-label,
+.course-term-title-label {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.course-term-label b,
+.course-term-label i,
+.course-term-title-label b,
+.course-term-title-label i {
+  display: block;
+  min-width: 0;
+  color: inherit;
+  font: inherit;
+  font-style: normal;
+  line-height: 1.22;
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
+.course-term-label i,
+.course-term-title-label i {
+  opacity: 0.9;
 }
 
 .course-term-tab span,
@@ -3766,8 +3790,8 @@ body[data-input-ui="compactInput"] .internal-date[data-input-ui] .internal-date-
   flex: 1 1 220px;
   min-width: 0;
   white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: normal;
+  word-break: keep-all;
   line-height: 1.28;
 }
 
