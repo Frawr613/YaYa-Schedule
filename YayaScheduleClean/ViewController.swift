@@ -552,17 +552,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         return host.contains("bnu") || host.contains("jw") || host.contains("jwc") || host.contains("xk") || host.contains("zf")
     }
 
-    private func ensureNotificationAuthorization(_ completion: @escaping (Bool) -> Void) {
+    private func hasNotificationAuthorization(_ completion: @escaping (Bool) -> Void) {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
             switch settings.authorizationStatus {
             case .authorized, .provisional, .ephemeral:
                 completion(true)
-            case .notDetermined:
-                center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-                    completion(granted)
-                }
-            case .denied:
+            case .notDetermined, .denied:
                 completion(false)
             @unknown default:
                 completion(false)
@@ -776,7 +772,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return
         }
 
-        ensureNotificationAuthorization { [weak self] granted in
+        hasNotificationAuthorization { [weak self] granted in
             guard let self else { return }
             guard generation == self.reminderScheduleGeneration else { return }
             guard granted else {
