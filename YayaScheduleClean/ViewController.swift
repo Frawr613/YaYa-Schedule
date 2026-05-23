@@ -448,49 +448,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 autoStack.bottomAnchor.constraint(equalTo: autoCard.bottomAnchor, constant: -12)
             ])
 
-            let startField = UITextField()
-            startField.placeholder = "YYYY-MM-DD"
-            startField.text = autoDetected ? self.stringValue(body["termStart"]) : ""
-            startField.keyboardType = .default
-            startField.clearButtonMode = .whileEditing
-            startField.borderStyle = .none
-            startField.tintColor = .clear
-
-            let termDateFormatter = DateFormatter()
-            termDateFormatter.locale = Locale(identifier: "zh_CN")
-            termDateFormatter.dateFormat = "yyyy-MM-dd"
-            termDateFormatter.isLenient = false
-            let startPicker = UIDatePicker()
-            startPicker.datePickerMode = .date
-            startPicker.locale = Locale(identifier: "zh_CN")
-            if #available(iOS 13.4, *) {
-                startPicker.preferredDatePickerStyle = .wheels
-            }
-            if let date = termDateFormatter.date(from: startField.text ?? "") {
-                startPicker.date = date
-            }
-            let syncStartDate = {
-                startField.text = termDateFormatter.string(from: startPicker.date)
-            }
-            startPicker.addAction(UIAction { _ in
-                syncStartDate()
-            }, for: .valueChanged)
-            let pickerToolbar = UIToolbar()
-            pickerToolbar.sizeToFit()
-            pickerToolbar.items = [
-                UIBarButtonItem(title: "今天", style: .plain, primaryAction: UIAction { _ in
-                    startPicker.date = Date()
-                    syncStartDate()
-                }),
-                UIBarButtonItem(systemItem: .flexibleSpace),
-                UIBarButtonItem(title: "完成", style: .done, primaryAction: UIAction { _ in
-                    syncStartDate()
-                    startField.resignFirstResponder()
-                })
-            ]
-            startField.inputView = startPicker
-            startField.inputAccessoryView = pickerToolbar
-
             func fieldTitle(_ text: String) -> UILabel {
                 let label = UILabel()
                 label.text = text
@@ -500,15 +457,16 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             }
 
             stack.addArrangedSubview(fieldTitle("开学日期"))
-            startField.font = .systemFont(ofSize: 15, weight: .bold)
-            startField.textColor = self.portalColor("ink", fallback: UIColor(red: 0.08, green: 0.13, blue: 0.24, alpha: 1))
-            startField.backgroundColor = self.portalColor("panel", fallback: UIColor(red: 0.94, green: 0.97, blue: 1, alpha: 1)).withAlphaComponent(0.86)
-            startField.layer.cornerRadius = max(15, self.portalRadius() - 8)
-            startField.layer.borderWidth = 1
-            startField.layer.borderColor = UIColor.white.withAlphaComponent(0.52).cgColor
-            startField.setLeftPaddingPoints(12)
-            startField.heightAnchor.constraint(equalToConstant: 48).isActive = true
-            stack.addArrangedSubview(startField)
+            let initialStart = autoDetected ? self.stringValue(body["termStart"]) : ""
+            let startButton = self.portalStyledButton(initialStart.isEmpty ? "选择开学日期" : initialStart, filled: false)
+            startButton.contentHorizontalAlignment = .leading
+            startButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .heavy)
+            startButton.heightAnchor.constraint(equalToConstant: 48).isActive = true
+            startButton.addAction(UIAction { [weak self, weak startButton] _ in
+                guard let self, let startButton else { return }
+                self.showPortalInternalDatePicker(anchor: startButton, fallbackDate: initialStart)
+            }, for: .touchUpInside)
+            stack.addArrangedSubview(startButton)
 
             stack.addArrangedSubview(fieldTitle("学期"))
             var selectedYear = self.academicYear(from: self.stringValue(body["termLabel"]), start: self.stringValue(body["termStart"]))
@@ -564,7 +522,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             confirm.addAction(UIAction { [weak self] _ in
                 guard let self else { return }
                 var confirmed = body
-                let start = startField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let start = self.normalizedPortalDate(startButton.title(for: .normal) ?? "")
                 confirmed["kind"] = "course"
                 confirmed["termLabel"] = self.termLabel(firstYear: selectedYear, termIndex: termSegment.selectedSegmentIndex)
                 confirmed["termStart"] = start.isEmpty ? (autoDetected ? self.stringValue(body["termStart"]) : "") : start
@@ -589,6 +547,93 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 stack.bottomAnchor.constraint(equalTo: card.contentView.bottomAnchor, constant: -16)
             ])
         }
+    }
+
+    private func showPortalInternalDatePicker(anchor: UIButton, fallbackDate: String) {
+        DispatchQueue.main.async { [weak self, weak anchor] in
+            guard let self, let anchor else { return }
+            let overlay = UIView(frame: self.view.bounds)
+            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            overlay.backgroundColor = UIColor(red: 0.06, green: 0.09, blue: 0.16, alpha: 0.22)
+            overlay.isUserInteractionEnabled = true
+
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "zh_CN")
+            formatter.dateFormat = "yyyy-MM-dd"
+            formatter.isLenient = false
+
+            let picker = UIDatePicker()
+            picker.datePickerMode = .date
+            picker.locale = Locale(identifier: "zh_CN")
+            if #available(iOS 13.4, *) {
+                picker.preferredDatePickerStyle = .wheels
+            }
+            let currentDateText = self.normalizedPortalDate(anchor.title(for: .normal) ?? "")
+            let fallbackDateText = self.normalizedPortalDate(fallbackDate)
+            let seed = currentDateText.isEmpty ? fallbackDateText : currentDateText
+            if let date = formatter.date(from: seed) {
+                picker.date = date
+            }
+
+            let card = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialLight))
+            card.translatesAutoresizingMaskIntoConstraints = false
+            card.layer.cornerRadius = self.portalRadius()
+            card.layer.borderWidth = 1
+            card.layer.borderColor = UIColor.white.withAlphaComponent(0.62).cgColor
+            card.clipsToBounds = true
+            card.contentView.backgroundColor = self.portalColor("card", fallback: UIColor.white).withAlphaComponent(0.76)
+
+            let stack = UIStackView()
+            stack.axis = .vertical
+            stack.spacing = 12
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            card.contentView.addSubview(stack)
+
+            let title = UILabel()
+            title.text = "选择开学日期"
+            title.textColor = self.portalColor("ink", fallback: UIColor(red: 0.08, green: 0.13, blue: 0.24, alpha: 1))
+            title.font = .systemFont(ofSize: 18, weight: .heavy)
+            stack.addArrangedSubview(title)
+            stack.addArrangedSubview(picker)
+
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.spacing = 10
+            row.distribution = .fillEqually
+            let cancel = self.portalStyledButton("取消", filled: false)
+            let confirm = self.portalStyledButton("确认", filled: true)
+            row.addArrangedSubview(cancel)
+            row.addArrangedSubview(confirm)
+            row.heightAnchor.constraint(equalToConstant: 48).isActive = true
+            stack.addArrangedSubview(row)
+
+            cancel.addAction(UIAction { _ in
+                overlay.removeFromSuperview()
+            }, for: .touchUpInside)
+            confirm.addAction(UIAction { _ in
+                anchor.setTitle(formatter.string(from: picker.date), for: .normal)
+                overlay.removeFromSuperview()
+            }, for: .touchUpInside)
+
+            overlay.addSubview(card)
+            self.view.addSubview(overlay)
+            NSLayoutConstraint.activate([
+                card.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+                card.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+                card.widthAnchor.constraint(lessThanOrEqualToConstant: 380),
+                card.widthAnchor.constraint(equalTo: overlay.widthAnchor, constant: -48),
+                stack.topAnchor.constraint(equalTo: card.contentView.topAnchor, constant: 16),
+                stack.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 18),
+                stack.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor, constant: -18),
+                stack.bottomAnchor.constraint(equalTo: card.contentView.bottomAnchor, constant: -16)
+            ])
+        }
+    }
+
+    private func normalizedPortalDate(_ value: String) -> String {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil else { return "" }
+        return text
     }
 
     private func normalizedAcademicImportKind(_ value: String) -> String {
