@@ -1730,9 +1730,10 @@
       const groups = groupCoursesByName(term);
       const active = term.id === activeId;
       const isCurrent = term.id === currentTermId;
+      const label = term.label || "课表";
       return `
-        <button type="button" class="modal-page-chip course-term-tab ${active ? "active" : ""}" data-action="set-course-overview-page" data-term-id="${escapeAttr(term.id)}" role="tab" aria-selected="${active ? "true" : "false"}" ${isCurrent ? `data-current-term-chip="true"` : ""}>
-          <strong>${escapeHtml(term.label || "课表")}</strong>
+        <button type="button" class="modal-page-chip course-term-tab ${active ? "active" : ""}" data-action="set-course-overview-page" data-term-id="${escapeAttr(term.id)}" role="tab" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(label)}，${groups.length}门课程" title="${escapeAttr(label)}" ${isCurrent ? `data-current-term-chip="true"` : ""}>
+          <strong>${escapeHtml(label)}</strong>
           <span>${groups.length}门</span>
           ${isCurrent ? `<small>当前</small>` : ""}
         </button>
@@ -1786,7 +1787,7 @@
       <div class="modal-page-stage course-overview-page"${modalPageMotionAttr("courses", activeTermId)}>
         <section class="modal-section course-term-section ${isCurrent ? "is-current" : ""}" data-course-term-id="${escapeAttr(activeTerm.id)}" ${isCurrent ? `data-current-term="true"` : ""}>
           <div class="course-term-head">
-            <h3>${escapeHtml(activeTerm.label || "课表")}</h3>
+            <h3 title="${escapeAttr(activeTerm.label || "课表")}">${escapeHtml(activeTerm.label || "课表")}</h3>
             ${isCurrent ? `<span class="course-term-current">当前学期</span>` : ""}
           </div>
           <div class="course-grid">

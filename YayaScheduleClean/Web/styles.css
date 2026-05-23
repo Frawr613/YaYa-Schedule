@@ -2661,6 +2661,35 @@ body[data-template="compact"] .dashboard-panel {
   background: rgba(255, 255, 255, 0.22);
 }
 
+.course-term-tab {
+  align-items: center;
+  flex-direction: column;
+  min-width: min(176px, 72vw);
+  max-width: min(260px, 86vw);
+  min-height: 58px;
+  padding: 8px 12px 9px;
+  gap: 5px;
+  white-space: normal;
+}
+
+.course-term-tab strong {
+  display: block;
+  width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-align: center;
+  line-height: 1.24;
+}
+
+.course-term-tab span,
+.course-term-tab small {
+  min-height: 20px;
+  line-height: 1.1;
+}
+
 .modal-page-stage {
   display: grid;
   min-width: 0;
@@ -3726,14 +3755,20 @@ body[data-input-ui="compactInput"] .internal-date[data-input-ui] .internal-date-
 
 .course-term-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   min-width: 0;
+  flex-wrap: wrap;
 }
 
 .course-term-head h3 {
+  flex: 1 1 220px;
   min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.28;
 }
 
 .course-term-current {
