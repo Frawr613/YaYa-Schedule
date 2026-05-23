@@ -84,6 +84,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return
         }
         if isTrustedAcademicURL(url) {
+            injectPortalAccountHelper()
             injectAcademicImportControlsV2()
         }
     }
@@ -350,21 +351,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             el.value = value;
             el.dispatchEvent(new Event('input', { bubbles: true }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
-          }
-          function clickLike(el) {
-            if (!el) return false;
-            try {
-              if (el.scrollIntoView) el.scrollIntoView({ block: 'center' });
-              el.click();
-              return true;
-            } catch (error) {
-              try {
-                el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: el.ownerDocument.defaultView || window }));
-                return true;
-              } catch (innerError) {
-                return false;
-              }
-            }
           }
           function labelText(el) {
             try { return String([el.innerText, el.textContent, el.value, el.title, el.getAttribute && el.getAttribute('aria-label')].join(' ')).replace(/\\s+/g, ' ').trim(); } catch (error) { return ''; }
