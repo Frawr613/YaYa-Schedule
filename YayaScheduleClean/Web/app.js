@@ -1888,7 +1888,7 @@
           <span>${escapeHtml(formatDdlTime(ddl))} · ${escapeHtml(completed ? "已完成" : "进行中")}</span>
           ${completed && ddl.completedAt ? `<small>完成：${escapeHtml(formatCompletedDdlTime(ddl.completedAt))}</small>` : ""}
           ${ddl.sourceType === "schedule" ? `<small>日程同步</small>` : ""}
-          ${!completed ? `<small>通知：${escapeHtml(reminderSummary(ddl))}</small>` : ""}
+          ${!completed ? `<small>${ddl.sourceType === "schedule" ? "日程提醒" : "通知"}：${escapeHtml(reminderSummary(ddl))}</small>` : ""}
           ${ddl.content ? `<small>${escapeHtml(ddl.content)}</small>` : ""}
         </div>
       </article>
@@ -4348,7 +4348,7 @@
   function activeDdlList() {
     const manual = state.ddls.filter((ddl) => !isCompleted(ddl.id));
     const schedule = state.customSchedules
-      .filter((item) => item.syncToDdl && item.reminders?.length && !isCompleted(targetKeyForCustom(item.id)))
+      .filter((item) => item.syncToDdl && !isCompleted(targetKeyForCustom(item.id)))
       .map((item) => ({
         id: targetKeyForCustom(item.id),
         date: item.date,
@@ -4667,24 +4667,7 @@
         kind: "ddl",
         timeLabel: "截止"
       }));
-    const syncedDdlPayload = state.customSchedules
-      .filter((item) => item.syncToDdl && !isCompleted(targetKeyForCustom(item.id)))
-      .filter((item) => normalizeReminderValues(item.reminders).length)
-      .map((item) => ({
-        id: targetKeyForCustom(item.id),
-        alarmKey: ["synced-ddl", item.id, item.date, item.endTime || item.startTime || "23:59"].join("|"),
-        date: item.date,
-        time: item.endTime || item.startTime || "23:59",
-        topic: item.title || "日程",
-        content: item.place || "",
-        reminders: normalizeReminderValues(item.reminders),
-        kind: "ddl",
-        timeLabel: "截止",
-        sourceType: "schedule",
-        sourceId: item.id
-      }));
     const schedulePayload = state.customSchedules
-      .filter((item) => !item.syncToDdl)
       .filter((item) => !isCompleted(targetKeyForCustom(item.id)))
       .filter((item) => normalizeReminderValues(item.reminders).length)
       .map((item) => ({
@@ -4698,7 +4681,7 @@
         kind: "schedule",
         timeLabel: "开始"
       }));
-    return [...manualDdlPayload, ...syncedDdlPayload, ...schedulePayload].filter((item) => validDate(item.date));
+    return [...manualDdlPayload, ...schedulePayload].filter((item) => validDate(item.date));
   }
 
   function syncNativeNotifications(options = {}) {
@@ -5141,7 +5124,7 @@
       title: normalizeText(item?.title || "日程"),
       place: normalizeText(item?.place),
       reminders,
-      syncToDdl: !!item?.syncToDdl && reminders.length > 0
+      syncToDdl: !!item?.syncToDdl
     };
   }
 
