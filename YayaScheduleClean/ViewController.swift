@@ -381,6 +381,25 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             add(document);
             return docs;
           }
+          function markUserGesture() {
+            try { sessionStorage.setItem('__yayaIosUserInteractedAt', String(Date.now())); } catch (error) { window.__yayaIosUserInteractedAt = Date.now(); }
+          }
+          function userPaused() {
+            var last = 0;
+            try { last = Number(sessionStorage.getItem('__yayaIosUserInteractedAt') || 0); } catch (error) { last = Number(window.__yayaIosUserInteractedAt || 0); }
+            return Date.now() - last < 6500;
+          }
+          function installUserPause() {
+            allDocs().forEach(function(doc) {
+              if (doc.__yayaUserPauseInstalled) return;
+              doc.__yayaUserPauseInstalled = true;
+              ['pointerdown','touchstart','wheel','keydown'].forEach(function(type) {
+                try { doc.addEventListener(type, markUserGesture, { capture: true, passive: true }); } catch (error) {
+                  try { doc.addEventListener(type, markUserGesture, true); } catch (innerError) {}
+                }
+              });
+            });
+          }
           function forceSelfWindow() {
             allDocs().forEach(function(doc) {
               try {
@@ -462,19 +481,22 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           function step() {
             tries += 1;
             forceSelfWindow();
-            clickDesktopEntry();
-            var docs = allDocs();
-            for (var i = 0; i < docs.length; i += 1) {
-              var passwordInput = Array.prototype.slice.call(docs[i].querySelectorAll('input[type=password]')).filter(visible)[0];
-              if (!passwordInput) continue;
-              var userInput = userInputNear(passwordInput);
-              setValue(userInput, username);
-              setValue(passwordInput, password);
-              if (Date.now() - (window.__yayaIosLoginClickedAt || 0) > 5000) {
-                var button = loginButtonNear(passwordInput);
-                if (button && clickLike(button)) window.__yayaIosLoginClickedAt = Date.now();
+            installUserPause();
+            if (!userPaused()) {
+              clickDesktopEntry();
+              var docs = allDocs();
+              for (var i = 0; i < docs.length; i += 1) {
+                var passwordInput = Array.prototype.slice.call(docs[i].querySelectorAll('input[type=password]')).filter(visible)[0];
+                if (!passwordInput) continue;
+                var userInput = userInputNear(passwordInput);
+                setValue(userInput, username);
+                setValue(passwordInput, password);
+                if (Date.now() - (window.__yayaIosLoginClickedAt || 0) > 5000) {
+                  var button = loginButtonNear(passwordInput);
+                  if (button && clickLike(button)) window.__yayaIosLoginClickedAt = Date.now();
+                }
+                break;
               }
-              break;
             }
             if (tries < 28) setTimeout(step, 500);
           }
