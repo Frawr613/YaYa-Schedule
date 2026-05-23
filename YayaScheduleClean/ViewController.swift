@@ -334,12 +334,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         guard !username.isEmpty, !password.isEmpty else { return }
         let script = """
         (function() {
-          if (window.__yayaLoginHelperVersion === 'precision-v1') return;
-          window.__yayaLoginHelperVersion = 'precision-v1';
+          if (window.__yayaPortalAssistVersion === 'manual-prefill-v1') return;
+          window.__yayaPortalAssistVersion = 'manual-prefill-v1';
           var username = \(Self.javaScriptStringLiteral(username));
           var password = \(Self.javaScriptStringLiteral(password));
-          function norm(s) { return String(s || '').replace(/\\s+/g, ' ').trim(); }
-          function compact(s) { return String(s || '').replace(/\\s+/g, '').trim(); }
           function visible(el) {
             if (!el) return false;
             var r = el.getBoundingClientRect();
@@ -405,35 +403,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               } catch (error) {}
             });
           }
-          function actionOnce(doc, action) {
-            var url = '';
-            try { url = String((doc.defaultView || window).location.href).split('#')[0]; } catch (error) { url = String(location.href).split('#')[0]; }
-            var key = '__yayaPrecision:' + action + ':' + url;
-            try {
-              if (sessionStorage.getItem(key)) return false;
-              sessionStorage.setItem(key, '1');
-              return true;
-            } catch (error) {
-              if (window[key]) return false;
-              window[key] = true;
-              return true;
-            }
-          }
-          function candidates(root) {
-            try { return Array.prototype.slice.call(root.querySelectorAll('button,a,input[type=button],input[type=submit],[role=button],label,li[role=button],li[onclick],div[onclick],span[onclick],.btn,.ant-btn,.el-button,.layui-btn')); } catch (error) { return []; }
-          }
-          function findExact(doc, accept, reject) {
-            var nodes = candidates(doc);
-            for (var i = 0; i < nodes.length; i += 1) {
-              var node = nodes[i];
-              if (!visible(node)) continue;
-              var text = compact(labelText(node));
-              var meta = compact([node.id, node.name, node.className, node.type, node.getAttribute && node.getAttribute('role')].join(' '));
-              if (reject && (reject.test(text) || reject.test(meta))) continue;
-              if (accept.test(text)) return node;
-            }
-            return null;
-          }
           function userInputNear(passwordInput) {
             var doc = passwordInput.ownerDocument || document;
             var nodes = Array.prototype.slice.call(doc.querySelectorAll('input:not([type=password])')).filter(visible);
@@ -449,60 +418,40 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             }
             return nodes[0] || null;
           }
-          function findLogin(doc, passwordInput) {
-            var roots = [];
-            if (passwordInput && passwordInput.form) roots.push(passwordInput.form);
-            roots.push(doc);
-            var accept = /^(登录|登陆|Login|LogIn|SignIn|Sign\\s*In)$/i;
-            for (var r = 0; r < roots.length; r += 1) {
-              var nodes = candidates(roots[r]);
-              for (var i = 0; i < nodes.length; i += 1) {
-                var node = nodes[i];
-                if (!visible(node)) continue;
-                var text = norm(labelText(node));
-                if (accept.test(text) || String(node.type || '').toLowerCase() === 'submit') return node;
-              }
-            }
-            return null;
-          }
-          function runPrecision() {
+          function prefill() {
             forceSelfWindow();
             var docs = allDocs();
             for (var d = 0; d < docs.length; d += 1) {
-              var desktop = findExact(docs[d], /^(电脑端|PC端|pc端|网页版|Web端|桌面端|进入电脑端|电脑端登录)$/i, /手机端|移动端|移动门户|mobile|phone/i);
-              if (desktop && actionOnce(docs[d], 'desktop')) { clickLike(desktop); return; }
-            }
-            for (var p = 0; p < docs.length; p += 1) {
-              var doc = docs[p];
+              var doc = docs[d];
               var passwordInput = Array.prototype.slice.call(doc.querySelectorAll('input[type=password]')).filter(visible)[0];
               if (!passwordInput) continue;
               var userInput = userInputNear(passwordInput);
-              setValue(userInput, username);
-              setValue(passwordInput, password);
-              var button = findLogin(doc, passwordInput);
-              if (button && actionOnce(doc, 'login')) clickLike(button);
+              if (userInput && !userInput.dataset.yayaPrefilled && !userInput.value) {
+                setValue(userInput, username);
+                userInput.dataset.yayaPrefilled = '1';
+              }
+              if (!passwordInput.dataset.yayaPrefilled && !passwordInput.value) {
+                setValue(passwordInput, password);
+                passwordInput.dataset.yayaPrefilled = '1';
+              }
               return;
-            }
-            for (var e = 0; e < docs.length; e += 1) {
-              var portal = findExact(docs[e], /^(登录接入信息网络门户|登陆接入信息网络门户|接入信息网络门户|信息门户平台|数字京师)$/, /切换|切換|门户选取|门户选择|登入门户选取|登录门户选取|选择门户|选择登录门户|杂项|雜項|其他|其它|访客|游客|临时/);
-              if (portal && actionOnce(docs[e], 'portal')) { clickLike(portal); return; }
             }
           }
           function observe() {
             allDocs().forEach(function(doc) {
-              if (doc.__yayaPrecisionObserver) return;
+              if (doc.__yayaManualPrefillObserver) return;
               try {
-                doc.__yayaPrecisionObserver = new MutationObserver(function() {
-                  clearTimeout(window.__yayaPrecisionTimer);
-                  window.__yayaPrecisionTimer = setTimeout(runPrecision, 180);
+                doc.__yayaManualPrefillObserver = new MutationObserver(function() {
+                  clearTimeout(window.__yayaManualPrefillTimer);
+                  window.__yayaManualPrefillTimer = setTimeout(prefill, 180);
                 });
-                doc.__yayaPrecisionObserver.observe(doc.documentElement || doc, { subtree: true, childList: true, attributes: true });
+                doc.__yayaManualPrefillObserver.observe(doc.documentElement || doc, { subtree: true, childList: true, attributes: true });
               } catch (error) {
               }
             });
           }
-          runPrecision();
-          setTimeout(runPrecision, 650);
+          prefill();
+          setTimeout(prefill, 650);
           observe();
         })();
         """
