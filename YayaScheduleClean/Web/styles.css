@@ -1465,13 +1465,13 @@ body[data-input-ui="compactInput"] {
 .date-day-chip.active::after {
   content: "";
   position: absolute;
-  top: 7px;
-  right: 8px;
-  width: 8px;
-  height: 8px;
+  top: 6px;
+  right: 7px;
+  width: 5px;
+  height: 5px;
   border-radius: 999px;
   background: currentColor;
-  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 16%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 14%, transparent);
 }
 
 .date-day-chip.active span {
