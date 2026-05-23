@@ -2661,21 +2661,21 @@ body[data-template="compact"] .dashboard-panel {
   background: rgba(255, 255, 255, 0.22);
 }
 
-.course-term-tab {
+.modal-page-chip.course-term-tab {
   align-items: center;
   flex-direction: column;
-  flex-basis: min(340px, 88vw);
-  width: min(340px, 88vw);
-  min-width: min(260px, 86vw);
-  max-width: min(380px, 92vw);
-  min-height: 72px;
-  padding: 9px 16px 10px;
-  gap: 6px;
+  flex: 0 0 min(360px, calc(100vw - 44px));
+  width: min(360px, calc(100vw - 44px));
+  min-width: min(300px, calc(100vw - 44px));
+  max-width: none;
+  min-height: 82px;
+  padding: 11px 18px 12px;
+  gap: 7px;
   white-space: normal;
 }
 
-.course-term-tab strong {
-  display: block;
+.modal-page-chip.course-term-tab strong {
+  display: grid;
   width: 100%;
   overflow: visible;
   text-overflow: clip;
@@ -2689,6 +2689,7 @@ body[data-template="compact"] .dashboard-panel {
   display: grid;
   gap: 2px;
   min-width: 0;
+  width: 100%;
 }
 
 .course-term-label b,
@@ -2701,6 +2702,9 @@ body[data-template="compact"] .dashboard-panel {
   font: inherit;
   font-style: normal;
   line-height: 1.22;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
   overflow-wrap: normal;
   word-break: keep-all;
 }
@@ -2710,8 +2714,8 @@ body[data-template="compact"] .dashboard-panel {
   opacity: 0.9;
 }
 
-.course-term-tab span,
-.course-term-tab small {
+.modal-page-chip.course-term-tab span,
+.modal-page-chip.course-term-tab small {
   min-height: 20px;
   line-height: 1.1;
 }
