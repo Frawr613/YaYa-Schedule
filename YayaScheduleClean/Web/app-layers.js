@@ -12,7 +12,7 @@
     interaction: ["玻璃浮窗", "本地丝滑弹出动画", "独立自定义主题面", "底部/侧边抽屉", "日期时间选择器", "模板输入浮层", "内置选项弹层", "滚动锁定"],
     theme: ["玻璃变量", "主题预设", "自定义主题栏", "独立自定义主题面", "模板-主题桥接", "输入组件主题变量", "模块语义色", "状态色", "应用图标"],
     template: ["模块顺序", "入口动作", "浮窗策略", "输入组件形态", "主题桥接变量", "模块语义槽位"],
-    platform: ["Android WebView", "通知", "桌面图标", "桌面小组件"],
+    platform: ["Android WebView", "iOS WebView", "通知", "后台运行权限", "桌面图标", "桌面小组件"],
     boot: ["脚本顺序", "恢复状态", "预览闭合检查"]
   };
 
@@ -101,8 +101,8 @@
       id: "platform",
       name: "平台桥接层",
       files: ["platform-bridge.js", "app.js"],
-      owns: ["Android 原生保存", "通知", "桌面图标", "桌面小组件", "教务 WebView", "Web 预览降级"],
-      provides: ["统一平台 API", "原生能力探测", "Widget 更新", "Widget 主题同步", "安全降级"],
+      owns: ["Android 原生保存", "iOS 本地通知", "通知", "后台运行权限", "桌面图标", "桌面小组件", "教务 WebView", "Web 预览降级"],
+      provides: ["统一平台 API", "原生能力探测", "后台提醒状态", "Widget 更新", "Widget 主题同步", "安全降级"],
       effects: originalEffectAnchors.platform,
       dependsOn: ["commands", "cache", "theme"],
       handoffTo: ["boot"]

@@ -2278,9 +2278,11 @@
       native,
       notifications: native ? "unknown" : "preview",
       exactAlarms: native ? "unknown" : "preview",
+      backgroundRun: native ? "unknown" : "preview",
       scheduledCount: 0,
       canNotify: false,
       canExact: false,
+      canBackground: false,
       needsAction: native
     };
     try {
@@ -2297,8 +2299,10 @@
       status.native ? "native" : "web",
       status.notifications || "",
       status.exactAlarms || "",
+      status.backgroundRun || "",
       status.canNotify === false ? "notify-off" : "notify-on",
       status.canExact === false ? "exact-off" : "exact-on",
+      status.canBackground === false ? "background-off" : "background-on",
       Number(status.scheduledCount || 0),
       nativeReminderPayload().length
     ].join("|");
@@ -2315,8 +2319,9 @@
     }
     const notifyReady = status.canNotify !== false && ["granted", "ready", "authorized", "provisional", "ephemeral"].includes(status.notifications);
     const exactReady = status.canExact !== false && ["granted", "ready", "ios", "not-required", "notRequired"].includes(status.exactAlarms);
+    const backgroundReady = status.canBackground !== false && ["granted", "ready", "ios", "ios-managed", "not-required", "notRequired"].includes(status.backgroundRun);
     const soundReady = status.canSound !== false && !["blocked", "disabled"].includes(status.sound);
-    if (notifyReady && exactReady && soundReady) {
+    if (notifyReady && exactReady && backgroundReady && soundReady) {
       return {
         state: "ready",
         title: "提醒权限已开启",
@@ -2330,6 +2335,22 @@
         title: "需要开启通知",
         detail: "允许鸦鸦日程发送 DDL 与日程提醒",
         action: "开启权限"
+      };
+    }
+    if (!exactReady) {
+      return {
+        state: "needs-action",
+        title: "需要允许准时提醒",
+        detail: "允许系统在息屏和省电状态下准时触发提醒",
+        action: "开启权限"
+      };
+    }
+    if (!backgroundReady) {
+      return {
+        state: "needs-action",
+        title: "需要允许后台运行",
+        detail: "允许鸦鸦日程在息屏和电池优化状态下保留提醒",
+        action: "开启后台"
       };
     }
     if (!soundReady) {

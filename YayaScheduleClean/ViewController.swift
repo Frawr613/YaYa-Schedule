@@ -147,6 +147,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             requestIOSNotificationPermission(openSettingsWhenDenied: false)
         case "requestReminderPermissions":
             requestIOSNotificationPermission(openSettingsWhenDenied: true)
+        case "requestBackgroundRunPermission":
+            pushReminderPermissionStatus()
         case "savePortalAccount":
             savePortalAccount(username: stringValue(body["username"]), password: stringValue(body["password"]))
         case "setLauncherIcon":
@@ -659,14 +661,17 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 }
                 let payload: [String: Any] = [
                     "native": true,
+                    "platform": "ios",
                     "notifications": notificationState,
                     "sound": soundState,
                     "exactAlarms": "not-required",
+                    "backgroundRun": "ios-managed",
                     "scheduledCount": storedCount,
                     "lastSyncAt": defaults.double(forKey: self.reminderLastSyncAtKey),
                     "canNotify": canNotify,
                     "canSound": canSound,
                     "canExact": true,
+                    "canBackground": true,
                     "needsAction": !canNotify || (canNotify && !canSound)
                 ]
                 guard JSONSerialization.isValidJSONObject(payload),
@@ -949,7 +954,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private static func yayaNativeBridgeScript() -> WKUserScript {
-        let fallback = #"{"native":true,"notifications":"unknown","sound":"unknown","exactAlarms":"not-required","scheduledCount":0,"lastSyncAt":0,"canNotify":false,"canSound":false,"canExact":true,"needsAction":true}"#
+        let fallback = #"{"native":true,"platform":"ios","notifications":"unknown","sound":"unknown","exactAlarms":"not-required","backgroundRun":"ios-managed","scheduledCount":0,"lastSyncAt":0,"canNotify":false,"canSound":false,"canExact":true,"canBackground":true,"needsAction":true}"#
         let source = """
         (function() {
           if (window.YayaNative && window.YayaNative.__iosBridgeReady) return;
@@ -992,6 +997,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             },
             requestReminderPermissions: function() {
               return post("requestReminderPermissions");
+            },
+            requestBackgroundRunPermission: function() {
+              return post("requestBackgroundRunPermission");
             },
             scheduleReminderNotifications: function(payload) {
               return post("scheduleReminderNotifications", { payload: String(payload || "[]") });

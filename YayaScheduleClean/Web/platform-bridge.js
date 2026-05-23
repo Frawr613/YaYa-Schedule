@@ -26,17 +26,19 @@
     notifications: "preview",
     sound: "preview",
     exactAlarms: "preview",
+    backgroundRun: "preview",
     scheduledCount: 0,
     lastSyncAt: 0,
     canNotify: false,
     canSound: false,
     canExact: false,
+    canBackground: false,
     needsAction: false
   });
 
   global.YayaPlatform = {
     layer: "platform",
-    capabilities: ["savePortalAccount", "setLauncherIcon", "openAcademicPortal", "takeImportedPage", "getReminderPermissionStatus", "requestReminderPermissions", "requestNotificationPermission", "scheduleReminderNotifications", "scheduleDdlNotifications", "updateHomeWidget"],
+    capabilities: ["savePortalAccount", "setLauncherIcon", "openAcademicPortal", "takeImportedPage", "getReminderPermissionStatus", "requestReminderPermissions", "requestNotificationPermission", "requestBackgroundRunPermission", "scheduleReminderNotifications", "scheduleDdlNotifications", "updateHomeWidget"],
     isNative() {
       return Boolean(global.YayaNative);
     },
@@ -67,6 +69,9 @@
     },
     requestReminderPermissions() {
       return nativeCall("requestReminderPermissions", [], false);
+    },
+    requestBackgroundRunPermission() {
+      return nativeCall("requestBackgroundRunPermission", [], false);
     },
     scheduleReminderNotifications(payload) {
       if (hasNativeMethod("scheduleReminderNotifications")) {
