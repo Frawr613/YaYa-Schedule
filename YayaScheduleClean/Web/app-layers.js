@@ -4,15 +4,15 @@
   const expectedIds = ["source", "domain", "cache", "commands", "components", "interaction", "theme", "template", "platform", "boot"];
   const expectedModuleIds = ["app-layers", "platform-bridge", "ui-modules", "theme-modules", "app"];
   const originalEffectAnchors = {
-    source: ["教务导入", "文件导入", "确认学期"],
+    source: ["教务导入", "文件导入", "确认学期", "教务页内确认学期", "分页采集"],
     domain: ["课程分组", "常驻日程", "DDL 进行中/已完成", "已完成 DDL 内容/时间检索", "移动/取消变更", "取消已设置变更", "普通备注"],
     cache: ["localStorage", "日期索引", "DDL 索引", "DDL 视图状态", "已完成 DDL 检索状态", "HTML 局部缓存", "主题变量缓存", "Service Worker"],
     commands: ["data-action", "表单提交", "左滑命令", "DDL 页签切换", "已完成 DDL 检索清除", "自定义主题保存", "特殊变更撤销", "内置选项提交"],
     components: ["顶部状态", "DDL 条", "DDL 分页面板", "已完成 DDL 检索面板", "今日面板", "课程/日程概览", "主题配色面板", "模板化内置输入/选项组件"],
-    interaction: ["玻璃浮窗", "本地丝滑弹出动画", "独立自定义主题面", "底部/侧边抽屉", "日期时间选择器", "模板输入浮层", "内置选项弹层", "滚动锁定"],
+    interaction: ["玻璃浮窗", "本地丝滑弹出动画", "独立自定义主题面", "底部/侧边抽屉", "日期时间选择器", "模板输入浮层", "内置选项弹层", "滚动锁定", "教务页内确认浮窗", "视窗锁定拖动"],
     theme: ["玻璃变量", "主题预设", "自定义主题栏", "独立自定义主题面", "模板-主题桥接", "输入组件主题变量", "模块语义色", "状态色", "应用图标"],
     template: ["模块顺序", "入口动作", "浮窗策略", "输入组件形态", "主题桥接变量", "模块语义槽位"],
-    platform: ["Android WebView", "iOS WebView", "通知", "后台运行权限", "桌面图标", "桌面小组件"],
+    platform: ["Android WebView", "iOS WKWebView", "通知", "后台运行权限", "桌面图标", "桌面小组件", "教务单层网页登录"],
     boot: ["脚本顺序", "恢复状态", "预览闭合检查"]
   };
 
@@ -21,8 +21,8 @@
       id: "source",
       name: "原始数据导入层",
       files: ["app.js"],
-      owns: ["教务 HTML", "教务学期字段", "网页型 XLS", "CSV/TXT", "备份 JSON"],
-      provides: ["原始课表行", "原始考试行", "学期候选", "备份载荷"],
+      owns: ["教务 HTML", "教务学期字段", "教务分页内容", "网页型 XLS", "CSV/TXT", "备份 JSON"],
+      provides: ["原始课表行", "原始考试行", "分页采集载荷", "学期候选", "备份载荷"],
       effects: originalEffectAnchors.source,
       dependsOn: [],
       handoffTo: ["domain"]

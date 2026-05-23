@@ -86,7 +86,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         if isTrustedAcademicURL(url) {
             injectPortalNavigationHelper()
             injectPortalAccountHelper()
-            injectAcademicImportControls()
+            injectAcademicImportControlsV2()
         }
     }
 
@@ -273,11 +273,14 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         let url = stringValue(body["url"])
         guard isTrustedAcademicURL(URL(string: url)) else { return }
         let payload: [String: Any] = [
-            "kind": stringValue(body["kind"]).isEmpty ? "courses" : stringValue(body["kind"]),
+            "kind": normalizedAcademicImportKind(stringValue(body["kind"])),
             "title": stringValue(body["title"]),
             "url": url,
-            "text": stringValue(body["text"]),
-            "html": stringValue(body["html"])
+            "text": limitedImportText(stringValue(body["text"])),
+            "html": limitedImportText(stringValue(body["html"])),
+            "termLabel": stringValue(body["termLabel"]),
+            "termStart": stringValue(body["termStart"]),
+            "confirmedTerm": boolValue(body["confirmedTerm"])
         ]
         guard JSONSerialization.isValidJSONObject(payload),
               let data = try? JSONSerialization.data(withJSONObject: payload),
@@ -285,7 +288,22 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return
         }
         pendingImportJson = json
-        setPortalActionStatus("已抓取，点返回鸦鸦后导入")
+        setPortalActionStatus(boolValue(body["confirmedTerm"]) ? "已确认，正在返回鸦鸦导入" : "已抓取，正在返回鸦鸦导入")
+    }
+
+    private func normalizedAcademicImportKind(_ value: String) -> String {
+        let kind = value.lowercased()
+        return kind == "exam" || kind == "exams" ? "exam" : "course"
+    }
+
+    private func limitedImportText(_ value: String) -> String {
+        let maxLength = 1_200_000
+        guard value.count > maxLength else { return value }
+        let headLength = 820_000
+        let tailLength = maxLength - headLength
+        let head = value.prefix(headLength)
+        let tail = value.suffix(tailLength)
+        return "\(head)\n<!-- yaya-import-truncated \(value.count) chars; preserved head and tail -->\n\(tail)"
     }
 
     private func setPortalActionStatus(_ text: String) {
@@ -346,6 +364,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               }
             }
           }
+          function labelText(el) {
+            try { return String([el.innerText, el.textContent, el.value, el.title, el.getAttribute && el.getAttribute('aria-label')].join(' ')).replace(/\\s+/g, ' ').trim(); } catch (error) { return ''; }
+          }
           function allDocs() {
             var docs = [];
             function add(doc) {
@@ -377,6 +398,30 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 });
               } catch (error) {}
             });
+          }
+          function desktopEntry() {
+            var best = null;
+            var bestScore = 0;
+            allDocs().forEach(function(doc) {
+              var nodes = [];
+              try { nodes = Array.prototype.slice.call(doc.querySelectorAll('button,a,input[type=button],input[type=submit],[role=button],.btn,.ant-btn,.el-button,div,span,li')); } catch (error) {}
+              nodes.forEach(function(node) {
+                if (!visible(node)) return;
+                var text = String([labelText(node), node.id, node.name, node.className, node.getAttribute && node.getAttribute('role')].join(' '));
+                if (/手机端|移动端|mobile|phone/i.test(text)) return;
+                var score = /电脑端|PC端|pc端|网页版|Web端|桌面端|电脑|PC|web/i.test(text) ? 110 : 0;
+                if (/进入|登录|登陆|继续|访问/.test(text)) score += 20;
+                if (score > bestScore) { best = node; bestScore = score; }
+              });
+            });
+            return bestScore >= 100 ? best : null;
+          }
+          function clickDesktopEntry() {
+            if (Date.now() - (window.__yayaIosDesktopClickedAt || 0) < 5000) return false;
+            var entry = desktopEntry();
+            if (!entry) return false;
+            window.__yayaIosDesktopClickedAt = Date.now();
+            return clickLike(entry);
           }
           function loginButtonNear(passwordInput) {
             var doc = passwordInput.ownerDocument || document;
@@ -417,6 +462,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           function step() {
             tries += 1;
             forceSelfWindow();
+            clickDesktopEntry();
             var docs = allDocs();
             for (var i = 0; i < docs.length; i += 1) {
               var passwordInput = Array.prototype.slice.call(docs[i].querySelectorAll('input[type=password]')).filter(visible)[0];
@@ -424,9 +470,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               var userInput = userInputNear(passwordInput);
               setValue(userInput, username);
               setValue(passwordInput, password);
-              if (!window.__yayaIosLoginClicked) {
+              if (Date.now() - (window.__yayaIosLoginClickedAt || 0) > 5000) {
                 var button = loginButtonNear(passwordInput);
-                if (button && clickLike(button)) window.__yayaIosLoginClicked = true;
+                if (button && clickLike(button)) window.__yayaIosLoginClickedAt = Date.now();
               }
               break;
             }
@@ -438,105 +484,300 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         webView.evaluateJavaScript(script)
     }
 
-    private func injectAcademicImportControls() {
+    private func injectAcademicImportControlsV2() {
         let script = """
         (function() {
-          if (window.__yayaIosAcademicControls) return;
-          window.__yayaIosAcademicControls = true;
-          function capture(kind) {
+          if (window.__yayaIosAcademicControlsV2) return;
+          window.__yayaIosAcademicControlsV2 = true;
+          function post(type, payload) {
             try {
-              window.webkit.messageHandlers.yayaBridge.postMessage({
-                type: 'captureAcademicPage',
-                kind: kind,
-                title: document.title || '',
-                url: location.href,
-                text: document.body ? document.body.innerText : '',
-                html: document.documentElement ? document.documentElement.outerHTML : ''
-              });
+              payload = payload || {};
+              payload.type = type;
+              window.webkit.messageHandlers.yayaBridge.postMessage(payload);
+              return true;
+            } catch (error) { return false; }
+          }
+          function norm(s) { return String(s || '').replace(/\\s+/g, ' ').trim(); }
+          function allDocs() {
+            var docs = [];
+            function add(doc) {
+              if (!doc || docs.indexOf(doc) >= 0) return;
+              docs.push(doc);
+              try {
+                Array.prototype.slice.call(doc.querySelectorAll('iframe,frame')).forEach(function(frame) {
+                  try { add(frame.contentDocument || frame.contentWindow.document); } catch (error) {}
+                });
+              } catch (error) {}
+            }
+            add(document);
+            return docs;
+          }
+          function selectedTerms(doc) {
+            var out = [];
+            try {
+              var nodes = doc.querySelectorAll('select,input[type=radio],input[type=checkbox],input[type=hidden],input[type=text]');
+              for (var i = 0; i < nodes.length; i += 1) {
+                var el = nodes[i];
+                var meta = norm([el.name, el.id, el.className, el.title, el.getAttribute && el.getAttribute('aria-label')].join(' '));
+                if (!/学期|学年|semester|term|xq|xn|xnm|xqm/i.test(meta)) continue;
+                if (el.tagName && el.tagName.toLowerCase() === 'select') {
+                  var opt = el.options && el.selectedIndex >= 0 ? el.options[el.selectedIndex] : null;
+                  out.push('当前选中学期 ' + meta + ' ' + norm(el.value) + ' ' + norm(opt && (opt.text || opt.value)));
+                } else {
+                  var type = String(el.type || '').toLowerCase();
+                  if ((type === 'radio' || type === 'checkbox') && !el.checked) continue;
+                  if (el.value || el.checked) out.push('当前学期字段 ' + meta + ' ' + norm(el.value));
+                }
+              }
             } catch (error) {}
+            return out.join('\\n');
           }
-          function send(type) {
-            try { window.webkit.messageHandlers.yayaBridge.postMessage({ type: type }); } catch (error) {}
+          function collect() {
+            var html = '', text = '';
+            var docs = allDocs();
+            for (var i = 0; i < docs.length; i += 1) {
+              var doc = docs[i];
+              try {
+                html += '\\n<!-- yaya-doc-' + i + ' -->\\n' + (doc.body ? doc.body.innerHTML : (doc.documentElement ? doc.documentElement.outerHTML : ''));
+                text += '\\n' + selectedTerms(doc) + '\\n' + (doc.body ? doc.body.innerText : '');
+              } catch (error) {}
+            }
+            return { html: html, text: text };
           }
-          var box = document.createElement('div');
-          box.setAttribute('aria-label', '鸦鸦日程导入工具');
-          box.style.cssText = [
-            'position:fixed',
-            'left:16px',
-            'right:16px',
-            'bottom:calc(18px + env(safe-area-inset-bottom, 0px))',
-            'z-index:2147483647',
-            'display:grid',
-            'grid-template-columns:1fr 1fr 1fr',
-            'gap:10px',
-            'padding:12px',
-            'border-radius:22px',
-            'background:rgba(255,255,255,.82)',
-            'box-shadow:0 16px 42px rgba(15,23,42,.18), inset 0 1px 0 rgba(255,255,255,.8)',
-            '-webkit-backdrop-filter:blur(18px) saturate(1.2)',
-            'backdrop-filter:blur(18px) saturate(1.2)',
-            'touch-action:none'
-          ].join(';');
-          function button(text, color, action) {
-            var node = document.createElement('button');
-            node.type = 'button';
-            node.textContent = text;
-            node.style.cssText = [
-              'min-height:48px',
-              'border:0',
-              'border-radius:16px',
-              'font-size:15px',
-              'font-weight:800',
-              'color:white',
-              'background:' + color,
-              'box-shadow:0 8px 20px rgba(37,99,235,.16)'
-            ].join(';');
-            node.addEventListener('click', function(event) {
+          function mark(data) { return norm(data.text).slice(0, 18000); }
+          function visible(el) {
+            try {
+              var s = el.ownerDocument.defaultView.getComputedStyle(el);
+              var r = el.getBoundingClientRect();
+              return s.display !== 'none' && s.visibility !== 'hidden' && r.width >= 0 && r.height >= 0;
+            } catch (error) { return true; }
+          }
+          function disabled(el) {
+            if (!el) return false;
+            var cls = String(el.className || '');
+            var aria = String(el.getAttribute && el.getAttribute('aria-disabled') || '');
+            return !!(el.disabled || aria === 'true' || /disabled|layui-disabled|is-disabled|ant-pagination-disabled|btn-disabled/.test(cls) || disabled(el.parentElement && el.parentElement !== document.body ? el.parentElement : null));
+          }
+          function targetOf(el) {
+            if (!el) return null;
+            if (el.matches && el.matches('button,a')) return el;
+            return (el.querySelector && el.querySelector('button,a')) || el;
+          }
+          function usable(el) {
+            var t = targetOf(el);
+            return t && visible(t) && !disabled(t);
+          }
+          function findNext() {
+            var docs = allDocs();
+            var selectors = ['.layui-laypage-next','.el-pagination .btn-next','.ant-pagination-next button','.ant-pagination-next','button[aria-label*=Next]','button[aria-label*=下一]','a[aria-label*=Next]','a[aria-label*=下一]','a[title*=下一]','button[title*=下一]','li[title*=下一]'];
+            for (var d = 0; d < docs.length; d += 1) {
+              var doc = docs[d];
+              for (var s = 0; s < selectors.length; s += 1) {
+                try {
+                  var list = doc.querySelectorAll(selectors[s]);
+                  for (var i = 0; i < list.length; i += 1) if (usable(list[i])) return targetOf(list[i]);
+                } catch (error) {}
+              }
+              try {
+                var nodes = doc.querySelectorAll('a,button,li,span');
+                for (var n = 0; n < nodes.length; n += 1) {
+                  var el = nodes[n];
+                  var txt = norm(el.textContent);
+                  var title = norm(el.getAttribute && el.getAttribute('title'));
+                  var aria = norm(el.getAttribute && el.getAttribute('aria-label'));
+                  var cls = String(el.className || '');
+                  if (txt === '下一页' || txt === '下页' || txt === '>' || txt === '›' || txt === '»' || title.indexOf('下一') >= 0 || aria.indexOf('下一') >= 0 || /next/i.test(cls)) {
+                    if (usable(el)) return targetOf(el);
+                  }
+                }
+              } catch (error) {}
+            }
+            return null;
+          }
+          function clickNext(el) {
+            try { el.scrollIntoView({ block: 'center' }); } catch (error) {}
+            try { el.click(); } catch (error) {
+              try { el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: el.ownerDocument.defaultView })); } catch (innerError) {}
+            }
+          }
+          function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
+          async function crawl(kind) {
+            if (window.__yayaIosAcademicImportBusy) return null;
+            window.__yayaIosAcademicImportBusy = true;
+            try {
+              var pages = [], seen = {};
+              for (var page = 0; page < 80; page += 1) {
+                var data = collect();
+                var key = mark(data);
+                if (key && !seen[key]) { seen[key] = 1; pages.push(data); }
+                var next = findNext();
+                if (!next) break;
+                var before = key;
+                clickNext(next);
+                var changed = false;
+                for (var t = 0; t < 34; t += 1) {
+                  await sleep(260);
+                  var now = mark(collect());
+                  if (now && now !== before) { changed = true; break; }
+                }
+                if (!changed) break;
+              }
+              if (!pages.length) pages.push(collect());
+              return {
+                pages: pages.length,
+                html: pages.map(function(p, i) { return '\\n<!-- yaya-page-' + (i + 1) + ' -->\\n' + p.html; }).join('\\n'),
+                text: pages.map(function(p) { return p.text; }).join('\\n')
+              };
+            } finally {
+              window.__yayaIosAcademicImportBusy = false;
+            }
+          }
+          function ymd(date) {
+            var y = date.getFullYear();
+            var m = String(date.getMonth() + 1).padStart(2, '0');
+            var d = String(date.getDate()).padStart(2, '0');
+            return y + '-' + m + '-' + d;
+          }
+          function monday(year, month, day) {
+            var d = new Date(year, month - 1, day);
+            while (d.getDay() !== 1) d.setDate(d.getDate() + 1);
+            return ymd(d);
+          }
+          function guessTerm(raw) {
+            var text = norm(raw);
+            var m = text.match(/(20\\d{2})\\s*[-—–~至]\\s*(20\\d{2}).{0,40}?(春季|秋季|夏季|第?\\s*[一二12]\\s*学期|[上下]学期|12|16|[123])?/);
+            var now = new Date();
+            var first = m ? Number(m[1]) : now.getFullYear();
+            var second = m ? Number(m[2]) : first + 1;
+            var hint = m && m[3] ? m[3] : '';
+            var kind = /夏|16|03|3/.test(hint) ? 'summer' : /春|下|第二|二|2|12/.test(hint) ? 'spring' : 'autumn';
+            var label = first + '-' + second + '学年' + (kind === 'spring' ? '春季学期' : kind === 'summer' ? '夏季学期' : '秋季学期');
+            var start = kind === 'spring' ? monday(second, 2, 20) : kind === 'summer' ? monday(second, 6, 20) : monday(first, 9, 1);
+            return { label: label, start: start };
+          }
+          function setStatus(text) {
+            window.__yayaIosAcademicStatus = text;
+            var node = document.querySelector('[data-yaya-ios-academic-status]');
+            if (node) node.textContent = text;
+          }
+          function showTermDialog(data) {
+            var old = document.getElementById('yaya-term-confirm');
+            if (old) old.remove();
+            var info = guessTerm((data && data.text || '') + '\\n' + (data && data.html || ''));
+            var back = document.createElement('div');
+            back.id = 'yaya-term-confirm';
+            back.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:18px;background:rgba(15,23,42,.22);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);touch-action:none';
+            ['touchmove','wheel','pointerdown'].forEach(function(type) {
+              back.addEventListener(type, function(event) {
+                if (event.target === back) { event.preventDefault(); event.stopPropagation(); }
+              }, { capture: true, passive: false });
+            });
+            var card = document.createElement('form');
+            card.style.cssText = 'width:min(360px,calc(100vw - 28px));display:grid;gap:12px;padding:16px;border-radius:24px;border:1px solid rgba(255,255,255,.72);background:linear-gradient(145deg,rgba(255,255,255,.96),rgba(232,242,255,.86));box-shadow:0 22px 52px rgba(24,48,90,.28),inset 0 1px 0 rgba(255,255,255,.9);font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;color:#16233a';
+            card.innerHTML = '<strong style="font-size:18px">确认学期</strong><span style="font-size:12px;color:rgba(22,35,58,.68)">已采集 ' + (data && data.pages || 1) + ' 页课表，请确认后写入鸦鸦日程。</span><label style="display:grid;gap:6px;font-weight:800;font-size:13px">开学日期<input name="termStart" type="date" value="' + info.start + '" style="height:44px;border-radius:15px;border:1px solid rgba(37,99,235,.18);padding:0 12px;font:inherit"></label><label style="display:grid;gap:6px;font-weight:800;font-size:13px">学期名称<input name="termLabel" type="text" value="' + info.label + '" style="height:44px;border-radius:15px;border:1px solid rgba(37,99,235,.18);padding:0 12px;font:inherit"></label><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><button type="button" data-cancel style="height:46px;border:0;border-radius:16px;background:rgba(100,116,139,.14);font-weight:900;color:#334155">取消</button><button type="submit" style="height:46px;border:0;border-radius:16px;background:linear-gradient(135deg,#2563eb,#14b8a6);font-weight:900;color:white">确认导入</button></div>';
+            card.querySelector('[data-cancel]').onclick = function() { back.remove(); };
+            card.onsubmit = function(event) {
+              event.preventDefault();
+              var label = card.elements.termLabel.value || info.label;
+              var start = card.elements.termStart.value || info.start;
+              post('captureAcademicPage', { kind: 'course', title: (document.title || '') + ' 共' + (data && data.pages || 1) + '页', url: location.href, text: data.text, html: data.html, termLabel: label, termStart: start, confirmedTerm: true });
+              setStatus('已确认，正在返回鸦鸦导入');
+              setTimeout(function() { post('returnHome'); }, 160);
+            };
+            back.appendChild(card);
+            document.documentElement.appendChild(back);
+          }
+          function makePanel() {
+            var old = document.getElementById('yaya-sync-panel');
+            if (old) old.remove();
+            var box = document.createElement('div');
+            box.id = 'yaya-sync-panel';
+            box.setAttribute('aria-label', '鸦鸦日程导入工具');
+            box.style.cssText = 'position:fixed;right:14px;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);z-index:2147483646;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;min-width:176px;max-width:min(260px,calc(100vw - 28px));padding:11px 12px 12px;border:1px solid rgba(255,255,255,.72);border-radius:24px;background:linear-gradient(145deg,rgba(255,255,255,.94),rgba(232,242,255,.78));box-shadow:0 18px 46px rgba(24,48,90,.26),inset 0 1px 0 rgba(255,255,255,.86);-webkit-backdrop-filter:blur(18px) saturate(1.35);backdrop-filter:blur(18px) saturate(1.35);font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;color:#16233a;user-select:none;-webkit-user-select:none;touch-action:none';
+            var handle = document.createElement('div');
+            handle.style.cssText = 'grid-column:1/-1;height:18px;display:grid;place-items:center;cursor:move;touch-action:none;margin:-3px 0 -1px';
+            handle.innerHTML = '<i style="display:block;width:48px;height:5px;border-radius:999px;background:linear-gradient(90deg,rgba(37,99,235,.45),rgba(20,184,166,.5));box-shadow:0 1px 0 rgba(255,255,255,.8),0 6px 12px rgba(37,99,235,.16)"></i>';
+            box.appendChild(handle);
+            function button(text, tone, fn) {
+              var node = document.createElement('button');
+              node.type = 'button';
+              node.textContent = text;
+              var skin = tone === 'home'
+                ? 'linear-gradient(135deg,rgba(255,255,255,.92),rgba(239,246,255,.74));color:#1f3b66;border-color:rgba(37,99,235,.18)'
+                : tone === 'exam' ? 'linear-gradient(135deg,#5b6ee1,#8b5cf6)' : 'linear-gradient(135deg,#2563eb,#14b8a6)';
+              node.style.cssText = 'min-height:48px;border:1px solid rgba(255,255,255,.64);border-radius:17px;padding:0 14px;font-size:14px;font-weight:900;line-height:1.12;color:#fff;background:' + skin + ';box-shadow:0 10px 22px rgba(42,87,150,.20),inset 0 1px 0 rgba(255,255,255,.42);touch-action:manipulation';
+              if (tone === 'home') node.style.gridColumn = '1/-1';
+              node.onclick = function(event) { event.preventDefault(); event.stopPropagation(); fn(node); };
+              box.appendChild(node);
+              return node;
+            }
+            button('导入课表', 'course', function(node) {
+              node.textContent = '采集中...';
+              setStatus('正在分页采集课表');
+              crawl('course').then(function(data) {
+                node.textContent = '导入课表';
+                if (!data) { setStatus('未抓取到内容，请换页面重试'); return; }
+                setStatus('请在弹窗确认学期');
+                showTermDialog(data);
+              });
+            });
+            button('导入考试', 'exam', function(node) {
+              node.textContent = '采集中...';
+              setStatus('正在分页采集考试');
+              crawl('exam').then(function(data) {
+                node.textContent = '导入考试';
+                if (!data) { setStatus('未抓取到内容，请换页面重试'); return; }
+                post('captureAcademicPage', { kind: 'exam', title: (document.title || '') + ' 共' + (data.pages || 1) + '页', url: location.href, text: data.text, html: data.html });
+                setStatus('已抓取，正在返回鸦鸦导入');
+                setTimeout(function() { post('returnHome'); }, 180);
+              });
+            });
+            button('返回鸦鸦', 'home', function() { post('returnHome'); });
+            var status = document.createElement('div');
+            status.setAttribute('data-yaya-ios-academic-status', 'true');
+            status.textContent = window.__yayaIosAcademicStatus || '登录后可导入课表或考试';
+            status.style.cssText = 'grid-column:1 / -1;font-size:12px;font-weight:800;color:rgba(15,23,42,.72);text-align:center;padding:2px 4px 0';
+            box.appendChild(status);
+            function clamp(left, top) {
+              var margin = 10, r = box.getBoundingClientRect();
+              var maxLeft = Math.max(margin, window.innerWidth - r.width - margin);
+              var maxTop = Math.max(margin, window.innerHeight - r.height - margin);
+              return { x: Math.min(Math.max(left, margin), maxLeft), y: Math.min(Math.max(top, margin), maxTop) };
+            }
+            function place(left, top) {
+              var p = clamp(left, top);
+              box.style.left = Math.round(p.x) + 'px';
+              box.style.top = Math.round(p.y) + 'px';
+              box.style.right = 'auto';
+              box.style.bottom = 'auto';
+            }
+            var drag = null;
+            handle.addEventListener('pointerdown', function(event) {
+              var r = box.getBoundingClientRect();
+              drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: r.left, top: r.top };
+              try { handle.setPointerCapture(event.pointerId); } catch (error) {}
               event.preventDefault();
               event.stopPropagation();
-              action();
-            });
-            return node;
+            }, true);
+            window.addEventListener('pointermove', function(event) {
+              if (!drag) return;
+              place(drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y);
+              event.preventDefault();
+            }, true);
+            function end(event) {
+              if (!drag) return;
+              try { handle.releasePointerCapture(drag.id); } catch (error) {}
+              drag = null;
+            }
+            window.addEventListener('pointerup', end, true);
+            window.addEventListener('pointercancel', end, true);
+            window.addEventListener('resize', function() {
+              var r = box.getBoundingClientRect();
+              place(r.left, r.top);
+            }, true);
+            document.documentElement.appendChild(box);
           }
-          box.appendChild(button('导入课表', 'linear-gradient(135deg,#2563eb,#14b8a6)', function(){ capture('courses'); }));
-          box.appendChild(button('导入考试', 'linear-gradient(135deg,#7c3aed,#2563eb)', function(){ capture('exams'); }));
-          box.appendChild(button('返回鸦鸦', 'linear-gradient(135deg,#111827,#64748b)', function(){ send('returnHome'); }));
-          var status = document.createElement('div');
-          status.setAttribute('data-yaya-ios-academic-status', 'true');
-          status.textContent = window.__yayaIosAcademicStatus || '登录后可导入课表或考试';
-          status.style.cssText = [
-            'grid-column:1 / -1',
-            'font-size:12px',
-            'font-weight:700',
-            'color:rgba(15,23,42,.72)',
-            'text-align:center',
-            'padding:2px 4px 0'
-          ].join(';');
-          box.appendChild(status);
-          var sx = 0, sy = 0, startLeft = 0, startTop = 0, dragging = false;
-          box.addEventListener('pointerdown', function(event) {
-            dragging = true;
-            sx = event.clientX;
-            sy = event.clientY;
-            var r = box.getBoundingClientRect();
-            startLeft = r.left;
-            startTop = r.top;
-            box.setPointerCapture(event.pointerId);
-          });
-          box.addEventListener('pointermove', function(event) {
-            if (!dragging) return;
-            var left = Math.max(8, Math.min(window.innerWidth - box.offsetWidth - 8, startLeft + event.clientX - sx));
-            var top = Math.max(8, Math.min(window.innerHeight - box.offsetHeight - 8, startTop + event.clientY - sy));
-            box.style.left = left + 'px';
-            box.style.right = 'auto';
-            box.style.top = top + 'px';
-            box.style.bottom = 'auto';
-          });
-          box.addEventListener('pointerup', function(event) {
-            dragging = false;
-            try { box.releasePointerCapture(event.pointerId); } catch (error) {}
-          });
-          document.documentElement.appendChild(box);
+          makePanel();
         })();
         """
         webView.evaluateJavaScript(script)

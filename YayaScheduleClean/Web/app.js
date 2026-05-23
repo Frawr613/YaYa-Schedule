@@ -2548,9 +2548,9 @@
       if (file) handleFile(file);
       els.fileInput.value = "";
     });
-    els.todayButton.addEventListener("click", goToday);
-    els.portalButton.addEventListener("click", openAcademicPortal);
-    els.settingsButton.addEventListener("click", () => openModal("settings"));
+    els.todayButton?.addEventListener("click", goToday);
+    els.portalButton?.addEventListener("click", openAcademicPortal);
+    els.settingsButton?.addEventListener("click", () => openModal("settings"));
   }
 
   function goToday() {
@@ -3739,7 +3739,8 @@
     activateRenderBusy(820);
     const html = payload.html || "";
     const text = payload.text || "";
-    if (payload.kind === "exam") {
+    const importKind = normalizeAcademicImportKind(payload.kind);
+    if (importKind === "exam") {
       const exams = parseExamSchedulesFromHtml(html, text);
       if (!exams.length) {
         state.notice = "未识别到考试安排，请打开考试安排页面后再导入";
@@ -3757,13 +3758,27 @@
       renderAll();
       return;
     }
+    const sourceName = payload.title || "教务系统同步";
+    const termInfo = detectTermInfo(`${payload.title || ""}\n${text}\n${html}`);
+    if (payload.confirmedTerm) {
+      const termStart = validDate(payload.termStart) ? String(payload.termStart) : termInfo.startDate || state.termStart || DEFAULT_TERM_START;
+      const label = normalizeText(payload.termLabel) || termInfo.label || sourceName || "课表";
+      commitImportedTerm(rows, sourceName, { ...termInfo, label, startDate: termStart, termStart, detected: true });
+      return;
+    }
     pendingImport = {
       rows,
-      sourceName: payload.title || "教务系统同步",
+      sourceName,
       rawText: `${payload.title || ""}\n${text}\n${html}`,
-      termInfo: detectTermInfo(`${payload.title || ""}\n${text}\n${html}`)
+      termInfo
     };
     openModal("term-import");
+  }
+
+  function normalizeAcademicImportKind(value) {
+    const kind = String(value || "").toLowerCase();
+    if (kind === "exam" || kind === "exams") return "exam";
+    return "course";
   }
 
   async function handleFile(file) {
@@ -3792,15 +3807,20 @@
     const termStart = validDate(data.get("termStart")) ? String(data.get("termStart")) : DEFAULT_TERM_START;
     const label = normalizeText(data.get("label")) || pendingImport.termInfo.label || "课表";
     const meta = { ...pendingImport.termInfo, label, startDate: termStart, termStart, detected: true };
-    const term = buildTermFromRows(pendingImport.rows, pendingImport.sourceName, termStart, meta);
+    commitImportedTerm(pendingImport.rows, pendingImport.sourceName, meta);
+    pendingImport = null;
+    closeModal();
+  }
+
+  function commitImportedTerm(rows, sourceName, meta) {
+    const termStart = validDate(meta?.termStart || meta?.startDate) ? String(meta.termStart || meta.startDate) : DEFAULT_TERM_START;
+    const term = buildTermFromRows(rows, sourceName, termStart, meta || {});
     state.terms = [...state.terms.filter((item) => item.id !== term.id), term].sort((a, b) => a.termStart.localeCompare(b.termStart));
     state.activeTermId = term.id;
     state.termStart = term.termStart;
-    state.sourceName = pendingImport.sourceName;
-    pendingImport = null;
+    state.sourceName = sourceName;
     syncActiveTerm();
     commit(`课表已导入：${term.courses.length} 门课程`, { immediate: true });
-    closeModal();
   }
 
   function decodeFile(buffer) {
