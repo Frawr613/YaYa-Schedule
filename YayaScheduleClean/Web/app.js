@@ -1327,6 +1327,23 @@
     `;
   }
 
+  function currentPlatformKind(status) {
+    const platform = String(status?.platform || "").toLowerCase();
+    if (platform.includes("ios")) return "ios";
+    if (platform.includes("android")) return "android";
+    const ua = navigator.userAgent || "";
+    if (/Android/i.test(ua)) return "android";
+    if (/iPad|iPhone|iPod/i.test(ua) || (/Macintosh/i.test(ua) && Number(navigator.maxTouchPoints || 0) > 1) || window.YayaNative?.__iosBridgeReady) return "ios";
+    return window.YayaPlatform?.isNative?.() ? "native" : "web";
+  }
+
+  function iconModalNote() {
+    const platform = currentPlatformKind();
+    if (platform === "android") return "图标独立于模板和主题；在 Android App 内保存后会切换桌面图标。";
+    if (platform === "ios") return "图标独立于模板和主题；在 iOS App 内保存后会切换应用图标。";
+    if (platform === "native") return "图标独立于模板和主题；在 App 内保存后会切换应用图标。";
+    return "图标独立于模板和主题；预览中会保存选择，真机内会切换应用图标。";
+  }
   function renderIconModal() {
     const active = normalizeIconId(state.appIcon);
     return `
@@ -1341,7 +1358,7 @@
             </label>
           `).join("")}
         </div>
-        <p class="form-note">图标独立于模板和主题；在 Android App 内保存后会切换桌面图标。</p>
+        <p class="form-note">${escapeHtml(iconModalNote())}</p>
         <button type="submit" class="primary">保存图标</button>
       </form>
     `;
@@ -2557,11 +2574,12 @@
       };
     }
     if (!backgroundReady) {
+      const platform = currentPlatformKind(status);
       return {
         state: "needs-action",
-        title: "需要允许后台运行",
-        detail: "允许鸦鸦日程在息屏和电池优化状态下保留提醒",
-        action: "开启后台"
+        title: platform === "ios" ? "需要检查系统提醒" : "需要允许后台运行",
+        detail: platform === "ios" ? "iOS 会由系统管理后台触发，确认通知权限可用即可" : "允许鸦鸦日程在息屏和电池优化状态下保留提醒",
+        action: platform === "ios" ? "检查权限" : "开启后台"
       };
     }
     if (!soundReady) {
