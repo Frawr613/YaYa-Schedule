@@ -5,10 +5,10 @@
   const expectedModuleIds = ["app-layers", "platform-bridge", "ui-modules", "theme-modules", "app"];
   const originalEffectAnchors = {
     source: ["教务导入", "文件导入", "确认学期", "教务页内确认学期", "分页采集"],
-    domain: ["课程分组", "常驻日程", "DDL 进行中/已完成", "已完成 DDL 内容/时间检索", "移动/取消变更", "取消已设置变更", "普通备注"],
-    cache: ["localStorage", "日期索引", "DDL 索引", "DDL 视图状态", "已完成 DDL 检索状态", "HTML 局部缓存", "主题变量缓存", "Service Worker"],
+    domain: ["课程分组", "常驻日程", "日程进行中/已结束", "DDL 进行中/已完成", "已完成 DDL 内容/时间检索", "特殊变更进行中/已结束", "移动/取消变更", "取消已设置变更", "普通备注"],
+    cache: ["localStorage", "日期索引", "DDL 索引", "日程/特殊变更状态分桶", "DDL 视图状态", "已完成 DDL 检索状态", "HTML 局部缓存", "主题变量缓存", "Service Worker"],
     commands: ["data-action", "表单提交", "左滑命令", "DDL 页签切换", "已完成 DDL 检索清除", "自定义主题保存", "特殊变更撤销", "内置选项提交"],
-    components: ["顶部状态", "DDL 条", "DDL 分页面板", "已完成 DDL 检索面板", "今日面板", "课程/日程概览", "主题配色面板", "模板化内置输入/选项组件"],
+    components: ["顶部状态", "DDL 条", "DDL 分页面板", "已完成 DDL 检索面板", "今日面板", "课程/日程概览", "状态分组概览卡", "主题配色面板", "模板化内置输入/选项组件"],
     interaction: ["玻璃浮窗", "本地丝滑弹出动画", "独立自定义主题面", "底部/侧边抽屉", "日期时间选择器", "模板输入浮层", "内置选项弹层", "滚动锁定", "教务页内确认浮窗", "视窗锁定拖动"],
     theme: ["玻璃变量", "主题预设", "自定义主题栏", "独立自定义主题面", "模板-主题桥接", "输入组件主题变量", "模块语义色", "状态色", "应用图标"],
     template: ["模块顺序", "入口动作", "浮窗策略", "输入组件形态", "主题桥接变量", "模块语义槽位"],
@@ -31,8 +31,8 @@
       id: "domain",
       name: "领域模型层",
       files: ["app.js"],
-      owns: ["课程", "学期确认", "课程分组", "日程", "DDL", "DDL 进行中/已完成", "已完成 DDL 内容/时间检索", "考试", "移动/取消变更", "取消已设置变更", "普通备注"],
-      provides: ["标准课程事件", "按课程聚合结果", "标准日程项", "标准 DDL 项", "DDL 完成归档", "已完成 DDL 筛选结果", "备注归属"],
+      owns: ["课程", "学期确认", "课程分组", "日程", "日程进行中/已结束", "DDL", "DDL 进行中/已完成", "已完成 DDL 内容/时间检索", "考试", "特殊变更进行中/已结束", "移动/取消变更", "取消已设置变更", "普通备注"],
+      provides: ["标准课程事件", "按课程聚合结果", "标准日程项", "日程状态分桶", "标准 DDL 项", "DDL 完成归档", "已完成 DDL 筛选结果", "特殊变更状态分桶", "备注归属"],
       effects: originalEffectAnchors.domain,
       dependsOn: ["source"],
       handoffTo: ["cache", "commands"]
@@ -41,8 +41,8 @@
       id: "cache",
       name: "本地状态/缓存层",
       files: ["app.js", "sw.js"],
-      owns: ["localStorage 状态", "日期索引", "DDL 索引", "DDL 页签状态", "已完成 DDL 检索状态", "HTML 局部缓存", "当天条目缓存", "Service Worker 优先缓存"],
-      provides: ["当天日程读取", "DDL 快照", "DDL 进行中/已完成快照", "已完成 DDL 检索快照", "局部渲染快照", "离线资源"],
+      owns: ["localStorage 状态", "日期索引", "DDL 索引", "日程/特殊变更状态分桶", "DDL 页签状态", "已完成 DDL 检索状态", "HTML 局部缓存", "当天条目缓存", "Service Worker 优先缓存"],
+      provides: ["当天日程读取", "日程/特殊变更进行中计数", "DDL 快照", "DDL 进行中/已完成快照", "已完成 DDL 检索快照", "局部渲染快照", "离线资源"],
       effects: originalEffectAnchors.cache,
       dependsOn: ["domain"],
       handoffTo: ["components", "platform"]
@@ -61,8 +61,8 @@
       id: "components",
       name: "UI 组件层",
       files: ["app.js", "styles.css"],
-      owns: ["状态条", "DDL 条", "DDL 页签面板", "已完成 DDL 检索面板", "日期查询", "日期选择器", "时间选择器", "内置选项组件", "今日面板", "概览卡", "设置浮窗", "主题配色面板", "备注卡片"],
-      provides: ["可排序模块", "可隐藏模块", "功能面板 DOM", "DDL 分页 DOM", "已完成 DDL 检索 DOM", "课程分组卡片", "模板输入组件 DOM"],
+      owns: ["状态条", "DDL 条", "DDL 页签面板", "已完成 DDL 检索面板", "日期查询", "日期选择器", "时间选择器", "内置选项组件", "今日面板", "概览卡", "状态分组概览卡", "设置浮窗", "主题配色面板", "备注卡片"],
+      provides: ["可排序模块", "可隐藏模块", "功能面板 DOM", "DDL 分页 DOM", "已完成 DDL 检索 DOM", "课程分组卡片", "日程/特殊变更状态页 DOM", "模板输入组件 DOM"],
       effects: originalEffectAnchors.components,
       dependsOn: ["cache", "commands"],
       handoffTo: ["template", "interaction", "theme"]

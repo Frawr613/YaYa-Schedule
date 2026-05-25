@@ -26,8 +26,8 @@
   const ACADEMIC_YEAR_MAX = DATE_PICKER_MAX_YEAR - 1;
   const INPUT_UI_PATCH_VERSION = "20260522-template-input-ui-v1";
   const PORTAL_OPEN_COOLDOWN_MS = 1400;
-  const SCHEDULE_OVERVIEW_PAGES = ["custom", "recurring-active", "recurring-ended"];
-  const SPECIAL_OVERVIEW_PAGES = ["move", "cancel"];
+  const SCHEDULE_OVERVIEW_PAGES = ["active", "ended"];
+  const SPECIAL_OVERVIEW_PAGES = ["active", "ended"];
 
   const PERIOD_TIMES = {
     1: ["08:00", "08:45"],
@@ -357,8 +357,8 @@
       dateLookupMode: "date",
       ddlView: "active",
       courseOverviewPage: "",
-      scheduleOverviewPage: "custom",
-      specialOverviewPage: "move",
+      scheduleOverviewPage: "active",
+      specialOverviewPage: "active",
       uiTemplate: "classicOriginal",
       theme: "coolGlass",
       themeAccent: "",
@@ -729,10 +729,16 @@
     }
 
     appCache = cache;
+    const overviewScheduleCounts = scheduleOverviewBuckets();
+    const overviewSpecialCounts = specialOverviewBuckets();
     window.YayaLayers?.registerRuntime?.("cache", {
       builtAt: cache.builtAt,
       courseCount: cache.courseCount,
-      activeDdls: cache.activeDdls.length
+      activeDdls: cache.activeDdls.length,
+      activeSchedules: overviewScheduleCounts.active.length,
+      endedSchedules: overviewScheduleCounts.ended.length,
+      activeSpecials: overviewSpecialCounts.active.length,
+      endedSpecials: overviewSpecialCounts.ended.length
     });
     if (save) {
       try {
@@ -1047,26 +1053,28 @@
         <button type="button" class="overview-count" data-action="open-courses">${appCache.courseCount}门</button>
       </div>
     `, `course-overview:${appCache.courseCount}`);
-    const nonCourseCount = dayItems(state.focusDate).filter((item) => item.type !== "course").length;
+    const scheduleBuckets = scheduleOverviewBuckets();
+    const scheduleActiveCount = scheduleBuckets.active.length;
     setCachedHtml(els.scheduleOverview, `
       <div class="panel-head">
         <h2>日程概览</h2>
         <div class="overview-actions">
-          <button type="button" class="overview-count" data-action="open-schedules">${nonCourseCount}项</button>
+          <button type="button" class="overview-count" data-action="open-schedules">${scheduleActiveCount}项</button>
           <button type="button" class="overview-add" data-action="new-recurring">新建</button>
         </div>
       </div>
-    `, `schedule-overview:${state.customSchedules.length}:${state.recurringSchedules.length}:${state.focusDate}:${nonCourseCount}`);
-    const specialCount = state.specialChanges.length;
+    `, `schedule-overview:${state.customSchedules.length}:${state.recurringSchedules.length}:${scheduleActiveCount}`);
+    const specialBuckets = specialOverviewBuckets();
+    const specialActiveCount = specialBuckets.active.length;
     setCachedHtml(els.specialOverview, `
       <div class="panel-head special-panel-head">
         <h2>特殊变更</h2>
         <div class="special-overview-actions">
-          <button type="button" class="overview-count special-change-count" data-action="open-specials">${specialCount}项</button>
+          <button type="button" class="overview-count special-change-count" data-action="open-specials">${specialActiveCount}项</button>
           <button type="button" class="overview-add special-change-button" data-action="open-specials">管理</button>
         </div>
       </div>
-    `, `special-overview:${specialCount}`);
+    `, `special-overview:${state.specialChanges.length}:${specialActiveCount}`);
   }
 
   function renderModal() {
@@ -1721,7 +1729,9 @@
   }
 
   function normalizeScheduleOverviewPage(page) {
-    return SCHEDULE_OVERVIEW_PAGES.includes(page) ? page : "custom";
+    if (SCHEDULE_OVERVIEW_PAGES.includes(page)) return page;
+    if (["recurring-ended", "ended", "completed", "done", "history"].includes(page)) return "ended";
+    return "active";
   }
 
   function activeScheduleOverviewPage() {
@@ -1731,7 +1741,9 @@
   }
 
   function normalizeSpecialOverviewPage(page) {
-    return SPECIAL_OVERVIEW_PAGES.includes(page) ? page : "move";
+    if (SPECIAL_OVERVIEW_PAGES.includes(page)) return page;
+    if (["ended", "completed", "done", "history"].includes(page)) return "ended";
+    return "active";
   }
 
   function activeSpecialOverviewPage() {
@@ -1801,11 +1813,10 @@
     }).join("");
   }
 
-  function renderScheduleOverviewTabs(activePage, recurringGroups) {
+  function renderScheduleOverviewTabs(activePage, buckets) {
     const pages = [
-      ["custom", "单次", state.customSchedules.length],
-      ["recurring-active", "进行中", recurringGroups.active.length],
-      ["recurring-ended", "已结束", recurringGroups.ended.length]
+      ["active", "进行中", buckets.active.length],
+      ["ended", "已结束", buckets.ended.length]
     ];
     return pages.map(([id, label, count]) => {
       const active = id === activePage;
@@ -1818,10 +1829,10 @@
     }).join("");
   }
 
-  function renderSpecialOverviewTabs(activePage, moves, cancels) {
+  function renderSpecialOverviewTabs(activePage, buckets) {
     const pages = [
-      ["move", "移动", moves.length],
-      ["cancel", "取消", cancels.length]
+      ["active", "进行中", buckets.active.length],
+      ["ended", "已结束", buckets.ended.length]
     ];
     return pages.map(([id, label, count]) => {
       const active = id === activePage;
@@ -1866,81 +1877,86 @@
   }
 
   function renderSchedulesModal() {
-    const recurringGroups = groupedRecurringSchedules();
+    const buckets = scheduleOverviewBuckets();
     const activePage = activeScheduleOverviewPage();
-    const custom = state.customSchedules.map((item) => `
-      ${renderSwipeShell("schedule", item.id, `
-      <article class="list-card schedule-card">
-        <div>
-          <strong>${escapeHtml(item.title)}</strong>
-          <span>${escapeHtml(item.date)} · ${escapeHtml(timeRange(item))} · ${escapeHtml(item.place || "地点未填")}</span>
-        </div>
-      </article>
-      `, `
-        <button type="button" data-action="edit-schedule" data-id="${escapeAttr(item.id)}">修改</button>
-        <button type="button" data-action="delete-schedule" data-id="${escapeAttr(item.id)}">删除</button>
-      `)}
-    `).join("");
-    const recurring = (items) => items.map((item) => `
-      ${renderSwipeShell("recurring", item.id, `
-      <article class="list-card recurring-card">
-        <div>
-          <strong>${escapeHtml(item.title)}</strong>
-          <span>周${escapeHtml(DAYS[item.dayIndex] || "")} · ${escapeHtml(timeRange(item))} · ${escapeHtml(formatWeeks(item.weeks))}</span>
-          <small>${isRecurringEnded(item) ? "已结束" : "进行中"}</small>
-        </div>
-      </article>
-      `, `
-        <button type="button" data-action="edit-recurring" data-id="${escapeAttr(item.id)}">修改</button>
-        <button type="button" data-action="delete-recurring" data-id="${escapeAttr(item.id)}">删除</button>
-      `)}
-    `).join("");
+    const renderList = (items) => items.map((entry) => {
+      const item = entry.item;
+      const isRecurring = entry.kind === "recurring";
+      const typeLabel = isRecurring ? "常驻" : "单次";
+      const cardClass = isRecurring ? "recurring-card" : "schedule-card";
+      const swipeType = isRecurring ? "recurring" : "schedule";
+      const primaryMeta = isRecurring
+        ? `周${escapeHtml(DAYS[item.dayIndex] || "")} · ${escapeHtml(timeRange(item))} · ${escapeHtml(formatWeeks(item.weeks))}`
+        : `${escapeHtml(item.date)} · ${escapeHtml(timeRange(item))} · ${escapeHtml(item.place || "地点未填")}`;
+      const secondaryMeta = isRecurring ? escapeHtml(item.place || "地点未填") : escapeHtml(item.syncToDdl ? "同步到 DDL" : "");
+      return `
+        ${renderSwipeShell(swipeType, item.id, `
+        <article class="list-card ${cardClass}">
+          <div>
+            <div class="badges overview-card-tags"><span>${typeLabel}</span></div>
+            <strong>${escapeHtml(item.title)}</strong>
+            <span>${primaryMeta}</span>
+            ${secondaryMeta ? `<small>${secondaryMeta}</small>` : ""}
+          </div>
+        </article>
+        `, isRecurring ? `
+          <button type="button" data-action="edit-recurring" data-id="${escapeAttr(item.id)}">修改</button>
+          <button type="button" data-action="delete-recurring" data-id="${escapeAttr(item.id)}">删除</button>
+        ` : `
+          <button type="button" data-action="edit-schedule" data-id="${escapeAttr(item.id)}">修改</button>
+          <button type="button" data-action="delete-schedule" data-id="${escapeAttr(item.id)}">删除</button>
+        `)}
+      `;
+    }).join("");
     const headActions = `
       <button type="button" class="modal-head-action" data-action="new-schedule">单次日程</button>
       <button type="button" class="modal-head-action" data-action="new-recurring">常驻日程</button>
     `;
-    const tabs = renderScheduleOverviewTabs(activePage, recurringGroups);
+    const tabs = renderScheduleOverviewTabs(activePage, buckets);
     const sections = {
-      custom: `<section class="modal-section"><h3>单次日程</h3>${custom || `<div class="empty-state">暂无单次日程</div>`}</section>`,
-      "recurring-active": `<section class="modal-section"><h3>常驻日程 · 进行中</h3>${recurring(recurringGroups.active) || `<div class="empty-state">暂无进行中的常驻日程</div>`}</section>`,
-      "recurring-ended": `<section class="modal-section"><h3>常驻日程 · 已结束</h3>${recurring(recurringGroups.ended) || `<div class="empty-state">暂无已结束常驻日程</div>`}</section>`
+      active: `<section class="modal-section"><h3>进行中</h3>${renderList(buckets.active) || `<div class="empty-state">暂无进行中的日程</div>`}</section>`,
+      ended: `<section class="modal-section"><h3>已结束</h3>${renderList(buckets.ended) || `<div class="empty-state">暂无已结束的日程</div>`}</section>`
     };
     return `
       ${modalHead("日程概览", "close-modal", headActions, tabs)}
       <div class="modal-page-stage schedule-overview-page"${modalPageMotionAttr("schedules", activePage)}>
-        ${sections[activePage] || sections.custom}
+        ${sections[activePage] || sections.active}
       </div>
     `;
   }
 
   function renderSpecialsModal() {
-    const moves = state.specialChanges.filter((item) => item.action === "move");
-    const cancels = state.specialChanges.filter((item) => item.action === "cancel");
+    const buckets = specialOverviewBuckets();
     const activePage = activeSpecialOverviewPage();
-    const renderList = (items) => items.map((item) => `
-      ${renderSwipeShell("special", item.id, `
-      <article class="list-card special-card">
-        <div>
-          <strong>${escapeHtml(targetTitle(item.targetKey) || "特殊变更")}</strong>
-          <span>${escapeHtml(item.action === "cancel" ? "取消" : "移动")} · ${escapeHtml(item.sourceDate)}${item.action === "move" ? ` → ${escapeHtml(item.date)}` : ""}</span>
-          ${item.note ? `<small>${escapeHtml(item.note)}</small>` : ""}
-        </div>
-      </article>
-      `, `
-        <button type="button" data-action="edit-special" data-id="${escapeAttr(item.id)}">修改</button>
-        <button type="button" data-action="cancel-special" data-id="${escapeAttr(item.id)}">取消变更</button>
-      `)}
-    `).join("");
+    const renderList = (items) => items.map((entry) => {
+      const item = entry.item;
+      const actionLabel = item.action === "cancel" ? "取消" : "移动";
+      return `
+        ${renderSwipeShell("special", item.id, `
+        <article class="list-card special-card">
+          <div>
+            <div class="badges overview-card-tags"><span>${actionLabel}</span></div>
+            <strong>${escapeHtml(targetTitle(item.targetKey) || "特殊变更")}</strong>
+            <span>${escapeHtml(item.sourceDate)}${item.action === "move" ? ` → ${escapeHtml(item.date)}` : ""}</span>
+            ${item.note ? `<small>${escapeHtml(item.note)}</small>` : ""}
+          </div>
+        </article>
+        `, `
+          <button type="button" data-action="edit-special" data-id="${escapeAttr(item.id)}">修改</button>
+          <button type="button" data-action="cancel-special" data-id="${escapeAttr(item.id)}">取消变更</button>
+        `)}
+      `;
+    }).join("");
     const headActions = `<button type="button" class="modal-head-action" data-action="new-special">新建变更</button>`;
-    const tabs = renderSpecialOverviewTabs(activePage, moves, cancels);
+    const tabs = renderSpecialOverviewTabs(activePage, buckets);
     const sections = {
-      move: `<section class="modal-section"><h3>移动/调课</h3>${renderList(moves) || `<div class="empty-state">暂无移动变更</div>`}</section>`,
-      cancel: `<section class="modal-section"><h3>取消/停课</h3>${renderList(cancels) || `<div class="empty-state">暂无取消变更</div>`}</section>`
+      active: `<section class="modal-section"><h3>进行中</h3>${renderList(buckets.active) || `<div class="empty-state">暂无进行中的特殊变更</div>`}</section>`,
+      ended: `<section class="modal-section"><h3>已结束</h3>${renderList(buckets.ended) || `<div class="empty-state">暂无已结束的特殊变更</div>`}</section>`
     };
     return `
       ${modalHead("特殊变更", "close-modal", headActions, tabs)}
       <div class="modal-page-stage special-overview-page"${modalPageMotionAttr("specials", activePage)}>
-        ${sections[activePage] || sections.move}
+        ${sections[activePage] || sections.active}
       </div>
     `;
   }
@@ -5015,20 +5031,108 @@
     return dates;
   }
 
-  function isRecurringEnded(item) {
-    if (item.endDate) return item.endDate < todayString();
-    const weeks = item.weeks?.length ? item.weeks : [];
-    if (!weeks.length) return false;
-    const lastWeek = Math.max(...weeks);
-    const lastDate = dateForWeekDay(item.termStart || state.termStart || DEFAULT_TERM_START, lastWeek, item.dayIndex);
-    return lastDate < todayString();
+  function hasDateTimeEnded(date, time = "23:59") {
+    const stamp = dateTimeStamp(date, validTimeInputValue(time) || "23:59", true);
+    return stamp !== null && stamp < Date.now();
   }
 
-  function groupedRecurringSchedules() {
-    return state.recurringSchedules.reduce((groups, item) => {
-      groups[isRecurringEnded(item) ? "ended" : "active"].push(item);
-      return groups;
-    }, { active: [], ended: [] });
+  function isCustomScheduleEnded(item) {
+    return hasDateTimeEnded(item.date, item.endTime || item.startTime || "23:59");
+  }
+
+  function recurringLastDate(item) {
+    if (validDateInputValue(item.endDate)) return item.endDate;
+    const weeks = item.weeks?.length ? item.weeks : [];
+    if (!weeks.length) return "";
+    const lastWeek = Math.max(...weeks);
+    return dateForWeekDay(item.termStart || state.termStart || DEFAULT_TERM_START, lastWeek, item.dayIndex);
+  }
+
+  function isRecurringEnded(item) {
+    const lastDate = recurringLastDate(item);
+    if (!lastDate) return false;
+    return hasDateTimeEnded(lastDate, item.endTime || "23:59");
+  }
+
+  function recurringOverviewDate(item, ended) {
+    const occurrences = expandRecurring(item)
+      .map((occurrence) => occurrence.date)
+      .filter(Boolean)
+      .sort();
+    if (!occurrences.length) return validDateInputValue(item.startDate) || validDateInputValue(item.endDate) || todayString();
+    if (!ended) return occurrences.find((date) => !hasDateTimeEnded(date, item.endTime || "23:59")) || occurrences[0];
+    return occurrences[occurrences.length - 1];
+  }
+
+  function scheduleOverviewBuckets() {
+    const groups = { active: [], ended: [] };
+    for (const item of state.customSchedules) {
+      const ended = isCustomScheduleEnded(item);
+      groups[ended ? "ended" : "active"].push({
+        kind: "custom",
+        item,
+        ended,
+        sortDate: item.date || "",
+        sortTime: item.startTime || item.endTime || "23:59"
+      });
+    }
+    for (const item of state.recurringSchedules) {
+      const ended = isRecurringEnded(item);
+      groups[ended ? "ended" : "active"].push({
+        kind: "recurring",
+        item,
+        ended,
+        sortDate: recurringOverviewDate(item, ended),
+        sortTime: item.startTime || item.endTime || "23:59"
+      });
+    }
+    groups.active.sort(sortOverviewEntry);
+    groups.ended.sort((a, b) => sortOverviewEntry(b, a));
+    return groups;
+  }
+
+  function specialOverviewBuckets() {
+    const groups = { active: [], ended: [] };
+    for (const item of state.specialChanges) {
+      const ended = isSpecialChangeEnded(item);
+      groups[ended ? "ended" : "active"].push({
+        item,
+        ended,
+        sortDate: specialOverviewDate(item),
+        sortTime: specialOverviewEndTime(item)
+      });
+    }
+    groups.active.sort(sortOverviewEntry);
+    groups.ended.sort((a, b) => sortOverviewEntry(b, a));
+    return groups;
+  }
+
+  function isSpecialChangeEnded(item) {
+    return hasDateTimeEnded(specialOverviewDate(item), specialOverviewEndTime(item));
+  }
+
+  function specialOverviewDate(item) {
+    const preferred = item.action === "move" ? item.date : item.sourceDate;
+    return validDateInputValue(preferred) || validDateInputValue(item.sourceDate) || validDateInputValue(item.date) || todayString();
+  }
+
+  function specialOverviewEndTime(item) {
+    const target = String(item.targetKey || "");
+    const targetItem = target.startsWith("recurring:")
+      ? appCache.recurringById[target.slice(10)]
+      : target.startsWith("custom:")
+        ? appCache.customById[target.slice(7)]
+        : null;
+    return validTimeInputValue(item.endTime)
+      || validTimeInputValue(targetItem?.endTime)
+      || validTimeInputValue(item.startTime)
+      || validTimeInputValue(targetItem?.startTime)
+      || "23:59";
+  }
+
+  function sortOverviewEntry(a, b) {
+    return `${a.sortDate || ""} ${a.sortTime || "23:59"}`.localeCompare(`${b.sortDate || ""} ${b.sortTime || "23:59"}`)
+      || COLLATOR.compare(a.item?.title || targetTitle(a.item?.targetKey) || "", b.item?.title || targetTitle(b.item?.targetKey) || "");
   }
 
   function detailContext() {

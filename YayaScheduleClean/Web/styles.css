@@ -2187,6 +2187,15 @@ body[data-template="compact"] .dashboard-panel {
   font-weight: 700;
 }
 
+.overview-card-tags {
+  margin-bottom: 1px;
+}
+
+.list-card .overview-card-tags span {
+  font-size: 11px;
+  padding: 2px 7px;
+}
+
 .dashboard-grid {
   display: grid;
   gap: 10px;
