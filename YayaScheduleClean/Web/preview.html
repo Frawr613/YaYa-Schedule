@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>鸦鸦日程预览器</title>
+    <link rel="icon" type="image/png" href="icons/icon-transparent.png" />
+    <style>
+      :root {
+        --accent: #2563eb;
+        --accent-2: #0f766e;
+        --ink: #111827;
+        --muted: #667085;
+        --line: rgba(17, 24, 39, 0.12);
+        --page: #f5f7fb;
+        --panel: #ffffff;
+        --soft: rgba(37, 99, 235, 0.08);
+        --danger: #dc2626;
+        --ok: #0f766e;
+        --shadow: 0 16px 38px rgba(17, 24, 39, 0.12);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        background: linear-gradient(180deg, #fbfcff, var(--page));
+        letter-spacing: 0;
+      }
+
+      button,
+      select,
+      input {
+        font: inherit;
+      }
+
+      button,
+      a.button {
+        min-height: 38px;
+        padding: 8px 11px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--ink);
+        text-decoration: none;
+      }
+
+      button.primary,
+      a.primary {
+        background: var(--accent);
+        border-color: transparent;
+        color: #fff;
+        font-weight: 800;
+      }
+
+      button.ghost {
+        background: var(--soft);
+        color: var(--accent);
+        border-color: transparent;
+        font-weight: 700;
+      }
+
+      .preview-app {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: minmax(340px, 520px) minmax(380px, 1fr);
+        gap: 16px;
+        padding: 16px;
+      }
+
+      .stage,
+      .inspector {
+        min-width: 0;
+      }
+
+      .stage {
+        display: grid;
+        gap: 12px;
+        align-content: start;
+      }
+
+      .stage-head,
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+      }
+
+      .stage-head {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .title-row,
+      .toolbar,
+      .button-row,
+      .status-grid,
+      .template-grid {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .title-row {
+        justify-content: space-between;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 22px;
+      }
+
+      h2 {
+        font-size: 16px;
+      }
+
+      h3 {
+        font-size: 14px;
+      }
+
+      p,
+      small,
+      .muted,
+      .kv span {
+        color: var(--muted);
+      }
+
+      .device-wrap {
+        display: grid;
+        place-items: center;
+        min-height: calc(100vh - 154px);
+        padding: 14px;
+        background: color-mix(in srgb, var(--panel) 74%, var(--page));
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        overflow: auto;
+      }
+
+      .device-frame {
+        width: min(var(--device-width, 390px), 100%);
+        height: min(var(--device-height, 844px), calc(100vh - 190px));
+        min-height: 560px;
+        border: 10px solid #101828;
+        border-radius: 32px;
+        overflow: hidden;
+        background: #fff;
+        box-shadow: 0 18px 38px rgba(17, 24, 39, 0.18);
+      }
+
+      .device-frame[data-kind="desktop"] {
+        width: min(var(--device-width, 1180px), 100%);
+        border-width: 8px;
+        border-radius: 12px;
+      }
+
+      iframe {
+        width: 100%;
+        height: 100%;
+        border: 0;
+        display: block;
+        background: #fff;
+      }
+
+      .inspector {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        align-content: start;
+      }
+
+      .panel {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .panel.wide {
+        grid-column: 1 / -1;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 32px;
+        padding: 6px 9px;
+        border-radius: 999px;
+        background: var(--soft);
+        color: var(--accent);
+        font-weight: 800;
+        font-size: 13px;
+      }
+
+      .chip.bad {
+        background: rgba(220, 38, 38, 0.08);
+        color: var(--danger);
+      }
+
+      .chip.ok {
+        background: rgba(15, 118, 110, 0.08);
+        color: var(--ok);
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: currentColor;
+      }
+
+      .asset-list,
+      .layer-list,
+      .kv-list,
+      .check-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .asset,
+      .layer,
+      .kv,
+      .check {
+        display: grid;
+        grid-template-columns: minmax(90px, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .layer {
+        grid-template-columns: 34px 1fr;
+      }
+
+      .layer b {
+        display: grid;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 999px;
+        background: var(--soft);
+        color: var(--accent);
+        font-size: 12px;
+      }
+
+      .layer strong,
+      .asset strong,
+      .kv strong {
+        font-size: 13px;
+      }
+
+      .layer small {
+        display: block;
+        line-height: 1.5;
+      }
+
+      .template-card {
+        flex: 1 1 130px;
+        display: grid;
+        gap: 4px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        text-align: left;
+      }
+
+      .template-card.active {
+        border-color: color-mix(in srgb, var(--accent) 56%, var(--line));
+        background: var(--soft);
+      }
+
+      .template-card strong {
+        font-size: 13px;
+      }
+
+      .log {
+        min-height: 54px;
+        padding: 10px;
+        border-radius: 8px;
+        background: #101828;
+        color: #f8fafc;
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+
+      code {
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 12px;
+        padding: 2px 5px;
+        border-radius: 6px;
+        background: #f2f4f7;
+      }
+
+      @media (max-width: 980px) {
+        .preview-app {
+          grid-template-columns: 1fr;
+        }
+
+        .device-wrap {
+          min-height: 68vh;
+        }
+
+        .inspector {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 520px) {
+        .preview-app {
+          padding: 10px;
+        }
+
+        .device-frame {
+          min-height: 520px;
+          border-width: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="preview-app">
+      <section class="stage">
+        <header class="stage-head">
+          <div class="title-row">
+            <div>
+              <p class="muted">本地预览检查台</p>
+              <h1>鸦鸦日程</h1>
+            </div>
+            <span id="runtimeBadge" class="chip"><i class="dot"></i>等待加载</span>
+          </div>
+
+          <div class="toolbar" aria-label="设备尺寸">
+            <button class="ghost" type="button" data-device="phone">手机</button>
+            <button type="button" data-device="large">大屏手机</button>
+            <button type="button" data-device="tablet">平板</button>
+            <button type="button" data-device="desktop">桌面</button>
+          </div>
+
+          <div class="button-row">
+            <button id="reloadButton" class="primary" type="button">更新预览</button>
+            <button id="openSettingsButton" type="button">打开设置</button>
+            <button id="openThemeButton" type="button">主题配色</button>
+            <button id="clearPreviewButton" type="button">清空预览数据</button>
+            <a class="button" href="./index.html" target="_blank" rel="noreferrer">单独打开</a>
+            <a class="button" href="./README.md" target="_blank" rel="noreferrer">说明</a>
+          </div>
+        </header>
+
+        <section class="device-wrap" aria-label="应用画面">
+          <div id="deviceFrame" class="device-frame" style="--device-width:390px;--device-height:844px">
+            <iframe id="appFrame" src="./index.html" title="鸦鸦日程"></iframe>
+          </div>
+        </section>
+      </section>
+
+      <aside class="inspector">
+        <section class="panel wide">
+          <h2>资源状态</h2>
+          <div id="assetList" class="asset-list"></div>
+        </section>
+
+        <section class="panel">
+          <h2>模板装配层</h2>
+          <div id="templateInfo" class="kv-list"></div>
+          <div id="templateGrid" class="template-grid"></div>
+        </section>
+
+        <section class="panel">
+          <h2>运行状态</h2>
+          <div id="runtimeInfo" class="kv-list"></div>
+        </section>
+
+        <section class="panel">
+          <h2>闭合检查</h2>
+          <div id="runtimeChecks" class="check-list"></div>
+        </section>
+
+        <section class="panel wide">
+          <h2>十层结构</h2>
+          <div id="layerList" class="layer-list"></div>
+        </section>
+
+        <section class="panel wide">
+          <h2>检查日志</h2>
+          <div id="logBox" class="log">预览器已启动。</div>
+        </section>
+      </aside>
+    </main>
+
+    <script>
+      const STORAGE_KEY = "yaya-schedule-rewrite-v2";
+      const frame = document.getElementById("appFrame");
+      const deviceFrame = document.getElementById("deviceFrame");
+      const runtimeBadge = document.getElementById("runtimeBadge");
+      const assetList = document.getElementById("assetList");
+      const templateInfo = document.getElementById("templateInfo");
+      const templateGrid = document.getElementById("templateGrid");
+      const runtimeInfo = document.getElementById("runtimeInfo");
+      const runtimeChecks = document.getElementById("runtimeChecks");
+      const layerList = document.getElementById("layerList");
+      const logBox = document.getElementById("logBox");
+    const PREVIEW_BUILD = "20260523-course-term-chip-v2";
+
+      const assets = [
+        ["index.html", "首页"],
+        ["app-layers.js", "层级"],
+        ["platform-bridge.js", "平台桥"],
+        ["ui-modules.js", "UI 模块"],
+        ["theme-modules.js", "主题桥"],
+        ["app.js", "主程序"],
+        ["styles.css", "样式"],
+        ["manifest.webmanifest", "清单"],
+        ["sw.js", "缓存"],
+        ["icons/icon-cartoon.png", "图标"],
+        ["icons/icon-minimal.png", "图标"],
+        ["icons/icon-transparent.png", "图标"],
+        ["README.md", "说明"]
+      ];
+
+      const devices = {
+        phone: ["390px", "844px", "phone"],
+        large: ["430px", "932px", "phone"],
+        tablet: ["768px", "1024px", "tablet"],
+        desktop: ["1180px", "760px", "desktop"]
+      };
+
+      document.querySelectorAll("[data-device]").forEach((button) => {
+        button.addEventListener("click", () => setDevice(button.dataset.device));
+      });
+
+      document.getElementById("reloadButton").addEventListener("click", () => reloadFrame({ refreshCache: true }));
+      document.getElementById("openSettingsButton").addEventListener("click", () => clickInApp("#settingsButton"));
+      document.getElementById("openThemeButton").addEventListener("click", () => clickInApp('[data-action="open-theme"]', "#settingsButton"));
+      document.getElementById("clearPreviewButton").addEventListener("click", clearPreviewData);
+      frame.addEventListener("load", () => {
+        log("应用 iframe 已加载。");
+        window.setTimeout(refreshRuntime, 180);
+      });
+
+      setDevice("phone");
+      checkAssets();
+      renderStaticLayers();
+      frame.src = previewUrl();
+
+      function setDevice(name) {
+        const device = devices[name] || devices.phone;
+        deviceFrame.style.setProperty("--device-width", device[0]);
+        deviceFrame.style.setProperty("--device-height", device[1]);
+        deviceFrame.dataset.kind = device[2];
+        document.querySelectorAll("[data-device]").forEach((button) => {
+          button.classList.toggle("ghost", button.dataset.device === name);
+        });
+        log("切换设备尺寸：" + name);
+      }
+
+      async function reloadFrame(options = {}) {
+        if (options.refreshCache) await clearPreviewCachesOnly();
+        frame.src = previewUrl();
+        checkAssets();
+        log(options.refreshCache ? "预览资源缓存已更新。" : "预览已刷新。");
+      }
+
+      function previewUrl() {
+        return `./index.html?preview=${encodeURIComponent(PREVIEW_BUILD)}-${Date.now()}`;
+      }
+
+      async function checkAssets() {
+        assetList.innerHTML = assets.map(([path, label]) => assetRow(label, path, "检查中")).join("");
+        const rows = await Promise.all(assets.map(async ([path, label]) => {
+          try {
+            const response = await fetch(path, { cache: "no-store" });
+            const text = await response.text();
+            return assetRow(label, path, response.ok ? `${response.status} · ${text.length} 字符` : String(response.status), response.ok);
+          } catch (error) {
+            return assetRow(label, path, "不可访问", false);
+          }
+        }));
+        assetList.innerHTML = rows.join("");
+        log("资源检查完成。");
+      }
+
+      function assetRow(label, path, status, ok = null) {
+        const stateClass = ok === null ? "" : ok ? "ok" : "bad";
+        return `
+          <div class="asset">
+            <div>
+              <strong>${escapeHtml(label)}</strong>
+              <small class="muted">${escapeHtml(path)}</small>
+            </div>
+            <span class="chip ${stateClass}"><i class="dot"></i>${escapeHtml(status)}</span>
+          </div>
+        `;
+      }
+
+      function refreshRuntime() {
+        const win = frame.contentWindow;
+        if (!win) return;
+        const hasLayers = Boolean(win.YayaLayers);
+        const hasPlatform = Boolean(win.YayaPlatform);
+        const hasUi = Boolean(win.YayaUiModules);
+        const hasTheme = Boolean(win.YayaThemeModules);
+        const modulesOk = win.YayaLayers?.validateModules?.()?.ok !== false;
+        runtimeBadge.className = hasLayers && hasPlatform && hasUi && hasTheme && modulesOk ? "chip ok" : "chip bad";
+        runtimeBadge.innerHTML = '<i class="dot"></i>' + (hasLayers && hasPlatform && hasUi && hasTheme && modulesOk ? "分层已接入" : "分层缺失");
+        renderLayers(win);
+        renderTemplateAssembly(win);
+        renderRuntimeInfo(win);
+        renderRuntimeChecks(win);
+      }
+
+      function renderStaticLayers() {
+        const fallback = [
+          { name: "原始数据导入层", owns: ["教务页面", "文件文本", "备份 JSON"], files: ["app.js"], dependsOn: [] },
+          { name: "领域模型层", owns: ["课程", "日程", "DDL", "考试", "变更"], files: ["app.js"], dependsOn: ["source"] },
+          { name: "本地状态缓存层", owns: ["localStorage", "日期索引", "DDL 索引"], files: ["app.js", "sw.js"], dependsOn: ["domain"] },
+          { name: "功能命令层", owns: ["打开", "保存", "完成", "删除", "导入"], files: ["app.js", "ui-modules.js"], dependsOn: ["domain", "cache"] },
+          { name: "UI 组件层", owns: ["状态条", "DDL 条", "今日面板", "概览卡"], files: ["app.js", "styles.css"], dependsOn: ["cache", "commands"] },
+          { name: "交互控制层", owns: ["浮窗", "抽屉", "关闭", "滚动隔离"], files: ["app.js", "styles.css", "ui-modules.js"], dependsOn: ["components"] },
+          { name: "视觉主题层", owns: ["颜色变量", "模板-主题桥接", "状态色", "圆角阴影"], files: ["app.js", "styles.css", "theme-modules.js"], dependsOn: ["components"] },
+          { name: "模板装配层", owns: ["模块顺序", "功能入口", "交互策略", "主题语义槽位"], files: ["ui-modules.js", "theme-modules.js", "app.js"], dependsOn: ["components", "commands", "interaction", "theme"] },
+          { name: "平台桥接层", owns: ["原生平台", "Web 预览降级"], files: ["platform-bridge.js", "app.js"], dependsOn: ["commands", "cache"] },
+          { name: "启动持久化层", owns: ["恢复状态", "启动当天聚焦", "跨天自检", "注册事件", "离开落盘"], files: ["index.html", "app.js"], dependsOn: ["template", "platform"] }
+        ];
+        layerList.innerHTML = fallback.map((layer, index) => layerRow(index + 1, layer)).join("");
+      }
+
+      function renderLayers(win) {
+        const layers = win.YayaLayers?.all;
+        if (!Array.isArray(layers)) return;
+        layerList.innerHTML = layers.map((layer, index) => layerRow(index + 1, win.YayaLayers.describe?.(layer.id) || layer)).join("");
+      }
+
+      function layerRow(index, layer) {
+        const owns = Array.isArray(layer.owns) ? layer.owns.join(" / ") : "";
+        const files = Array.isArray(layer.files) ? layer.files.join(" / ") : "";
+        const depends = Array.isArray(layer.dependsOn) && layer.dependsOn.length ? layer.dependsOn.join(" → ") : "入口";
+        const effects = Array.isArray(layer.effects) ? layer.effects.join(" / ") : "";
+        const runtime = layer.runtime && Object.keys(layer.runtime).length ? "运行：" + Object.entries(layer.runtime).map(([key, value]) => `${key}=${formatValue(value)}`).join("，") : "";
+        return `
+          <div class="layer">
+            <b>${index}</b>
+            <div>
+              <strong>${escapeHtml(layer.name)}</strong>
+              <small>${escapeHtml(owns)}</small>
+              ${effects ? `<small>原版效果锚点：${escapeHtml(effects)}</small>` : ""}
+              <small>文件：${escapeHtml(files)}</small>
+              <small>依赖：${escapeHtml(depends)}</small>
+              ${runtime ? `<small>${escapeHtml(runtime)}</small>` : ""}
+            </div>
+          </div>
+        `;
+      }
+
+      function renderTemplateAssembly(win) {
+        const modules = win.YayaUiModules;
+        if (!modules) {
+          templateInfo.innerHTML = kvRow("状态", "UI 模块未加载");
+          templateGrid.innerHTML = "";
+          return;
+        }
+        const state = readState(win);
+        const assembly = modules.resolve({ state });
+        templateInfo.innerHTML = [
+          kvRow("当前装配", assembly.label || assembly.id),
+          kvRow("模块顺序", (assembly.order || []).join(" → ")),
+          kvRow("浮窗策略", `${assembly.interaction?.modalLayout || ""} / ${assembly.interaction?.density || ""}`),
+          kvRow("输入组件", `${assembly.inputUi?.label || assembly.inputUi?.variant || "默认输入"} / ${assembly.inputUi?.themeSync === false ? "独立配色" : "主题同步"}`),
+          kvRow("功能入口", (assembly.actions || []).map((item) => `${item.label}[${item.layer || "commands"}→${item.targetLayer || "components"}]`).join("、") || "无"),
+          kvRow("依赖层", (assembly.layerTrace || []).join(" → "))
+        ].join("");
+        templateGrid.innerHTML = Object.entries(modules.TEMPLATES || {}).map(([id, template]) => `
+          <button class="template-card ${id === assembly.id ? "active" : ""}" type="button" data-template-id="${escapeHtml(id)}">
+            <strong>${escapeHtml(template.label || id)}</strong>
+            <small>${escapeHtml(template.description || "")}</small>
+          </button>
+        `).join("");
+        templateGrid.querySelectorAll("[data-template-id]").forEach((button) => {
+          button.addEventListener("click", () => applyPreviewTemplate(button.dataset.templateId));
+        });
+      }
+
+      function runtimePlatformLabel(win) {
+        const ua = win.navigator?.userAgent || "";
+        const isiOS = Boolean(win.YayaNative?.__iosBridgeReady) || /iPad|iPhone|iPod/i.test(ua) || (/Macintosh/i.test(ua) && Number(win.navigator?.maxTouchPoints || 0) > 1);
+        const isAndroid = /Android/i.test(ua);
+        const native = Boolean(win.YayaPlatform?.isNative?.());
+        if (isiOS) return native ? "iOS WKWebView" : "iOS 网页预览";
+        if (isAndroid) return native ? "Android WebView" : "Android 网页预览";
+        return native ? "原生 WebView" : "本地网页预览";
+      }
+      function renderRuntimeInfo(win) {
+        const state = readState(win);
+        const cacheReady = Boolean(win.localStorage.getItem("yaya-schedule-rewrite-cache-v2"));
+        const themeRuntime = win.YayaLayers?.runtime?.theme || {};
+        const moduleState = win.YayaLayers?.validateModules?.();
+        const doc = frame.contentDocument;
+        const modalKind = doc?.querySelector(".modal-root")?.dataset?.modalKind || "未打开";
+        runtimeInfo.innerHTML = [
+          kvRow("运行环境", runtimePlatformLabel(win)),
+          kvRow("模块装载", moduleState ? `${moduleState.ok ? "已闭合" : "待检查"} · ${moduleState.loaded.join(" → ")}` : "未确认"),
+          kvRow("学期数量", String((state.terms || []).length)),
+          kvRow("DDL 数量", String((state.ddls || []).length)),
+          kvRow("缓存快照", cacheReady ? "已建立" : "未建立"),
+          kvRow("主题桥接", themeRuntime.bridge && themeRuntime.templateCoupled ? `已接入 · ${themeRuntime.moduleSlots?.join("/") || "moduleSlots"}` : "未确认"),
+          kvRow("输入桥接", `${doc?.body?.dataset?.inputUi || "未确认"} / ${themeRuntime.inputUiThemeSync ? "主题同步" : "待检查"}`),
+          kvRow("浮窗桥接", modalKind),
+          kvRow("当前日期", state.focusDate || "未读取")
+        ].join("");
+      }
+
+      function renderRuntimeChecks(win) {
+        const doc = frame.contentDocument;
+        const layers = Array.isArray(win.YayaLayers?.all) ? win.YayaLayers.all : [];
+        const layerIds = new Set(layers.map((layer) => layer.id));
+        const state = readState(win);
+        const closure = win.YayaLayers?.validateClosure?.();
+        const moduleState = win.YayaLayers?.validateModules?.();
+        const runtimeMissing = closure?.runtimeMissing || [];
+        const themeRuntime = win.YayaLayers?.runtime?.theme || {};
+        const style = win.getComputedStyle(doc.documentElement);
+        const modalRoot = doc?.querySelector(".modal-root");
+        const checks = [
+          ["十层结构", layers.length === 10 && ["source", "domain", "cache", "commands", "components", "interaction", "theme", "template", "platform", "boot"].every((id) => layerIds.has(id)), `${layers.length}/10`],
+          ["模块装载", Boolean(moduleState?.ok), moduleState?.loaded?.join("→") || "modules"],
+          ["装载顺序", Boolean(moduleState && !moduleState.moduleOrderBreaks?.length), moduleState?.moduleOrderBreaks?.join("/") || "stable"],
+          ["依赖闭合", closure?.ok || (closure && !closure.missing.length && !closure.dependencyBreaks.length && !closure.handoffBreaks.length), closure ? "validateClosure" : "missing"],
+          ["运行接入", closure && runtimeMissing.length === 0, runtimeMissing.length ? runtimeMissing.join("/") : "all-runtime"],
+          ["模板模块", typeof win.YayaUiModules?.resolve === "function" && Object.keys(win.YayaUiModules?.TEMPLATES || {}).length > 0, "resolve"],
+          ["DDL分页桥", Boolean(["active", "completed"].includes(state.ddlView || "active") && win.YayaLayers?.runtime?.components?.ddlView), win.YayaLayers?.runtime?.components?.ddlView || "active"],
+          ["主题桥接", Boolean(win.YayaThemeModules?.apply && themeRuntime.bridge && themeRuntime.templateCoupled && style.getPropertyValue("--tpl-brand")), themeRuntime.moduleSlots?.join("/") || "theme-modules"],
+          ["输入组件模板化", Boolean(win.YayaLayers?.runtime?.template?.inputUi && doc?.body?.dataset?.inputUi === win.YayaLayers.runtime.template.inputUi), doc?.body?.dataset?.inputUi || "body-data"],
+          ["输入主题同步", Boolean(themeRuntime.inputUiThemeSync && style.getPropertyValue("--input-ui-bg") && style.getPropertyValue("--input-ui-accent")), "input-ui-vars"],
+          ["预览资源桥", assets.some(([path]) => path === "theme-modules.js") && Boolean(win.YayaThemeModules), "theme-modules.js"],
+          ["设置浮窗桥", !modalRoot?.dataset.modalKind || modalRoot.dataset.modalKind === "settings" || Boolean(doc?.querySelector('.modal-card.settings')), modalRoot?.dataset.modalKind || "standby"],
+          ["平台降级", typeof win.YayaPlatform?.openAcademicPortal === "function" && typeof win.YayaPlatform?.scheduleDdlNotifications === "function", win.YayaPlatform?.isNative?.() ? "native" : "web"],
+          ["核心容器", ["statusBar", "ddlStrip", "dayPanel", "courseOverview", "scheduleOverview"].every((id) => doc?.getElementById(id)), "DOM"],
+          ["视觉锚点", Boolean(doc?.querySelector(".ddl-strip") && doc?.querySelector(".day-panel") && win.getComputedStyle(doc.documentElement).getPropertyValue("--glass-blur")), "glass"],
+          ["交互锚点", Boolean(doc?.querySelector(".modal-root") && doc?.querySelector("[data-action='open-ddl']") && doc?.querySelector("[data-action='open-specials']")), "modal/swipe/action"],
+          ["说明入口", Boolean(doc?.querySelector('[data-action="open-guide"]') || doc?.querySelector('[data-action="open-settings"]') || doc?.querySelector("#settingsButton")), "settings/S3/B1"],
+          ["缓存快照", Boolean(win.localStorage.getItem("yaya-schedule-rewrite-cache-v2")), "cache"],
+          ["U5 变更限定", (state.specialChanges || []).every((item) => item.action === "move" || item.action === "cancel"), "move/cancel"]
+        ];
+        runtimeChecks.innerHTML = checks.map(([label, ok, detail]) => checkRow(label, ok, detail)).join("");
+      }
+
+      function checkRow(label, ok, detail) {
+        return `
+          <div class="check">
+            <strong>${escapeHtml(label)}</strong>
+            <span class="chip ${ok ? "ok" : "bad"}"><i class="dot"></i>${escapeHtml(ok ? "通过" : "检查")}${detail ? ` · ${escapeHtml(detail)}` : ""}</span>
+          </div>
+        `;
+      }
+
+      function kvRow(key, value) {
+        return `
+          <div class="kv">
+            <strong>${escapeHtml(key)}</strong>
+            <span>${escapeHtml(value || "-")}</span>
+          </div>
+        `;
+      }
+
+      function applyPreviewTemplate(templateId) {
+        const win = frame.contentWindow;
+        if (!win) return;
+        const modules = win.YayaUiModules;
+        const template = modules?.TEMPLATES?.[templateId];
+        const state = readState(win);
+        state.version = state.version || 2;
+        state.uiTemplate = templateId;
+        delete state.moduleOrder;
+        delete state.moduleVisibility;
+        delete state.uiAssemblyOverrides;
+        win.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        log("预览装配切换：" + templateId);
+        reloadFrame();
+      }
+
+      function clickInApp(selector, beforeSelector) {
+        const doc = frame.contentDocument;
+        if (!doc) return;
+        if (beforeSelector) doc.querySelector(beforeSelector)?.click();
+        window.setTimeout(() => {
+          const target = doc.querySelector(selector);
+          if (target) {
+            target.click();
+            log("触发应用动作：" + selector);
+            window.setTimeout(refreshRuntime, 180);
+          } else {
+            log("未找到动作入口：" + selector);
+          }
+        }, beforeSelector ? 120 : 0);
+      }
+
+      async function clearPreviewData() {
+        if (!confirm("只清空预览 iframe 的本地数据，继续吗？")) return;
+        const win = frame.contentWindow;
+        if (!win) return;
+        Object.keys(win.localStorage)
+          .filter((key) => key.startsWith("yaya-schedule"))
+          .forEach((key) => win.localStorage.removeItem(key));
+        if (win.caches) {
+          const keys = await win.caches.keys();
+          await Promise.all(keys.filter((key) => key.startsWith("yaya-schedule")).map((key) => win.caches.delete(key)));
+        }
+        if (win.navigator?.serviceWorker) {
+          const registrations = await win.navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map((registration) => registration.unregister()));
+        }
+        log("预览本地数据和缓存已清空。");
+        reloadFrame();
+      }
+
+      async function clearPreviewCachesOnly() {
+        const win = frame.contentWindow;
+        if (!win) return;
+        if (win.caches) {
+          const keys = await win.caches.keys();
+          await Promise.all(keys.filter((key) => key.startsWith("yaya-schedule")).map((key) => win.caches.delete(key)));
+        }
+        if (win.navigator?.serviceWorker) {
+          const registrations = await win.navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map((registration) => registration.unregister()));
+        }
+      }
+
+      function readState(win) {
+        try {
+          return JSON.parse(win.localStorage.getItem(STORAGE_KEY) || "{}") || {};
+        } catch (error) {
+          return {};
+        }
+      }
+
+      function log(message) {
+        const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+        logBox.textContent = `[${time}] ${message}\n` + logBox.textContent.split("\n").slice(0, 8).join("\n");
+      }
+
+      function formatValue(value) {
+        if (Array.isArray(value)) return value.join("|");
+        if (value && typeof value === "object") return Object.keys(value).join("|");
+        return String(value);
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+    </script>
+  </body>
+</html>

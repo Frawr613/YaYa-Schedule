@@ -13,7 +13,7 @@
     theme: ["玻璃变量", "主题预设", "自定义主题栏", "独立自定义主题面", "模板-主题桥接", "输入组件主题变量", "模块语义色", "状态色", "应用图标"],
     template: ["模块顺序", "入口动作", "浮窗策略", "输入组件形态", "主题桥接变量", "模块语义槽位"],
     platform: ["原生 WebView", "通知", "后台/系统提醒管理", "应用图标", "小组件", "教务单层网页登录"],
-    boot: ["脚本顺序", "恢复状态", "预览闭合检查"]
+    boot: ["脚本顺序", "恢复状态", "启动当天聚焦", "跨天自检", "预览闭合检查"]
   };
 
   const layers = [
@@ -111,8 +111,8 @@
       id: "boot",
       name: "启动/持久化层",
       files: ["index.html", "app.js", "app-layers.js", "platform-bridge.js", "ui-modules.js", "theme-modules.js"],
-      owns: ["脚本加载顺序", "恢复状态", "注册事件", "离开页面落盘", "预览闭合检查"],
-      provides: ["完整应用运行时", "预览器自检状态"],
+      owns: ["脚本加载顺序", "恢复状态", "启动当天聚焦", "跨天自检", "注册事件", "离开页面落盘", "预览闭合检查"],
+      provides: ["完整应用运行时", "当天默认焦点", "预览器自检状态"],
       effects: originalEffectAnchors.boot,
       dependsOn: ["source", "domain", "cache", "commands", "components", "interaction", "theme", "template", "platform"],
       handoffTo: []

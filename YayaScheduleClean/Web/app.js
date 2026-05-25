@@ -224,6 +224,7 @@
   let nativeReminderSyncTimer = 0;
   let nativeReminderSyncGeneration = 0;
   let lastNativeReminderSignature = "";
+  let lastKnownToday = todayString();
 
   function registerArchitectureRuntime(stage = "runtime") {
     if (!window.YayaLayers?.registerRuntime) return;
@@ -429,6 +430,7 @@
         flushPersist();
       }
     });
+    window.setInterval(refreshDateIfNeeded, 10 * 60 * 1000);
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("./sw.js").catch(() => {});
     }
@@ -495,13 +497,17 @@
     state.ddlDoneFilterEndTime = validTimeInputValue(state.ddlDoneFilterEndTime);
     state.terms = state.terms.map(hydrateTerm).filter(Boolean);
     if (!state.activeTermId && state.terms[0]) state.activeTermId = state.terms[0].id;
+    const restoredFocusDate = state.focusDate;
     if (!validDate(state.focusDate)) state.focusDate = todayString();
-    syncActiveTerm();
+    const currentDateChanged = syncFocusToToday("startup");
+    if (currentDateChanged || restoredFocusDate !== state.focusDate) persist({ immediate: true });
     state.courseOverviewPage = normalizeCourseOverviewPage(state.courseOverviewPage);
     window.YayaLayers?.registerRuntime?.("cache", {
       restored: true,
       terms: state.terms.length,
-      ddls: state.ddls.length
+      ddls: state.ddls.length,
+      focusDate: state.focusDate,
+      startupDateFocus: true
     });
   }
 
@@ -2835,7 +2841,7 @@
   }
 
   function goToday() {
-    state.focusDate = todayString();
+    syncFocusToToday("manual");
     persist();
     scheduleRenderAll({ force: true });
   }
@@ -2895,20 +2901,20 @@
       renderAll();
     }
     if (action === "shift-date") {
-      state.focusDate = addDays(state.focusDate, Number(target.dataset.delta || 0));
+      syncFocusDate(addDays(state.focusDate, Number(target.dataset.delta || 0)));
       persist();
       scheduleRenderAll({ force: true });
     }
     if (action === "set-weekday") {
       const week = weekForDate(state.focusDate);
-      state.focusDate = dateForWeekDay(termStartForDate(state.focusDate), week, Number(target.dataset.dayIndex));
+      syncFocusDate(dateForWeekDay(termStartForDate(state.focusDate), week, Number(target.dataset.dayIndex)));
       persist();
       scheduleRenderAll({ force: true });
     }
     if (action === "set-date-week") {
       const week = clamp(Number(target.dataset.week), 1, MAX_WEEK);
       const dayIndex = dateInfo(state.focusDate).dayIndex;
-      state.focusDate = dateForWeekDay(termStartForDate(state.focusDate), week, dayIndex);
+      syncFocusDate(dateForWeekDay(termStartForDate(state.focusDate), week, dayIndex));
       persist();
       scheduleRenderAll({ force: true });
     }
@@ -3048,19 +3054,19 @@
       syncInternalDateLabel(event.target);
     }
     if (event.target.id === "focusDateInput") {
-      state.focusDate = validDate(event.target.value) ? event.target.value : todayString();
+      syncFocusDate(validDate(event.target.value) ? event.target.value : todayString());
       persist();
       scheduleRenderAll({ force: true });
     }
     if (event.target.id === "dateLookupDate") {
-      state.focusDate = validDate(event.target.value) ? event.target.value : state.focusDate;
+      syncFocusDate(validDate(event.target.value) ? event.target.value : state.focusDate);
       persist();
       scheduleRenderAll({ force: true });
     }
     if (event.target.id === "dateLookupWeek") {
       const week = clamp(Number(event.target.value), 1, MAX_WEEK);
       const dayIndex = dateInfo(state.focusDate).dayIndex;
-      state.focusDate = dateForWeekDay(state.termStart || DEFAULT_TERM_START, week, dayIndex);
+      syncFocusDate(dateForWeekDay(state.termStart || DEFAULT_TERM_START, week, dayIndex));
       persist();
       scheduleRenderAll({ force: true });
     }
@@ -4004,7 +4010,7 @@
     } else {
       state.customSchedules.push(schedule);
     }
-    state.focusDate = schedule.date;
+    syncFocusDate(schedule.date);
     clearModalFormDraft();
     commit("日程已保存");
     openModal("schedules");
@@ -5569,10 +5575,46 @@
   }
 
   function refreshDateIfNeeded() {
-    if (state.focusDate === state._lastAutoDate) return;
-    state._lastAutoDate = todayString();
-    renderStatus();
-    updateNativeWidget();
+    const today = todayString();
+    if (today === lastKnownToday) return false;
+    const changed = syncFocusDate(today);
+    lastKnownToday = today;
+    if (changed) {
+      persist({ immediate: true });
+      scheduleRenderAll({ force: true });
+    } else {
+      renderStatus();
+      updateNativeWidget();
+    }
+    return changed;
+  }
+
+  function syncFocusToToday(reason = "auto") {
+    const today = todayString();
+    const changed = syncFocusDate(today);
+    lastKnownToday = today;
+    window.YayaLayers?.registerRuntime?.("boot", {
+      currentDateFocus: true,
+      currentDateReason: reason,
+      currentDate: today,
+      focusDate: state.focusDate,
+      changed
+    });
+    return changed;
+  }
+
+  function syncFocusDate(value) {
+    const normalized = validDate(value) ? value : todayString();
+    const before = `${state.focusDate}|${state.activeTermId}|${state.termStart}`;
+    const term = termForDate(normalized);
+    if (term) {
+      state.activeTermId = term.id;
+      state.termStart = term.termStart || state.termStart || DEFAULT_TERM_START;
+    } else {
+      syncActiveTerm();
+    }
+    state.focusDate = normalized;
+    return `${state.focusDate}|${state.activeTermId}|${state.termStart}` !== before;
   }
 
   function syncActiveTerm() {
