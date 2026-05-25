@@ -207,6 +207,10 @@
   let lastPortalOpenAt = 0;
   let overviewPageMotion = null;
   let floatingLayerGuardActive = false;
+  let scrollLockActive = false;
+  let lockedScrollX = 0;
+  let lockedScrollY = 0;
+  let lockedBodyStyle = null;
   let swipeGesture = null;
   let lastSwipeSuppressAt = 0;
   let timePickerInput = null;
@@ -293,7 +297,8 @@
       modalLayout: ui.interaction?.modalLayout || "",
       density: ui.interaction?.density || "",
       modal: state.modal || "",
-      layerLock: "full-stack",
+      layerLock: "top-layer-scroll-gated",
+      scrollFreeze: scrollLockActive,
       formDraftCache: Boolean(state.modalData?.__draftForm),
       ddlView: state.ddlView === "completed" ? "completed" : "active",
       pickerLayer: Boolean(timePickerInput || datePickerInput || optionPickerSource),
@@ -3825,6 +3830,7 @@
     const pickerPanel = activePickerPanel();
     const pickerLocked = Boolean(pickerPanel);
     const locked = Boolean(state.modal || pickerLocked);
+    applyInteractionScrollLock(locked);
     if (locked) {
       window.clearTimeout(userScrollTimer);
       scrollStateLastAt = 0;
@@ -3838,7 +3844,8 @@
       locked,
       pickerLayer: pickerLocked,
       optionPickerLayer: Boolean(optionPickerSource),
-      layerLock: "full-stack",
+      layerLock: "top-layer-scroll-gated",
+      scrollFreeze: scrollLockActive,
       floatingDepth: Number(document.body.dataset.floatingDepth || 0),
       layerGuardActive: floatingLayerGuardActive,
       formDraftCache: Boolean(state.modalData?.__draftForm),
@@ -3846,6 +3853,45 @@
       builtInInputPatch: INPUT_UI_PATCH_VERSION,
       modal: state.modal || ""
     });
+  }
+
+  function applyInteractionScrollLock(locked) {
+    if (locked && !scrollLockActive) {
+      lockedScrollX = window.scrollX || window.pageXOffset || 0;
+      lockedScrollY = window.scrollY || window.pageYOffset || 0;
+      lockedBodyStyle = {
+        position: document.body.style.position,
+        top: document.body.style.top,
+        left: document.body.style.left,
+        right: document.body.style.right,
+        width: document.body.style.width,
+        overflow: document.body.style.overflow
+      };
+      document.documentElement.classList.add("is-interaction-locked");
+      document.body.style.position = "fixed";
+      document.body.style.top = `-${lockedScrollY}px`;
+      document.body.style.left = `-${lockedScrollX}px`;
+      document.body.style.right = "0";
+      document.body.style.width = "100%";
+      document.body.style.overflow = "hidden";
+      scrollLockActive = true;
+      return;
+    }
+    if (!locked && scrollLockActive) {
+      const restoreX = lockedScrollX;
+      const restoreY = lockedScrollY;
+      document.documentElement.classList.remove("is-interaction-locked");
+      const style = lockedBodyStyle || {};
+      document.body.style.position = style.position || "";
+      document.body.style.top = style.top || "";
+      document.body.style.left = style.left || "";
+      document.body.style.right = style.right || "";
+      document.body.style.width = style.width || "";
+      document.body.style.overflow = style.overflow || "";
+      scrollLockActive = false;
+      lockedBodyStyle = null;
+      window.requestAnimationFrame(() => window.scrollTo(restoreX, restoreY));
+    }
   }
 
   function activePickerPanel() {
@@ -3867,8 +3913,32 @@
     return true;
   }
 
+  function isFloatingScrollEvent(event) {
+    return event.type === "wheel" || event.type === "touchmove" || event.type === "scroll";
+  }
+
+  function isEventInTopScrollableSurface(event) {
+    const target = event.target;
+    if (!target?.closest) return false;
+    const pickerPanel = activePickerPanel();
+    if (pickerPanel) return Boolean(target.closest(".picker-card"));
+    if (state.modal && !els.modalRoot.hidden) return Boolean(target.closest(".modal-card"));
+    return true;
+  }
+
   function guardFloatingLayerEvent(event) {
-    if (!hasActiveFloatingLayer() || isEventInTopFloatingLayer(event)) return;
+    if (!hasActiveFloatingLayer()) return;
+    if (isFloatingScrollEvent(event)) {
+      if (isEventInTopScrollableSurface(event)) return;
+      blockFloatingLayerEvent(event);
+      restoreLockedScrollPosition();
+      return;
+    }
+    if (isEventInTopFloatingLayer(event)) return;
+    blockFloatingLayerEvent(event);
+  }
+
+  function blockFloatingLayerEvent(event) {
     floatingLayerGuardActive = true;
     if (event.cancelable) event.preventDefault();
     event.stopPropagation();
@@ -3879,6 +3949,13 @@
     window.setTimeout(() => {
       floatingLayerGuardActive = false;
     }, 0);
+  }
+
+  function restoreLockedScrollPosition() {
+    if (!scrollLockActive) return;
+    if ((window.scrollX || window.pageXOffset || 0) !== lockedScrollX || (window.scrollY || window.pageYOffset || 0) !== lockedScrollY) {
+      window.scrollTo(lockedScrollX, lockedScrollY);
+    }
   }
 
   function setPickerListActive(list, attribute, value) {

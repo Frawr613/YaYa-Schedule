@@ -397,6 +397,7 @@ body[data-theme="mono"] {
   --glass-control-radius: calc(var(--radius) + 3px);
 }
 
+html.is-interaction-locked,
 body.is-interaction-locked {
   overflow: hidden;
   overscroll-behavior: none;
@@ -410,6 +411,11 @@ body.is-interaction-locked #fileInput {
 .modal-root:not([hidden]),
 .picker-backdrop:not([hidden]) {
   pointer-events: auto;
+  overscroll-behavior: none;
+}
+
+.modal-root:not([hidden]) .modal-backdrop {
+  touch-action: none;
 }
 
 body.has-picker-layer .modal-root {
@@ -424,6 +430,12 @@ body.has-picker-layer .modal-root .modal-card {
 
 body.has-picker-layer .picker-backdrop:not([hidden]) {
   pointer-events: auto;
+  touch-action: pan-y;
+}
+
+body.has-picker-layer .picker-card {
+  overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 
 body.is-interaction-locked .app-shell {
