@@ -4059,14 +4059,14 @@
     const data = new FormData(form);
     const selectedTheme = data.get("theme");
     if (!selectedTheme) {
-      commit("自定义主题保持不变", { immediate: true, skipCache: true, skipNative: true });
+      refreshThemeAfterSave("自定义主题保持不变");
       openModal("settings");
       return;
     }
     state.theme = normalizeThemeId(selectedTheme);
     state.themeAccent = "";
     state.themeVars = {};
-    commit("预设主题已保存并应用", { immediate: true, skipCache: true, skipNative: true });
+    refreshThemeAfterSave("预设主题已保存并应用");
     openModal("settings");
   }
 
@@ -4076,8 +4076,19 @@
     state.theme = "classicCustom";
     state.themeAccent = "";
     state.themeVars = sanitizeThemeVars(customThemeVarsFromDraft(draft));
-    commit("自定义主题已保存并应用", { immediate: true, skipCache: true, skipNative: true });
+    refreshThemeAfterSave("自定义主题已保存并应用");
     openModal("theme");
+  }
+
+  function refreshThemeAfterSave(message) {
+    applyTheme();
+    updateNativeWidget();
+    window.YayaLayers?.registerRuntime?.("theme", {
+      immediateThemeRefresh: true,
+      forcedRenderAfterThemeSave: true,
+      scrollGateBypass: "theme-command"
+    });
+    commit(message, { immediate: true, skipCache: true, skipNative: true, forceRender: true });
   }
 
   function saveIcon(form) {
