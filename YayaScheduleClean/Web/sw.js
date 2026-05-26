@@ -1,4 +1,4 @@
-const CACHE_NAME = "yaya-schedule-v77";
+const CACHE_NAME = "yaya-schedule-v78";
 const ASSETS = [
   "./",
   "./index.html",

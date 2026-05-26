@@ -242,12 +242,10 @@ body[data-theme="classicCustom"]::after {
 body[data-theme="classicCustom"] button.primary,
 body[data-theme="classicCustom"] .primary,
 body[data-theme="classicCustom"] .template-action-dock button {
-  background:
-    linear-gradient(135deg, rgba(209, 237, 181, 0.56), rgba(184, 162, 58, 0.28)),
-    rgba(255, 255, 255, 0.2);
-  color: #111827;
-  border-color: rgba(255, 255, 255, 0.5);
-  box-shadow: 0 10px 22px rgba(95, 108, 52, 0.1), var(--glass-inset);
+  background: var(--tpl-primary-action);
+  color: var(--tpl-action-text);
+  border-color: var(--tpl-border, var(--glass-border));
+  box-shadow: var(--tpl-shadow, 0 10px 22px rgba(95, 108, 52, 0.1)), var(--tpl-inset, var(--glass-inset));
 }
 
 body[data-theme="coolGlass"] {
@@ -4625,6 +4623,36 @@ body[data-theme] .badges span {
   color: var(--tpl-badge-text, color-mix(in srgb, var(--item-color, var(--accent)) 72%, var(--tpl-ink, #111827))) !important;
   background: var(--tpl-badge-bg, color-mix(in srgb, var(--item-color, var(--accent)) 14%, rgba(255, 255, 255, 0.72))) !important;
   box-shadow: var(--tpl-inset, var(--glass-inset));
+}
+
+body[data-theme-tone="dark"] {
+  color-scheme: dark;
+  --glass-saturate: 1.08;
+}
+
+body[data-theme-tone="dark"] :where(.top-bar, .day-panel, .dashboard-panel, .modal-card, .picker-card, .input-picker-panel, .custom-theme-editor, .custom-alpha-panel, .custom-rgb-panel, .ddl-completed-filter) {
+  background: var(--glass-panel-bg) !important;
+  border-color: var(--tpl-border, var(--glass-border)) !important;
+  box-shadow: var(--tpl-shadow, var(--shadow)), var(--tpl-inset, var(--glass-inset)) !important;
+}
+
+body[data-theme-tone="dark"] :where(.list-card, .course-card, .note-card, .detail-block, .choice-card, .icon-choice-card, .custom-theme-entry, .theme-preview-card, .setting-action, .date-week-chip, .date-day-chip, .recurring-week-chip, .term-chip, .ddl-view-tab, .reminder-chip, .custom-base-choice, .custom-glass-switch, .empty-state) {
+  background: var(--glass-card-bg) !important;
+  border-color: var(--tpl-border, var(--glass-border)) !important;
+  color: var(--tpl-ink, var(--ink)) !important;
+  box-shadow: var(--soft-shadow), var(--tpl-inset, var(--glass-inset)) !important;
+}
+
+body[data-theme-tone="dark"] :where(input:not([type="range"]):not([type="radio"]):not([type="checkbox"]), select, textarea, .picker-input-shell, .internal-select-button, .custom-rgb-number, .custom-color-field) {
+  background: var(--glass-control-bg) !important;
+  border-color: var(--tpl-border, var(--glass-border)) !important;
+  color: var(--tpl-ink, var(--ink)) !important;
+  box-shadow: var(--tpl-inset, var(--glass-inset)) !important;
+}
+
+body[data-theme-tone="dark"] .modal-card::after,
+body[data-theme-tone="dark"] .picker-card::after {
+  background: var(--tpl-modal-sheen) !important;
 }
 
 body[data-theme] .ddl-mini {

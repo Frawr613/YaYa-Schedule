@@ -5524,7 +5524,9 @@
     const vars = resolvedThemeVars();
     const root = document.documentElement;
     const themeId = normalizeThemeId(state.theme);
+    const darkTone = themeVarsAreDark(vars);
     document.body.dataset.theme = themeId;
+    document.body.dataset.themeTone = darkTone ? "dark" : "light";
     root.style.setProperty("--accent", vars.accent);
     root.style.setProperty("--accent-warm", vars.warm);
     root.style.setProperty("--page-bg", vars.bg);
@@ -5535,7 +5537,7 @@
     root.style.setProperty("--panel-solid", vars.card);
     root.style.setProperty("--card", vars.card);
     root.style.setProperty("--hero-bg", vars.hero);
-    root.style.setProperty("--soft", `color-mix(in srgb, ${vars.accent} 10%, white)`);
+    root.style.setProperty("--soft", darkTone ? `color-mix(in srgb, ${vars.accent} 12%, #020617)` : `color-mix(in srgb, ${vars.accent} 10%, white)`);
     root.style.setProperty("--course-color", vars.accent);
     root.style.setProperty("--ddl-color", vars.warm);
     root.style.setProperty("--schedule-color", vars.warm);
@@ -5549,12 +5551,23 @@
     const shadowAlpha = clamp(Number(vars.shadowAlpha), 4, 40) / 100;
     const shadowRgb = hexToRgbList(vars.accent) || "37, 99, 235";
     const softShadowAlpha = Math.max(0.08, Math.min(0.18, shadowAlpha * 0.84));
-    root.style.setProperty("--glass", `rgba(255, 255, 255, ${Math.max(0.28, glassAlpha * 0.72).toFixed(2)})`);
-    root.style.setProperty("--glass-strong", `rgba(255, 255, 255, ${Math.min(0.86, Math.max(0.52, glassAlpha)).toFixed(2)})`);
-    root.style.setProperty("--glass-soft", `rgba(255, 255, 255, ${Math.max(0.22, glassAlpha * 0.48).toFixed(2)})`);
-    root.style.setProperty("--glass-border", `rgba(255, 255, 255, ${Math.max(0.42, Math.min(0.82, glassAlpha * 0.86)).toFixed(2)})`);
-    root.style.setProperty("--shadow", `0 18px 46px rgba(${shadowRgb}, ${shadowAlpha.toFixed(2)})`);
-    root.style.setProperty("--soft-shadow", `0 12px 28px rgba(${shadowRgb}, ${softShadowAlpha.toFixed(2)})`);
+    if (darkTone) {
+      root.style.setProperty("--glass", `rgba(15, 23, 42, ${Math.max(0.42, glassAlpha * 0.76).toFixed(2)})`);
+      root.style.setProperty("--glass-strong", `rgba(8, 13, 24, ${Math.min(0.86, Math.max(0.58, glassAlpha * 0.9)).toFixed(2)})`);
+      root.style.setProperty("--glass-soft", `rgba(15, 23, 42, ${Math.max(0.24, glassAlpha * 0.42).toFixed(2)})`);
+      root.style.setProperty("--glass-border", `rgba(255, 255, 255, ${Math.max(0.12, Math.min(0.24, glassAlpha * 0.22)).toFixed(2)})`);
+      root.style.setProperty("--glass-sheen", "rgba(255, 255, 255, 0.08)");
+      root.style.setProperty("--shadow", `0 18px 46px rgba(0, 0, 0, ${Math.max(0.22, shadowAlpha).toFixed(2)}), 0 8px 22px rgba(${shadowRgb}, 0.08)`);
+      root.style.setProperty("--soft-shadow", `0 12px 28px rgba(0, 0, 0, ${Math.max(0.16, softShadowAlpha).toFixed(2)}), 0 6px 16px rgba(${shadowRgb}, 0.06)`);
+    } else {
+      root.style.setProperty("--glass", `rgba(255, 255, 255, ${Math.max(0.28, glassAlpha * 0.72).toFixed(2)})`);
+      root.style.setProperty("--glass-strong", `rgba(255, 255, 255, ${Math.min(0.86, Math.max(0.52, glassAlpha)).toFixed(2)})`);
+      root.style.setProperty("--glass-soft", `rgba(255, 255, 255, ${Math.max(0.22, glassAlpha * 0.48).toFixed(2)})`);
+      root.style.setProperty("--glass-border", `rgba(255, 255, 255, ${Math.max(0.42, Math.min(0.82, glassAlpha * 0.86)).toFixed(2)})`);
+      root.style.setProperty("--glass-sheen", "rgba(255, 255, 255, 0.72)");
+      root.style.setProperty("--shadow", `0 18px 46px rgba(${shadowRgb}, ${shadowAlpha.toFixed(2)})`);
+      root.style.setProperty("--soft-shadow", `0 12px 28px rgba(${shadowRgb}, ${softShadowAlpha.toFixed(2)})`);
+    }
     const bridgeVars = THEME_BRIDGE?.apply?.({
       root,
       body: document.body,
@@ -5567,6 +5580,7 @@
       warm: vars.warm,
       bridge: Boolean(THEME_BRIDGE?.apply),
       templateCoupled: Boolean(bridgeVars && Object.keys(bridgeVars).length),
+      tone: darkTone ? "dark" : "light",
       inputUiThemeSync: true,
       moduleSlots: ["course", "custom", "recurring", "special", "exam"]
     });
@@ -5753,6 +5767,34 @@
       parseInt(hex.slice(2, 4), 16),
       parseInt(hex.slice(4, 6), 16)
     ].join(", ");
+  }
+
+  function themeVarsAreDark(vars = {}) {
+    const bg = hexToRgbTriplet(vars.bg);
+    const ink = hexToRgbTriplet(vars.ink);
+    const bgLuma = bg ? relativeLuminance(bg) : 1;
+    const inkLuma = ink ? relativeLuminance(ink) : 0;
+    return bgLuma < 0.28 || (bgLuma < 0.42 && inkLuma > 0.72);
+  }
+
+  function hexToRgbTriplet(value) {
+    const text = String(value || "").trim();
+    const match = /^#([0-9a-fA-F]{6})$/.exec(text);
+    if (!match) return null;
+    const hex = match[1];
+    return [
+      parseInt(hex.slice(0, 2), 16),
+      parseInt(hex.slice(2, 4), 16),
+      parseInt(hex.slice(4, 6), 16)
+    ];
+  }
+
+  function relativeLuminance(rgb) {
+    const [r, g, b] = rgb.map((value) => {
+      const normalized = value / 255;
+      return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   }
 
   function normalizeCssText(value, fallback) {

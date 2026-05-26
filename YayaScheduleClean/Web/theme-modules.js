@@ -261,24 +261,25 @@
   }
 
   function bridge(...objects) {
-    return Object.assign({}, BASE_BRIDGE, ...objects, {
-      "--glass-panel-bg": "var(--tpl-surface-strong)",
-      "--glass-card-bg": "var(--tpl-card)",
-      "--glass-control-bg": "var(--tpl-input)",
-      "--input-ui-bg": "var(--tpl-input)",
-      "--input-ui-panel": "var(--tpl-surface-strong)",
-      "--input-ui-text": "var(--tpl-ink, var(--ink))",
-      "--input-ui-muted": "var(--tpl-muted, var(--muted))",
-      "--input-ui-accent": "var(--tpl-brand, var(--accent))",
-      "--input-ui-action": "var(--tpl-primary-action, var(--accent))",
-      "--input-ui-border": "var(--tpl-border, var(--glass-border))",
-      "--input-ui-border-strong": "color-mix(in srgb, var(--tpl-brand, var(--accent)) 26%, var(--tpl-border, var(--glass-border)))",
-      "--input-ui-shadow": "0 10px 24px color-mix(in srgb, var(--tpl-brand, var(--accent)) 12%, transparent)",
-      "--input-ui-inset": "var(--tpl-inset, var(--glass-inset))",
-      "--shadow": "var(--tpl-shadow)",
-      "--soft-shadow": "var(--tpl-shadow)",
-      "--swipe-edit-bg": "var(--tpl-edit-action, var(--tpl-action-panel))",
-      "--swipe-delete-bg": "var(--tpl-delete-action, var(--tpl-action-portal))"
+    const merged = Object.assign({}, BASE_BRIDGE, ...objects);
+    return Object.assign(merged, {
+      "--glass-panel-bg": merged["--glass-panel-bg"] || "var(--tpl-surface-strong)",
+      "--glass-card-bg": merged["--glass-card-bg"] || "var(--tpl-card)",
+      "--glass-control-bg": merged["--glass-control-bg"] || "var(--tpl-input)",
+      "--input-ui-bg": merged["--input-ui-bg"] || "var(--tpl-input)",
+      "--input-ui-panel": merged["--input-ui-panel"] || "var(--tpl-surface-strong)",
+      "--input-ui-text": merged["--input-ui-text"] || "var(--tpl-ink, var(--ink))",
+      "--input-ui-muted": merged["--input-ui-muted"] || "var(--tpl-muted, var(--muted))",
+      "--input-ui-accent": merged["--input-ui-accent"] || "var(--tpl-brand, var(--accent))",
+      "--input-ui-action": merged["--input-ui-action"] || "var(--tpl-primary-action, var(--accent))",
+      "--input-ui-border": merged["--input-ui-border"] || "var(--tpl-border, var(--glass-border))",
+      "--input-ui-border-strong": merged["--input-ui-border-strong"] || "color-mix(in srgb, var(--tpl-brand, var(--accent)) 26%, var(--tpl-border, var(--glass-border)))",
+      "--input-ui-shadow": merged["--input-ui-shadow"] || "0 10px 24px color-mix(in srgb, var(--tpl-brand, var(--accent)) 12%, transparent)",
+      "--input-ui-inset": merged["--input-ui-inset"] || "var(--tpl-inset, var(--glass-inset))",
+      "--shadow": merged["--shadow"] || "var(--tpl-shadow)",
+      "--soft-shadow": merged["--soft-shadow"] || "var(--tpl-shadow)",
+      "--swipe-edit-bg": merged["--swipe-edit-bg"] || "var(--tpl-edit-action, var(--tpl-action-panel))",
+      "--swipe-delete-bg": merged["--swipe-delete-bg"] || "var(--tpl-delete-action, var(--tpl-action-portal))"
     });
   }
 
@@ -312,7 +313,7 @@
       "--tpl-card": dark ? `linear-gradient(145deg, rgba(255, 255, 255, 0.04), rgba(${accentRgb}, 0.08)), ${vars.card || "rgba(8, 13, 24, 0.72)"}` : vars.card || surface,
       "--tpl-card-solid": dark ? `linear-gradient(145deg, rgba(255, 255, 255, 0.035), rgba(${accentRgb}, 0.07)), rgba(8, 13, 24, 0.82)` : vars.card || surface,
       "--tpl-card-active": `linear-gradient(145deg, rgba(255, 255, 255, ${dark ? "0.06" : "0.9"}), rgba(${accentRgb}, ${dark ? "0.14" : "0.22"}))`,
-      "--tpl-input": vars.panel || surface,
+      "--tpl-input": dark ? `linear-gradient(145deg, rgba(255, 255, 255, 0.055), rgba(${accentRgb}, 0.08)), ${vars.panel || "rgba(8, 13, 24, 0.68)"}` : vars.panel || surface,
       "--tpl-chip": `linear-gradient(145deg, rgba(255, 255, 255, ${dark ? "0.055" : "0.78"}), rgba(${accentRgb}, ${dark ? "0.1" : "0.14"}))`,
       "--tpl-chip-active": `linear-gradient(135deg, rgba(${accentRgb}, 0.86), rgba(${warmRgb}, 0.68))`,
       "--tpl-hero": vars.hero || `linear-gradient(135deg, rgba(${accentRgb}, 0.78), rgba(${warmRgb}, 0.66))`,
@@ -342,6 +343,16 @@
       "--tpl-badge-bg": dark ? `color-mix(in srgb, var(--item-color, ${accent}) 18%, rgba(2, 6, 23, 0.62))` : "color-mix(in srgb, var(--item-color, var(--accent)) 14%, rgba(255, 255, 255, 0.72))",
       "--tpl-badge-text": dark ? "rgba(255, 255, 255, 0.86)" : "color-mix(in srgb, var(--item-color, var(--accent)) 72%, var(--tpl-ink, #111827))",
       "--tpl-time-border": dark ? "rgba(255, 255, 255, 0.14)" : "rgba(255, 255, 255, 0.24)",
+      "--glass": dark ? "rgba(15, 23, 42, 0.56)" : "rgba(255, 255, 255, 0.48)",
+      "--glass-strong": dark ? "rgba(8, 13, 24, 0.7)" : "rgba(255, 255, 255, 0.64)",
+      "--glass-soft": dark ? "rgba(15, 23, 42, 0.34)" : "rgba(255, 255, 255, 0.3)",
+      "--glass-border": dark ? "rgba(255, 255, 255, 0.16)" : "rgba(255, 255, 255, 0.58)",
+      "--glass-sheen": dark ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.72)",
+      "--glass-panel-bg": dark ? `linear-gradient(145deg, rgba(255, 255, 255, 0.055), rgba(${accentRgb}, 0.09)), rgba(8, 13, 24, 0.72)` : "var(--tpl-surface-strong)",
+      "--glass-card-bg": dark ? `linear-gradient(145deg, rgba(255, 255, 255, 0.04), rgba(${accentRgb}, 0.07)), rgba(8, 13, 24, 0.62)` : "var(--tpl-card)",
+      "--glass-control-bg": dark ? `linear-gradient(145deg, rgba(255, 255, 255, 0.055), rgba(${accentRgb}, 0.08)), rgba(15, 23, 42, 0.56)` : "var(--tpl-input)",
+      "--input-ui-bg": dark ? `linear-gradient(145deg, rgba(255, 255, 255, 0.055), rgba(${accentRgb}, 0.08)), rgba(15, 23, 42, 0.56)` : "var(--tpl-input)",
+      "--input-ui-panel": dark ? `linear-gradient(145deg, rgba(255, 255, 255, 0.055), rgba(${accentRgb}, 0.09)), rgba(8, 13, 24, 0.72)` : "var(--tpl-surface-strong)",
       "--tpl-date-main-text": text,
       "--tpl-date-main-muted": muted,
       "--tpl-date-main-subtle": dark ? "rgba(255, 255, 255, 0.62)" : "rgba(17, 24, 39, 0.58)",
