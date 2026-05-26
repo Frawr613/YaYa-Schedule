@@ -2752,13 +2752,13 @@ body[data-template="compact"] .dashboard-panel {
 .modal-page-chip.course-term-tab {
   align-items: center;
   flex-direction: column;
-  flex: 0 0 min(360px, calc(100vw - 44px));
-  width: min(360px, calc(100vw - 44px));
-  min-width: min(300px, calc(100vw - 44px));
+  flex: 0 0 min(304px, calc(100vw - 56px));
+  width: min(304px, calc(100vw - 56px));
+  min-width: min(264px, calc(100vw - 56px));
   max-width: none;
-  min-height: 82px;
-  padding: 11px 18px 12px;
-  gap: 7px;
+  min-height: 70px;
+  padding: 8px 14px 9px;
+  gap: 5px;
   white-space: normal;
 }
 
@@ -2769,7 +2769,7 @@ body[data-template="compact"] .dashboard-panel {
   text-overflow: clip;
   white-space: normal;
   text-align: center;
-  line-height: 1.24;
+  line-height: 1.18;
 }
 
 .course-term-label,
@@ -2789,7 +2789,7 @@ body[data-template="compact"] .dashboard-panel {
   color: inherit;
   font: inherit;
   font-style: normal;
-  line-height: 1.22;
+  line-height: 1.18;
   overflow: visible;
   text-overflow: clip;
   white-space: nowrap;
@@ -2804,7 +2804,8 @@ body[data-template="compact"] .dashboard-panel {
 
 .modal-page-chip.course-term-tab span,
 .modal-page-chip.course-term-tab small {
-  min-height: 20px;
+  min-height: 18px;
+  padding: 0 6px;
   line-height: 1.1;
 }
 
@@ -4588,8 +4589,8 @@ body[data-theme] .ddl-card {
 
 body[data-theme] :where(.day-item) {
   background:
-    radial-gradient(circle at 94% 0%, rgba(255, 255, 255, 0.32), transparent 38%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04)),
+    var(--tpl-item-highlight, radial-gradient(circle at 94% 0%, rgba(255, 255, 255, 0.32), transparent 38%)),
+    var(--tpl-item-wash, linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04))),
     var(--item-bg) !important;
   box-shadow:
     inset 4px 0 0 var(--item-color),

@@ -281,7 +281,7 @@
       inputUi: ui.inputUi?.variant || ui.interaction?.inputUi?.variant || DEFAULT_INPUT_UI.variant,
       inputUiThemeSync: ui.inputUi?.themeSync !== false,
       autoLockCurrentWeek: true,
-      autoLockCurrentTerm: true,
+      autoLockCurrentTerm: "open-courses",
       termImportSelector: true,
       ddlView: state.ddlView === "completed" ? "completed" : "active",
       specialOverviewPage: normalizeSpecialOverviewPage(state.specialOverviewPage),
@@ -838,6 +838,11 @@
     autoLockFrame = window.requestAnimationFrame(() => {
       autoLockFrame = 0;
       lockDateLookupToCurrentWeek();
+    });
+  }
+
+  function scheduleCourseOverviewOpenLock() {
+    window.requestAnimationFrame(() => {
       lockCourseOverviewToCurrentTerm();
     });
   }
@@ -2955,6 +2960,7 @@
         persist({ immediate: true });
       }
       openModal("courses");
+      scheduleCourseOverviewOpenLock();
     }
     if (action === "set-course-overview-page") {
       const nextPage = normalizeCourseOverviewPage(target.dataset.termId || "");

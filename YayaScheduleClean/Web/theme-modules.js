@@ -239,6 +239,27 @@
     }));
   }
 
+  function customTodaySlots(dark, accentRgb, warmRgb) {
+    if (!dark) return todaySlots("cool");
+    const slots = [
+      [accentRgb, accentRgb, warmRgb],
+      [warmRgb, warmRgb, accentRgb],
+      [warmRgb, warmRgb, accentRgb],
+      ["245, 158, 11", "217, 119, 6", "245, 158, 11"],
+      ["239, 68, 68", "239, 68, 68", "249, 115, 22"]
+    ];
+    const names = ["course", "custom", "recurring", "special", "exam"];
+    return Object.fromEntries(slots.flatMap((slot, index) => {
+      const [left, a, b] = slot;
+      const name = names[index];
+      return [
+        [`--tpl-today-${name}-bg`, `radial-gradient(circle at 92% 10%, rgba(${left}, 0.22), transparent 40%), linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(15, 23, 42, 0.52) 52%, rgba(2, 6, 23, 0.68)), rgba(15, 23, 42, 0.48)`],
+        [`--tpl-today-${name}-left`, `rgba(${left}, 0.88)`],
+        [`--tpl-today-${name}-time`, `linear-gradient(135deg, rgba(${a}, 0.86), rgba(${b}, 0.64))`]
+      ];
+    }));
+  }
+
   function bridge(...objects) {
     return Object.assign({}, BASE_BRIDGE, ...objects, {
       "--glass-panel-bg": "var(--tpl-surface-strong)",
@@ -274,7 +295,7 @@
     const surface = dark
       ? `linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(${accentRgb}, 0.16)), rgba(15, 23, 42, 0.46)`
       : `linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(${accentRgb}, 0.12)), rgba(255, 255, 255, 0.42)`;
-    return bridge(todaySlots("cool"), {
+    return bridge(customTodaySlots(dark, accentRgb, warmRgb), {
       "--page-bg": bg,
       "--ink": ink,
       "--muted": vars.muted || muted,
@@ -312,6 +333,9 @@
       "--tpl-border-dark": `rgba(${accentRgb}, 0.2)`,
       "--tpl-shadow": `0 18px 42px rgba(${accentRgb}, 0.12)`,
       "--tpl-shadow-strong": `0 24px 58px rgba(${accentRgb}, 0.18)`,
+      "--tpl-inset": dark ? "inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -1px 0 rgba(255, 255, 255, 0.04)" : "inset 0 1px 0 rgba(255, 255, 255, 0.46)",
+      "--tpl-item-highlight": dark ? "radial-gradient(circle at 94% 0%, rgba(255, 255, 255, 0.1), transparent 38%)" : "radial-gradient(circle at 94% 0%, rgba(255, 255, 255, 0.32), transparent 38%)",
+      "--tpl-item-wash": dark ? "linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(15, 23, 42, 0.18))" : "linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04))",
       "--tpl-date-main-text": text,
       "--tpl-date-main-muted": muted,
       "--tpl-date-main-subtle": dark ? "rgba(255, 255, 255, 0.62)" : "rgba(17, 24, 39, 0.58)",
