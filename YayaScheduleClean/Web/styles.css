@@ -1730,6 +1730,17 @@ body[data-template="classicOriginal"] .day-panel {
   backdrop-filter: var(--ui-glass-blur, blur(var(--glass-blur)) saturate(var(--glass-saturate)));
 }
 
+body[data-template="classicOriginal"] {
+  --classic-title-glass-bg:
+    linear-gradient(118deg, rgba(255, 255, 255, 0.46), rgba(255, 255, 255, 0.13) 36%, transparent 62%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.28), color-mix(in srgb, var(--tpl-brand, var(--accent)) 7%, transparent)),
+    rgba(255, 255, 255, 0.26);
+  --classic-small-schedule-glass-bg:
+    radial-gradient(circle at 92% 10%, color-mix(in srgb, var(--tpl-today-custom-left, var(--schedule-color)) 12%, transparent), transparent 40%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.36), color-mix(in srgb, var(--tpl-brand, var(--accent)) 7%, transparent)),
+    rgba(255, 255, 255, 0.28);
+}
+
 body[data-template="classicOriginal"] .day-panel::before,
 body[data-template="classicOriginal"] .template-action-dock::before,
 body[data-template="classicOriginal"] .dashboard-panel::before {
@@ -1892,10 +1903,7 @@ body[data-template="classicOriginal"] .day-list .empty-state {
   color: var(--tpl-hero-muted, rgba(17, 24, 39, 0.72));
   font-size: 18px;
   font-weight: 900;
-  background:
-    linear-gradient(118deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.14) 44%, transparent),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0.18)),
-    rgba(255, 255, 255, 0.18);
+  background: var(--tpl-small-schedule-card-bg, var(--classic-small-schedule-glass-bg, var(--glass-card-bg)));
   border-color: var(--tpl-border-dark, rgba(255, 255, 255, 0.64));
   border-style: solid;
   box-shadow: 0 12px 28px rgba(99, 114, 45, 0.11), var(--tpl-inset, var(--glass-inset));
@@ -4557,7 +4565,7 @@ body[data-theme] :where(.day-item.course, .course-card) {
 
 body[data-theme] :where(.day-item.custom, .schedule-card) {
   --item-color: var(--tpl-today-custom-left, var(--module-schedule-color));
-  --item-bg: var(--tpl-today-custom-bg, var(--glass-card-bg));
+  --item-bg: var(--tpl-small-schedule-card-bg, var(--tpl-today-custom-bg, var(--glass-card-bg)));
   --item-time-bg: var(--tpl-today-custom-time, var(--module-schedule-action));
 }
 
@@ -4629,6 +4637,17 @@ body[data-theme-tone="dark"] {
   --glass-saturate: 1.02;
 }
 
+body[data-theme-tone="dark"][data-template="classicOriginal"] {
+  --classic-title-glass-bg:
+    linear-gradient(118deg, rgba(255, 255, 255, 0.032), rgba(255, 255, 255, 0.01) 36%, transparent 62%),
+    linear-gradient(145deg, rgba(71, 85, 105, 0.1), color-mix(in srgb, var(--tpl-brand, var(--accent)) 3%, transparent)),
+    rgba(15, 23, 42, 0.18);
+  --classic-small-schedule-glass-bg:
+    radial-gradient(circle at 92% 8%, color-mix(in srgb, var(--tpl-today-custom-left, var(--schedule-color)) 6%, transparent), transparent 44%),
+    linear-gradient(145deg, rgba(71, 85, 105, 0.11), color-mix(in srgb, var(--tpl-brand, var(--accent)) 3%, transparent)),
+    rgba(15, 23, 42, 0.2);
+}
+
 body[data-theme-tone="dark"] :where(.top-bar, .dashboard-panel, .modal-card, .picker-card, .input-picker-panel, .custom-theme-editor, .custom-alpha-panel, .custom-rgb-panel, .ddl-completed-filter) {
   background: var(--glass-panel-bg) !important;
   border-color: var(--tpl-border, var(--glass-border)) !important;
@@ -4653,6 +4672,11 @@ body[data-theme-tone="dark"] :where(.list-card, .course-card, .note-card, .detai
   border-color: var(--tpl-border, var(--glass-border)) !important;
   color: var(--tpl-ink, var(--ink)) !important;
   box-shadow: var(--soft-shadow), var(--tpl-inset, var(--glass-inset)) !important;
+}
+
+body[data-theme-tone="dark"][data-template="classicOriginal"] .day-list .empty-state,
+body[data-theme-tone="dark"][data-template="classicOriginal"] .schedule-card {
+  background: var(--tpl-small-schedule-card-bg, var(--classic-small-schedule-glass-bg, var(--glass-card-bg))) !important;
 }
 
 body[data-theme-tone="dark"] :where(input:not([type="range"]):not([type="radio"]):not([type="checkbox"]), select, textarea, .picker-input-shell, .internal-select-button, .custom-rgb-number, .custom-color-field) {

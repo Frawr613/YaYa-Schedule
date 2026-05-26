@@ -263,6 +263,10 @@
   function bridge(...objects) {
     const merged = Object.assign({}, BASE_BRIDGE, ...objects);
     return Object.assign(merged, {
+      "--tpl-title-glass-bg": merged["--tpl-title-glass-bg"] || "var(--classic-title-glass-bg, var(--glass-card-bg))",
+      "--tpl-title-card-bg": merged["--tpl-title-card-bg"] || "var(--tpl-title-glass-bg, var(--tpl-today-custom-bg, var(--tpl-hero)))",
+      "--tpl-title-control-bg": merged["--tpl-title-control-bg"] || "var(--tpl-title-glass-bg, var(--tpl-title-card-bg, var(--glass-control-bg)))",
+      "--tpl-small-schedule-card-bg": merged["--tpl-small-schedule-card-bg"] || "var(--classic-small-schedule-glass-bg, var(--tpl-today-custom-bg, var(--glass-card-bg)))",
       "--glass-panel-bg": merged["--glass-panel-bg"] || "var(--tpl-surface-strong)",
       "--glass-card-bg": merged["--glass-card-bg"] || "var(--tpl-card)",
       "--glass-control-bg": merged["--glass-control-bg"] || "var(--tpl-input)",
@@ -296,6 +300,12 @@
     const surface = dark
       ? `linear-gradient(145deg, rgba(71, 85, 105, 0.24), rgba(${accentRgb}, 0.055)), rgba(30, 41, 59, 0.36)`
       : `linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(${accentRgb}, 0.12)), rgba(255, 255, 255, 0.42)`;
+    const titleGlass = dark
+      ? `linear-gradient(118deg, rgba(255, 255, 255, 0.032), rgba(255, 255, 255, 0.01) 36%, transparent 62%), linear-gradient(145deg, rgba(71, 85, 105, 0.1), rgba(${accentRgb}, 0.026)), rgba(15, 23, 42, 0.18)`
+      : `linear-gradient(118deg, rgba(255, 255, 255, 0.46), rgba(255, 255, 255, 0.13) 36%, transparent 62%), linear-gradient(145deg, rgba(255, 255, 255, 0.28), rgba(${accentRgb}, 0.07)), rgba(255, 255, 255, 0.26)`;
+    const smallScheduleGlass = dark
+      ? `radial-gradient(circle at 92% 8%, rgba(${warmRgb}, 0.06), transparent 44%), linear-gradient(145deg, rgba(71, 85, 105, 0.11), rgba(${accentRgb}, 0.026)), rgba(15, 23, 42, 0.2)`
+      : `radial-gradient(circle at 92% 10%, rgba(${warmRgb}, 0.12), transparent 40%), linear-gradient(145deg, rgba(255, 255, 255, 0.36), rgba(${accentRgb}, 0.07)), rgba(255, 255, 255, 0.28)`;
     return bridge(customTodaySlots(dark, accentRgb, warmRgb), {
       "--page-bg": bg,
       "--ink": ink,
@@ -313,8 +323,10 @@
       "--tpl-card": dark ? `linear-gradient(145deg, rgba(71, 85, 105, 0.22), rgba(${accentRgb}, 0.045)), ${vars.card || "rgba(30, 41, 59, 0.34)"}` : vars.card || surface,
       "--tpl-card-solid": dark ? `linear-gradient(145deg, rgba(71, 85, 105, 0.26), rgba(${accentRgb}, 0.04)), rgba(30, 41, 59, 0.42)` : vars.card || surface,
       "--tpl-card-active": `linear-gradient(145deg, rgba(71, 85, 105, ${dark ? "0.28" : "0.9"}), rgba(${accentRgb}, ${dark ? "0.075" : "0.22"}))`,
-      "--tpl-title-card-bg": dark ? "var(--tpl-today-custom-bg)" : "var(--tpl-today-custom-bg, var(--tpl-hero))",
-      "--tpl-title-control-bg": "var(--tpl-title-card-bg, var(--tpl-today-custom-bg, var(--glass-control-bg)))",
+      "--tpl-title-glass-bg": titleGlass,
+      "--tpl-title-card-bg": "var(--tpl-title-glass-bg)",
+      "--tpl-title-control-bg": "var(--tpl-title-glass-bg)",
+      "--tpl-small-schedule-card-bg": smallScheduleGlass,
       "--tpl-input": dark ? `linear-gradient(145deg, rgba(71, 85, 105, 0.22), rgba(${accentRgb}, 0.045)), ${vars.panel || "rgba(30, 41, 59, 0.38)"}` : vars.panel || surface,
       "--tpl-chip": `linear-gradient(145deg, rgba(${dark ? "71, 85, 105" : "255, 255, 255"}, ${dark ? "0.22" : "0.78"}), rgba(${accentRgb}, ${dark ? "0.05" : "0.14"}))`,
       "--tpl-chip-active": `linear-gradient(135deg, rgba(${accentRgb}, 0.86), rgba(${warmRgb}, 0.68))`,
