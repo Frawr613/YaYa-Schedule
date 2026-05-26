@@ -5552,13 +5552,13 @@
     const shadowRgb = hexToRgbList(vars.accent) || "37, 99, 235";
     const softShadowAlpha = Math.max(0.08, Math.min(0.18, shadowAlpha * 0.84));
     if (darkTone) {
-      root.style.setProperty("--glass", `rgba(15, 23, 42, ${Math.max(0.42, glassAlpha * 0.76).toFixed(2)})`);
-      root.style.setProperty("--glass-strong", `rgba(8, 13, 24, ${Math.min(0.86, Math.max(0.58, glassAlpha * 0.9)).toFixed(2)})`);
-      root.style.setProperty("--glass-soft", `rgba(15, 23, 42, ${Math.max(0.24, glassAlpha * 0.42).toFixed(2)})`);
-      root.style.setProperty("--glass-border", `rgba(255, 255, 255, ${Math.max(0.12, Math.min(0.24, glassAlpha * 0.22)).toFixed(2)})`);
-      root.style.setProperty("--glass-sheen", "rgba(255, 255, 255, 0.08)");
-      root.style.setProperty("--shadow", `0 18px 46px rgba(0, 0, 0, ${Math.max(0.22, shadowAlpha).toFixed(2)}), 0 8px 22px rgba(${shadowRgb}, 0.08)`);
-      root.style.setProperty("--soft-shadow", `0 12px 28px rgba(0, 0, 0, ${Math.max(0.16, softShadowAlpha).toFixed(2)}), 0 6px 16px rgba(${shadowRgb}, 0.06)`);
+      root.style.setProperty("--glass", `rgba(30, 41, 59, ${Math.max(0.3, glassAlpha * 0.52).toFixed(2)})`);
+      root.style.setProperty("--glass-strong", `rgba(30, 41, 59, ${Math.min(0.58, Math.max(0.38, glassAlpha * 0.64)).toFixed(2)})`);
+      root.style.setProperty("--glass-soft", `rgba(51, 65, 85, ${Math.max(0.16, glassAlpha * 0.28).toFixed(2)})`);
+      root.style.setProperty("--glass-border", `rgba(148, 163, 184, ${Math.max(0.12, Math.min(0.2, glassAlpha * 0.18)).toFixed(2)})`);
+      root.style.setProperty("--glass-sheen", "transparent");
+      root.style.setProperty("--shadow", `0 16px 34px rgba(0, 0, 0, ${Math.max(0.12, shadowAlpha * 0.7).toFixed(2)}), 0 6px 18px rgba(${shadowRgb}, 0.045)`);
+      root.style.setProperty("--soft-shadow", `0 12px 26px rgba(0, 0, 0, ${Math.max(0.08, softShadowAlpha * 0.66).toFixed(2)}), 0 5px 14px rgba(${shadowRgb}, 0.035)`);
     } else {
       root.style.setProperty("--glass", `rgba(255, 255, 255, ${Math.max(0.28, glassAlpha * 0.72).toFixed(2)})`);
       root.style.setProperty("--glass-strong", `rgba(255, 255, 255, ${Math.min(0.86, Math.max(0.52, glassAlpha)).toFixed(2)})`);

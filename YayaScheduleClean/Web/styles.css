@@ -4627,7 +4627,7 @@ body[data-theme] .badges span {
 
 body[data-theme-tone="dark"] {
   color-scheme: dark;
-  --glass-saturate: 1.08;
+  --glass-saturate: 1.02;
 }
 
 body[data-theme-tone="dark"] :where(.top-bar, .day-panel, .dashboard-panel, .modal-card, .picker-card, .input-picker-panel, .custom-theme-editor, .custom-alpha-panel, .custom-rgb-panel, .ddl-completed-filter) {
@@ -4652,7 +4652,9 @@ body[data-theme-tone="dark"] :where(input:not([type="range"]):not([type="radio"]
 
 body[data-theme-tone="dark"] .modal-card::after,
 body[data-theme-tone="dark"] .picker-card::after {
-  background: var(--tpl-modal-sheen) !important;
+  animation: none !important;
+  opacity: 0 !important;
+  background: none !important;
 }
 
 body[data-theme] .ddl-mini {
