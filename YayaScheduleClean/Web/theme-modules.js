@@ -313,6 +313,7 @@
       "--tpl-card": dark ? `linear-gradient(145deg, rgba(71, 85, 105, 0.22), rgba(${accentRgb}, 0.045)), ${vars.card || "rgba(30, 41, 59, 0.34)"}` : vars.card || surface,
       "--tpl-card-solid": dark ? `linear-gradient(145deg, rgba(71, 85, 105, 0.26), rgba(${accentRgb}, 0.04)), rgba(30, 41, 59, 0.42)` : vars.card || surface,
       "--tpl-card-active": `linear-gradient(145deg, rgba(71, 85, 105, ${dark ? "0.28" : "0.9"}), rgba(${accentRgb}, ${dark ? "0.075" : "0.22"}))`,
+      "--tpl-title-card-bg": dark ? "var(--tpl-today-custom-bg)" : "var(--tpl-today-custom-bg, var(--tpl-hero))",
       "--tpl-input": dark ? `linear-gradient(145deg, rgba(71, 85, 105, 0.22), rgba(${accentRgb}, 0.045)), ${vars.panel || "rgba(30, 41, 59, 0.38)"}` : vars.panel || surface,
       "--tpl-chip": `linear-gradient(145deg, rgba(${dark ? "71, 85, 105" : "255, 255, 255"}, ${dark ? "0.22" : "0.78"}), rgba(${accentRgb}, ${dark ? "0.05" : "0.14"}))`,
       "--tpl-chip-active": `linear-gradient(135deg, rgba(${accentRgb}, 0.86), rgba(${warmRgb}, 0.68))`,

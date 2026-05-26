@@ -1722,10 +1722,10 @@ body[data-template="classicOriginal"] .day-panel {
   display: grid;
   gap: 16px;
   padding: 16px;
-  color: var(--tpl-hero-text, var(--ink));
-  background: var(--tpl-hero, var(--glass-panel-bg));
+  color: var(--tpl-today-card-text, var(--tpl-hero-text, var(--ink)));
+  background: var(--tpl-title-card-bg, var(--tpl-today-custom-bg, var(--tpl-hero, var(--glass-panel-bg))));
   border-color: var(--tpl-border, rgba(255, 255, 255, 0.76));
-  box-shadow: var(--tpl-shadow-strong, 0 24px 58px rgba(126, 143, 53, 0.18)), var(--tpl-inset, var(--glass-inset));
+  box-shadow: var(--tpl-item-shadow, var(--tpl-shadow-strong, 0 24px 58px rgba(126, 143, 53, 0.18))), var(--tpl-inset, var(--glass-inset));
   -webkit-backdrop-filter: var(--ui-glass-blur, blur(var(--glass-blur)) saturate(var(--glass-saturate)));
   backdrop-filter: var(--ui-glass-blur, blur(var(--glass-blur)) saturate(var(--glass-saturate)));
 }
@@ -1824,13 +1824,11 @@ body[data-template="classicOriginal"] .date-center {
   min-width: 0;
   min-height: 162px;
   padding: 12px;
-  border: 1px solid var(--tpl-border-dark, rgba(255, 255, 255, 0.64));
+  border: 1px solid var(--tpl-border, var(--tpl-border-dark, rgba(255, 255, 255, 0.64)));
   border-radius: var(--glass-control-radius, var(--radius));
-  background:
-    linear-gradient(118deg, rgba(255, 255, 255, 0.64), rgba(255, 255, 255, 0.16) 36%, transparent 58%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.16)),
-    rgba(255, 255, 255, 0.2);
-  box-shadow: 0 12px 28px rgba(99, 114, 45, 0.11), var(--tpl-inset, var(--glass-inset));
+  color: var(--tpl-today-card-text, var(--tpl-hero-text, var(--ink)));
+  background: var(--tpl-title-card-bg, var(--tpl-today-custom-bg, var(--glass-card-bg)));
+  box-shadow: var(--tpl-item-shadow, 0 12px 28px rgba(99, 114, 45, 0.11)), var(--tpl-inset, var(--glass-inset));
 }
 
 body[data-template="classicOriginal"] .classic-day-title {
@@ -1840,14 +1838,14 @@ body[data-template="classicOriginal"] .classic-day-title {
 }
 
 body[data-template="classicOriginal"] .classic-day-title strong {
-  color: var(--tpl-hero-text, #111827);
+  color: var(--tpl-today-card-text, var(--tpl-hero-text, #111827));
   font-size: 38px;
   font-weight: 950;
   line-height: 1.02;
 }
 
 body[data-template="classicOriginal"] .classic-day-title span {
-  color: var(--tpl-hero-muted, #111827);
+  color: var(--tpl-today-card-muted, var(--tpl-hero-muted, #111827));
   font-size: 16px;
   font-weight: 900;
   line-height: 1.18;
@@ -4474,12 +4472,16 @@ body[data-theme="mono"] {
   --tpl-date-main-subtle: rgba(255, 255, 255, 0.62);
 }
 
-body[data-theme] :where(.classic-day-title strong, .nav-button) {
+body[data-theme] :where(.classic-day-title strong) {
+  color: var(--tpl-today-card-text, var(--tpl-date-main-text, var(--tpl-hero-text))) !important;
+}
+
+body[data-theme] :where(.nav-button) {
   color: var(--tpl-date-main-text, var(--tpl-hero-text)) !important;
 }
 
 body[data-theme] :where(.classic-day-title span, .day-list .empty-state) {
-  color: var(--tpl-date-main-muted, var(--tpl-hero-muted)) !important;
+  color: var(--tpl-today-card-muted, var(--tpl-date-main-muted, var(--tpl-hero-muted))) !important;
 }
 
 body[data-theme] .day-list .empty-state::before {
@@ -4630,10 +4632,17 @@ body[data-theme-tone="dark"] {
   --glass-saturate: 1.02;
 }
 
-body[data-theme-tone="dark"] :where(.top-bar, .day-panel, .dashboard-panel, .modal-card, .picker-card, .input-picker-panel, .custom-theme-editor, .custom-alpha-panel, .custom-rgb-panel, .ddl-completed-filter) {
+body[data-theme-tone="dark"] :where(.top-bar, .dashboard-panel, .modal-card, .picker-card, .input-picker-panel, .custom-theme-editor, .custom-alpha-panel, .custom-rgb-panel, .ddl-completed-filter) {
   background: var(--glass-panel-bg) !important;
   border-color: var(--tpl-border, var(--glass-border)) !important;
   box-shadow: var(--tpl-shadow, var(--shadow)), var(--tpl-inset, var(--glass-inset)) !important;
+}
+
+body[data-theme-tone="dark"][data-template="classicOriginal"] .day-panel,
+body[data-theme-tone="dark"][data-template="classicOriginal"] .date-center {
+  background: var(--tpl-title-card-bg, var(--tpl-today-custom-bg, var(--glass-card-bg))) !important;
+  border-color: var(--tpl-border, var(--glass-border)) !important;
+  box-shadow: var(--tpl-item-shadow, var(--soft-shadow)), var(--tpl-inset, var(--glass-inset)) !important;
 }
 
 body[data-theme-tone="dark"] :where(.list-card, .course-card, .note-card, .detail-block, .choice-card, .icon-choice-card, .custom-theme-entry, .theme-preview-card, .setting-action, .date-week-chip, .date-day-chip, .recurring-week-chip, .term-chip, .ddl-view-tab, .reminder-chip, .custom-base-choice, .custom-glass-switch, .empty-state) {
