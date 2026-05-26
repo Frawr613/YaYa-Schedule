@@ -201,6 +201,8 @@
   let modalPhaseTimer = 0;
   let userScrollTimer = 0;
   let scrollStateLastAt = 0;
+  let scrollRenderPending = false;
+  let scrollRenderPendingForce = false;
   let renderBusyTimer = 0;
   let lastCommandAction = "";
   let lastCommandAt = 0;
@@ -299,6 +301,8 @@
       modal: state.modal || "",
       layerLock: "top-layer-scroll-gated",
       scrollFreeze: scrollLockActive,
+      scrollRenderGate: "defer-only-when-pending",
+      scrollRenderPending,
       formDraftCache: Boolean(state.modalData?.__draftForm),
       ddlView: state.ddlView === "completed" ? "completed" : "active",
       pickerLayer: Boolean(timePickerInput || datePickerInput || optionPickerSource),
@@ -795,8 +799,7 @@
     const force = options.force === true || options.forceRender === true;
     if (!force && hasActiveFloatingLayer()) return;
     if (!force && isUserScrollingActive()) {
-      window.clearTimeout(userScrollTimer);
-      userScrollTimer = window.setTimeout(() => scheduleRenderAll({ force: true }), 180);
+      queueRenderAfterScroll(force);
       return;
     }
     if (renderAllFrame) window.cancelAnimationFrame(renderAllFrame);
@@ -811,6 +814,13 @@
     return scrollStateLastAt > 0 && Date.now() - scrollStateLastAt < 180;
   }
 
+  function queueRenderAfterScroll(force = false) {
+    scrollRenderPending = true;
+    scrollRenderPendingForce = scrollRenderPendingForce || force;
+    window.clearTimeout(userScrollTimer);
+    userScrollTimer = window.setTimeout(finishUserScrolling, 220);
+  }
+
   function markUserScrolling(event) {
     if (hasActiveFloatingLayer()) return;
     if (state.modal && event.target?.closest?.(".modal-card")) return;
@@ -818,10 +828,26 @@
     scrollStateLastAt = Date.now();
     document.body.classList.add("is-user-scrolling");
     window.clearTimeout(userScrollTimer);
-    userScrollTimer = window.setTimeout(() => {
-      document.body.classList.remove("is-user-scrolling");
-      scheduleRenderAll({ force: true });
-    }, 220);
+    userScrollTimer = window.setTimeout(finishUserScrolling, 220);
+  }
+
+  function finishUserScrolling() {
+    document.body.classList.remove("is-user-scrolling");
+    scrollStateLastAt = 0;
+    const shouldRender = scrollRenderPending;
+    const force = scrollRenderPendingForce;
+    scrollRenderPending = false;
+    scrollRenderPendingForce = false;
+    if (shouldRender) scheduleRenderAll({ force: true, scrollFlush: !force });
+  }
+
+  function clearScrollRenderGate() {
+    window.clearTimeout(userScrollTimer);
+    userScrollTimer = 0;
+    scrollStateLastAt = 0;
+    scrollRenderPending = false;
+    scrollRenderPendingForce = false;
+    document.body.classList.remove("is-user-scrolling");
   }
 
   function activateRenderBusy(duration = 520) {
@@ -3838,9 +3864,7 @@
     const locked = Boolean(state.modal || pickerLocked);
     applyInteractionScrollLock(locked);
     if (locked) {
-      window.clearTimeout(userScrollTimer);
-      scrollStateLastAt = 0;
-      document.body.classList.remove("is-user-scrolling");
+      clearScrollRenderGate();
     }
     document.body.classList.toggle("is-interaction-locked", locked);
     document.body.classList.toggle("has-floating-card", locked);
@@ -3949,9 +3973,8 @@
     if (event.cancelable) event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation?.();
-    window.clearTimeout(userScrollTimer);
+    clearScrollRenderGate();
     document.body.classList.remove("is-user-scrolling", "is-rendering");
-    scrollStateLastAt = 0;
     window.setTimeout(() => {
       floatingLayerGuardActive = false;
     }, 0);

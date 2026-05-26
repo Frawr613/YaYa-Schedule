@@ -446,11 +446,14 @@ body.is-interaction-locked .app-shell {
 }
 
 body.is-rendering :where(.day-panel, .template-action-dock, .dashboard-panel, .modal-card, .day-item),
-body.is-render-busy :where(.day-panel, .template-action-dock, .dashboard-panel, .modal-card, .day-item),
-body.is-user-scrolling :where(.day-panel, .template-action-dock, .dashboard-panel, .day-item) {
+body.is-render-busy :where(.day-panel, .template-action-dock, .dashboard-panel, .modal-card, .day-item) {
   transition: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+body.is-user-scrolling :where(.day-panel, .template-action-dock, .dashboard-panel, .day-item) {
+  transition: none;
 }
 
 body[data-density="compact"] .app-shell {
