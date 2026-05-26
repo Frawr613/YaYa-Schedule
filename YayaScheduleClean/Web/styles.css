@@ -125,9 +125,9 @@ body::after {
   height: calc(env(safe-area-inset-top, 0px) + 72px);
   z-index: 0;
   pointer-events: none;
-  background:
+  background: var(--tpl-page-sheen,
     linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.28) 58%, rgba(255, 255, 255, 0)),
-    linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(124, 58, 237, 0.08), rgba(16, 185, 129, 0.06));
+    linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(124, 58, 237, 0.08), rgba(16, 185, 129, 0.06)));
 }
 
 body[data-theme="classicCustom"] {
@@ -234,9 +234,9 @@ html:has(body[data-theme="classicCustom"]) {
 }
 
 body[data-theme="classicCustom"]::after {
-  background:
+  background: var(--tpl-page-sheen,
     linear-gradient(180deg, rgba(255, 255, 255, 0.64), rgba(255, 255, 255, 0.22) 58%, rgba(255, 255, 255, 0)),
-    linear-gradient(135deg, rgba(139, 189, 76, 0.04), rgba(184, 162, 58, 0.035), rgba(37, 99, 235, 0.025));
+    linear-gradient(135deg, rgba(139, 189, 76, 0.04), rgba(184, 162, 58, 0.035), rgba(37, 99, 235, 0.025)));
 }
 
 body[data-theme="classicCustom"] button.primary,
@@ -2585,8 +2585,7 @@ body[data-template="compact"] .dashboard-panel {
   z-index: 0;
   border-radius: inherit;
   pointer-events: none;
-  background:
-    linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, 0.34) 16%, rgba(255, 255, 255, 0.08) 28%, transparent 46%);
+  background: var(--tpl-modal-sheen, linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, 0.34) 16%, rgba(255, 255, 255, 0.08) 28%, transparent 46%));
   opacity: 0;
   transform: translateX(-34%);
   animation: floatingGlassSheen 620ms var(--float-ease) 70ms both;
@@ -4594,7 +4593,7 @@ body[data-theme] :where(.day-item) {
     var(--item-bg) !important;
   box-shadow:
     inset 4px 0 0 var(--item-color),
-    0 14px 30px rgba(15, 23, 42, 0.09),
+    var(--tpl-item-shadow, 0 14px 30px rgba(15, 23, 42, 0.09)),
     var(--tpl-inset, var(--glass-inset)) !important;
 }
 
@@ -4608,7 +4607,7 @@ body[data-theme] :where(.list-card, .course-card) {
 body[data-theme] .day-item time {
   color: var(--tpl-today-time-text, var(--tpl-action-text, #ffffff)) !important;
   background: var(--item-time-bg, var(--tpl-primary-action)) !important;
-  border: 1px solid rgba(255, 255, 255, 0.24);
+  border: 1px solid var(--tpl-time-border, rgba(255, 255, 255, 0.24));
   border-radius: 999px;
   padding: 5px 8px;
   box-shadow: 0 8px 16px color-mix(in srgb, var(--item-color) 20%, transparent), var(--tpl-inset, var(--glass-inset));
@@ -4623,8 +4622,8 @@ body[data-theme] :where(.day-item p, .day-item span, .list-card span, .list-card
 }
 
 body[data-theme] .badges span {
-  color: color-mix(in srgb, var(--item-color, var(--accent)) 72%, var(--tpl-ink, #111827)) !important;
-  background: color-mix(in srgb, var(--item-color, var(--accent)) 14%, rgba(255, 255, 255, 0.72)) !important;
+  color: var(--tpl-badge-text, color-mix(in srgb, var(--item-color, var(--accent)) 72%, var(--tpl-ink, #111827))) !important;
+  background: var(--tpl-badge-bg, color-mix(in srgb, var(--item-color, var(--accent)) 14%, rgba(255, 255, 255, 0.72))) !important;
   box-shadow: var(--tpl-inset, var(--glass-inset));
 }
 

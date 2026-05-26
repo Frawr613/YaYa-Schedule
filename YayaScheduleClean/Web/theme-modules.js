@@ -253,7 +253,7 @@
       const [left, a, b] = slot;
       const name = names[index];
       return [
-        [`--tpl-today-${name}-bg`, `radial-gradient(circle at 92% 10%, rgba(${left}, 0.22), transparent 40%), linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(15, 23, 42, 0.52) 52%, rgba(2, 6, 23, 0.68)), rgba(15, 23, 42, 0.48)`],
+        [`--tpl-today-${name}-bg`, `radial-gradient(circle at 92% 8%, rgba(${left}, 0.12), transparent 42%), linear-gradient(145deg, rgba(255, 255, 255, 0.035), rgba(15, 23, 42, 0.62) 50%, rgba(2, 6, 23, 0.78)), rgba(8, 13, 24, 0.72)`],
         [`--tpl-today-${name}-left`, `rgba(${left}, 0.88)`],
         [`--tpl-today-${name}-time`, `linear-gradient(135deg, rgba(${a}, 0.86), rgba(${b}, 0.64))`]
       ];
@@ -293,7 +293,7 @@
     const text = dark ? "#ffffff" : "#111827";
     const muted = dark ? "rgba(255, 255, 255, 0.76)" : "rgba(17, 24, 39, 0.68)";
     const surface = dark
-      ? `linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(${accentRgb}, 0.16)), rgba(15, 23, 42, 0.46)`
+      ? `linear-gradient(145deg, rgba(255, 255, 255, 0.055), rgba(${accentRgb}, 0.1)), rgba(8, 13, 24, 0.7)`
       : `linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(${accentRgb}, 0.12)), rgba(255, 255, 255, 0.42)`;
     return bridge(customTodaySlots(dark, accentRgb, warmRgb), {
       "--page-bg": bg,
@@ -309,11 +309,11 @@
       "--tpl-brand-deep": accent,
       "--tpl-surface": surface,
       "--tpl-surface-strong": surface,
-      "--tpl-card": vars.card || surface,
-      "--tpl-card-solid": vars.card || surface,
-      "--tpl-card-active": `linear-gradient(145deg, rgba(255, 255, 255, ${dark ? "0.18" : "0.9"}), rgba(${accentRgb}, 0.22))`,
+      "--tpl-card": dark ? `linear-gradient(145deg, rgba(255, 255, 255, 0.04), rgba(${accentRgb}, 0.08)), ${vars.card || "rgba(8, 13, 24, 0.72)"}` : vars.card || surface,
+      "--tpl-card-solid": dark ? `linear-gradient(145deg, rgba(255, 255, 255, 0.035), rgba(${accentRgb}, 0.07)), rgba(8, 13, 24, 0.82)` : vars.card || surface,
+      "--tpl-card-active": `linear-gradient(145deg, rgba(255, 255, 255, ${dark ? "0.06" : "0.9"}), rgba(${accentRgb}, ${dark ? "0.14" : "0.22"}))`,
       "--tpl-input": vars.panel || surface,
-      "--tpl-chip": `linear-gradient(145deg, rgba(255, 255, 255, ${dark ? "0.16" : "0.78"}), rgba(${accentRgb}, 0.14))`,
+      "--tpl-chip": `linear-gradient(145deg, rgba(255, 255, 255, ${dark ? "0.055" : "0.78"}), rgba(${accentRgb}, ${dark ? "0.1" : "0.14"}))`,
       "--tpl-chip-active": `linear-gradient(135deg, rgba(${accentRgb}, 0.86), rgba(${warmRgb}, 0.68))`,
       "--tpl-hero": vars.hero || `linear-gradient(135deg, rgba(${accentRgb}, 0.78), rgba(${warmRgb}, 0.66))`,
       "--tpl-hero-text": text,
@@ -328,14 +328,20 @@
       "--tpl-ddl-mini-bg": `linear-gradient(135deg, rgba(${accentRgb}, 0.72), rgba(${warmRgb}, 0.56))`,
       "--tpl-ddl-mini-text": "#ffffff",
       "--tpl-ddl-mini-border": "rgba(255, 255, 255, 0.42)",
-      "--tpl-ddl-mini-shadow": `0 8px 18px rgba(${accentRgb}, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.3)`,
+      "--tpl-ddl-mini-shadow": `0 8px 18px rgba(${accentRgb}, ${dark ? "0.1" : "0.14"}), inset 0 1px 0 rgba(255, 255, 255, ${dark ? "0.1" : "0.3"})`,
       "--tpl-border": dark ? "rgba(255, 255, 255, 0.18)" : "rgba(255, 255, 255, 0.52)",
       "--tpl-border-dark": `rgba(${accentRgb}, 0.2)`,
-      "--tpl-shadow": `0 18px 42px rgba(${accentRgb}, 0.12)`,
-      "--tpl-shadow-strong": `0 24px 58px rgba(${accentRgb}, 0.18)`,
-      "--tpl-inset": dark ? "inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -1px 0 rgba(255, 255, 255, 0.04)" : "inset 0 1px 0 rgba(255, 255, 255, 0.46)",
-      "--tpl-item-highlight": dark ? "radial-gradient(circle at 94% 0%, rgba(255, 255, 255, 0.1), transparent 38%)" : "radial-gradient(circle at 94% 0%, rgba(255, 255, 255, 0.32), transparent 38%)",
-      "--tpl-item-wash": dark ? "linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(15, 23, 42, 0.18))" : "linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04))",
+      "--tpl-shadow": dark ? `0 18px 42px rgba(0, 0, 0, 0.24), 0 8px 20px rgba(${accentRgb}, 0.08)` : `0 18px 42px rgba(${accentRgb}, 0.12)`,
+      "--tpl-shadow-strong": dark ? `0 24px 58px rgba(0, 0, 0, 0.3), 0 10px 24px rgba(${accentRgb}, 0.1)` : `0 24px 58px rgba(${accentRgb}, 0.18)`,
+      "--tpl-inset": dark ? "inset 0 1px 0 rgba(255, 255, 255, 0.075), inset 0 -1px 0 rgba(255, 255, 255, 0.025)" : "inset 0 1px 0 rgba(255, 255, 255, 0.46)",
+      "--tpl-page-sheen": dark ? `linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012) 58%, rgba(255, 255, 255, 0)), linear-gradient(135deg, rgba(${accentRgb}, 0.045), rgba(${warmRgb}, 0.028), rgba(2, 6, 23, 0))` : `linear-gradient(180deg, rgba(255, 255, 255, 0.64), rgba(255, 255, 255, 0.22) 58%, rgba(255, 255, 255, 0)), linear-gradient(135deg, rgba(${accentRgb}, 0.055), rgba(${warmRgb}, 0.04), rgba(37, 99, 235, 0.025))`,
+      "--tpl-modal-sheen": dark ? "linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, 0.075) 16%, rgba(255, 255, 255, 0.025) 28%, transparent 46%)" : "linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, 0.34) 16%, rgba(255, 255, 255, 0.08) 28%, transparent 46%)",
+      "--tpl-item-highlight": dark ? "radial-gradient(circle at 94% 0%, rgba(255, 255, 255, 0.035), transparent 40%)" : "radial-gradient(circle at 94% 0%, rgba(255, 255, 255, 0.32), transparent 38%)",
+      "--tpl-item-wash": dark ? "linear-gradient(145deg, rgba(255, 255, 255, 0.025), rgba(2, 6, 23, 0.22))" : "linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04))",
+      "--tpl-item-shadow": dark ? "0 14px 30px rgba(0, 0, 0, 0.26)" : "0 14px 30px rgba(15, 23, 42, 0.09)",
+      "--tpl-badge-bg": dark ? `color-mix(in srgb, var(--item-color, ${accent}) 18%, rgba(2, 6, 23, 0.62))` : "color-mix(in srgb, var(--item-color, var(--accent)) 14%, rgba(255, 255, 255, 0.72))",
+      "--tpl-badge-text": dark ? "rgba(255, 255, 255, 0.86)" : "color-mix(in srgb, var(--item-color, var(--accent)) 72%, var(--tpl-ink, #111827))",
+      "--tpl-time-border": dark ? "rgba(255, 255, 255, 0.14)" : "rgba(255, 255, 255, 0.24)",
       "--tpl-date-main-text": text,
       "--tpl-date-main-muted": muted,
       "--tpl-date-main-subtle": dark ? "rgba(255, 255, 255, 0.62)" : "rgba(17, 24, 39, 0.58)",
