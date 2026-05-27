@@ -249,6 +249,10 @@
   let lastInteractionLockSignature = "";
   let lastArchitectureRenderRuntimeAt = 0;
   let lastArchitectureRuntimeSignature = "";
+  let lastScheduleOverviewBucketsSignature = "";
+  let lastScheduleOverviewBuckets = null;
+  let lastSpecialOverviewBucketsSignature = "";
+  let lastSpecialOverviewBuckets = null;
   let lastKnownToday = todayString();
 
   function registerArchitectureRuntime(stage = "runtime") {
@@ -5319,7 +5323,19 @@
     return occurrences[occurrences.length - 1];
   }
 
+  function overviewTimeBucket() {
+    return Math.floor(Date.now() / 60000);
+  }
+
+  function overviewBucketsSignature(scope) {
+    return `${scope}:${appCache.signature || dataSignature()}:${overviewTimeBucket()}`;
+  }
+
   function scheduleOverviewBuckets() {
+    const signature = overviewBucketsSignature("schedule");
+    if (lastScheduleOverviewBucketsSignature === signature && lastScheduleOverviewBuckets) {
+      return lastScheduleOverviewBuckets;
+    }
     const groups = { active: [], ended: [] };
     for (const item of state.customSchedules) {
       const ended = isCustomScheduleEnded(item);
@@ -5343,10 +5359,16 @@
     }
     groups.active.sort(sortOverviewEntry);
     groups.ended.sort((a, b) => sortOverviewEntry(b, a));
+    lastScheduleOverviewBucketsSignature = signature;
+    lastScheduleOverviewBuckets = groups;
     return groups;
   }
 
   function specialOverviewBuckets() {
+    const signature = overviewBucketsSignature("special");
+    if (lastSpecialOverviewBucketsSignature === signature && lastSpecialOverviewBuckets) {
+      return lastSpecialOverviewBuckets;
+    }
     const groups = { active: [], ended: [] };
     for (const item of state.specialChanges) {
       const ended = isSpecialChangeEnded(item);
@@ -5359,6 +5381,8 @@
     }
     groups.active.sort(sortOverviewEntry);
     groups.ended.sort((a, b) => sortOverviewEntry(b, a));
+    lastSpecialOverviewBucketsSignature = signature;
+    lastSpecialOverviewBuckets = groups;
     return groups;
   }
 
