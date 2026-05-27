@@ -745,8 +745,7 @@
       exams: state.examSchedules,
       special: state.specialChanges,
       ddls: state.ddls,
-      done: state.completedDdls,
-      notes: state.notes
+      done: state.completedDdls
     });
   }
 
@@ -5062,7 +5061,7 @@
   }
 
   function dayItems(date) {
-    const cacheKey = `${appCache.signature}|${date}|${notesCacheStamp()}`;
+    const cacheKey = `${appCache.signature}|${date}`;
     if (dayItemsCache.has(cacheKey)) return dayItemsCache.get(cacheKey);
     const courseItems = mergeDailyCourses(appCache.courseEventsByDate[date] || []);
     const base = [
@@ -5496,13 +5495,6 @@
   function noteBadge(noteKey) {
     const count = noteKey && state.notes[noteKey] ? state.notes[noteKey].length : 0;
     return count ? `备注 ${count}` : "";
-  }
-
-  function notesCacheStamp() {
-    return Object.entries(state.notes || {})
-      .map(([key, list]) => `${key}:${Array.isArray(list) ? list.length : 0}`)
-      .sort()
-      .join("|");
   }
 
   function defaultSpecialTargetKey() {
