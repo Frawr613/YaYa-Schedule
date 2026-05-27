@@ -230,10 +230,24 @@
   let nativeReminderSyncTimer = 0;
   let nativeReminderSyncGeneration = 0;
   let lastNativeReminderSignature = "";
+  let lastNativeWidgetSignature = "";
+  let lastNativeWidgetAt = 0;
+  let lastPortalImportUiSignature = "";
+  let lastArchitectureRenderRuntimeAt = 0;
   let lastKnownToday = todayString();
 
   function registerArchitectureRuntime(stage = "runtime") {
     if (!window.YayaLayers?.registerRuntime) return;
+    const now = Date.now();
+    if (stage === "render" && now - lastArchitectureRenderRuntimeAt < 700) {
+      window.YayaLayers.registerRuntime("boot", {
+        stage: "render-throttled",
+        refreshBudget: "ios-bridge-friendly",
+        at: now
+      });
+      return;
+    }
+    if (stage === "render") lastArchitectureRenderRuntimeAt = now;
     const ui = resolveUiAssembly();
     const noteCount = Object.values(state.notes || {}).reduce((total, list) => total + (Array.isArray(list) ? list.length : 0), 0);
     const courseCount = appCache.courseCount || state.terms.reduce((total, term) => total + (Array.isArray(term.courses) ? term.courses.length : 0), 0);
@@ -4082,7 +4096,7 @@
 
   function refreshThemeAfterSave(message) {
     applyTheme();
-    updateNativeWidget();
+    updateNativeWidget({ force: true, reason: "theme-save" });
     window.YayaLayers?.registerRuntime?.("theme", {
       immediateThemeRefresh: true,
       forcedRenderAfterThemeSave: true,
@@ -5426,8 +5440,9 @@
       reminderBridgeMounted: ok
     });
     if (ok && options.retry !== false) {
-      queueNativeNotificationSync({ requestPermission: false, force: true, retry: false, reason: "confirm", delay: 420 });
-      window.setTimeout(() => syncNativeNotifications({ requestPermission: false, force: true, retry: false, reason: "confirm-late" }), 1500);
+      const shouldForceConfirm = reminderPermissionStatus().platform !== "ios";
+      queueNativeNotificationSync({ requestPermission: false, force: shouldForceConfirm, retry: false, reason: "confirm", delay: 420 });
+      window.setTimeout(() => syncNativeNotifications({ requestPermission: false, force: shouldForceConfirm, retry: false, reason: "confirm-late" }), 1500);
     }
     return ok;
   }
@@ -5456,11 +5471,13 @@
       .join("||");
   }
 
-  function updateNativeWidget() {
+  function updateNativeWidget(options = {}) {
     const ddl = appCache.activeDdls[0] || {};
     const current = latestScheduleWidgetItem(todayString());
     const progress = scheduleProgress(current);
-    window.YayaPlatform?.updateHomeWidget([
+    const bridge = window.YayaPlatform;
+    if (!bridge?.updateHomeWidget) return false;
+    const payload = [
       ddl.topic || "暂无 DDL",
       ddl.date ? formatDdlTime(ddl) : "",
       current.title || "暂无安排",
@@ -5470,7 +5487,27 @@
       progress,
       progress > 0 && progress < 100,
       widgetThemePayload()
-    ]);
+    ];
+    const signature = JSON.stringify(payload);
+    const now = Date.now();
+    if (options.force !== true && signature === lastNativeWidgetSignature && now - lastNativeWidgetAt < 5 * 60 * 1000) {
+      window.YayaLayers?.registerRuntime?.("platform", {
+        widgetUpdateSkipped: true,
+        widgetUpdateReason: options.reason || "same-payload"
+      });
+      return true;
+    }
+    const ok = bridge.updateHomeWidget(payload) !== false;
+    if (ok) {
+      lastNativeWidgetSignature = signature;
+      lastNativeWidgetAt = now;
+    }
+    window.YayaLayers?.registerRuntime?.("platform", {
+      widgetUpdateSkipped: false,
+      widgetUpdateReason: options.reason || "changed-payload",
+      widgetUpdateAt: now
+    });
+    return ok;
   }
 
   function widgetThemePayload() {
@@ -5647,12 +5684,18 @@
 
   function syncPortalImportUiBridge() {
     const config = portalImportUiConfig();
-    window.YayaPlatform?.configurePortalUi?.(config);
+    const signature = JSON.stringify(config);
+    const skipped = signature === lastPortalImportUiSignature;
+    if (!skipped) {
+      window.YayaPlatform?.configurePortalUi?.(config);
+      lastPortalImportUiSignature = signature;
+    }
     window.YayaLayers?.registerRuntime?.("platform", {
       portalUiBridge: Boolean(window.YayaPlatform?.configurePortalUi),
       portalTheme: config.themeId,
       portalTemplate: config.templateId,
-      portalInputUi: config.inputUi
+      portalInputUi: config.inputUi,
+      portalUiBridgeSkipped: skipped
     });
     window.YayaLayers?.registerRuntime?.("interaction", {
       portalTermOverlay: true,

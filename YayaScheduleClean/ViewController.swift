@@ -25,6 +25,7 @@ private struct ReminderNotificationPlan {
 final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UNUserNotificationCenterDelegate {
     private let appGroupIdentifier = "group.com.xuyunfan.yayaschedule"
     private let widgetPayloadKey = "homeWidgetPayload"
+    private let widgetPayloadSignatureKey = "homeWidgetPayloadSignature"
     private let reminderNotificationIdsKey = "reminderNotificationIds"
     private let reminderNotificationPayloadKey = "reminderNotificationPayload"
     private let reminderScheduledCountKey = "reminderScheduledCount"
@@ -41,6 +42,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var portalSessionActive = false
     private var lastPortalOpenAt: TimeInterval = 0
     private var reminderScheduleGeneration = 0
+    private var lastReminderSchedulePayload = ""
+    private var lastReminderScheduleAt: TimeInterval = 0
+    private var lastReminderPermissionStatusPayload = ""
+    private var lastReminderPermissionStatusAt: TimeInterval = 0
     private var portalUiConfig: [String: Any] = [:]
     private weak var portalTermOverlay: UIView?
 
@@ -1697,7 +1702,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         }
     }
 
-    private func pushReminderPermissionStatus() {
+    private func pushReminderPermissionStatus(force: Bool = false) {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { [weak self] settings in
             center.getPendingNotificationRequests { requests in
@@ -1769,6 +1774,14 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                     return
                 }
                 DispatchQueue.main.async {
+                    let now = Date().timeIntervalSince1970
+                    if !force,
+                       json == self.lastReminderPermissionStatusPayload,
+                       now - self.lastReminderPermissionStatusAt < 2.0 {
+                        return
+                    }
+                    self.lastReminderPermissionStatusPayload = json
+                    self.lastReminderPermissionStatusAt = now
                     let script = """
                     window.__yayaReminderPermissionStatus = \(Self.javaScriptStringLiteral(json));
                     try { window.dispatchEvent(new Event('yaya-reminder-permission-updated')); } catch (error) {}
@@ -1795,10 +1808,17 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         let center = UNUserNotificationCenter.current()
         let defaults = UserDefaults.standard
         let safePayload = rawPayload.isEmpty ? "[]" : rawPayload
+        let nowTick = Date().timeIntervalSince1970
         if persistPayload {
             defaults.set(safePayload, forKey: reminderNotificationPayloadKey)
             defaults.removeObject(forKey: legacyDdlNotificationPayloadKey)
         }
+        if safePayload == lastReminderSchedulePayload && nowTick - lastReminderScheduleAt < 2.5 {
+            pushReminderPermissionStatus()
+            return
+        }
+        lastReminderSchedulePayload = safePayload
+        lastReminderScheduleAt = nowTick
         let oldIds = (defaults.stringArray(forKey: reminderNotificationIdsKey) ?? [])
             + (defaults.stringArray(forKey: legacyDdlNotificationIdsKey) ?? [])
 
@@ -1911,7 +1931,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private func saveWidgetPayload(_ raw: Any) {
         let values = widgetValues(from: raw)
         let progress = min(max(numberValue(values[safe: 6]), 0), 100)
-        let cleanPayload: [String: Any] = [
+        let cleanPayloadCore: [String: Any] = [
             "ddlTitle": stringValue(values[safe: 0], fallback: "暂无 DDL"),
             "ddlTime": stringValue(values[safe: 1]),
             "scheduleTitle": stringValue(values[safe: 2], fallback: "暂无课程或日程"),
@@ -1920,18 +1940,33 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             "scheduleLabel": stringValue(values[safe: 5], fallback: "最近日程"),
             "scheduleProgress": progress,
             "scheduleActive": boolValue(values[safe: 7]),
-            "theme": widgetThemePayload(values[safe: 8]),
-            "updatedAt": Date().timeIntervalSince1970
+            "theme": widgetThemePayload(values[safe: 8])
         ]
+        let signature = payloadSignature(cleanPayloadCore)
+        let defaults = UserDefaults(suiteName: appGroupIdentifier) ?? .standard
+        if !signature.isEmpty && signature == defaults.string(forKey: widgetPayloadSignatureKey) {
+            return
+        }
+        var cleanPayload = cleanPayloadCore
+        cleanPayload["updatedAt"] = Date().timeIntervalSince1970
 
         guard JSONSerialization.isValidJSONObject(cleanPayload),
               let data = try? JSONSerialization.data(withJSONObject: cleanPayload) else {
             return
         }
-        let defaults = UserDefaults(suiteName: appGroupIdentifier) ?? .standard
         defaults.set(data, forKey: widgetPayloadKey)
+        defaults.set(signature, forKey: widgetPayloadSignatureKey)
         defaults.synchronize()
         WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    private func payloadSignature(_ payload: [String: Any]) -> String {
+        guard JSONSerialization.isValidJSONObject(payload),
+              let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return text
     }
 
     private func widgetValues(from raw: Any) -> [Any] {
