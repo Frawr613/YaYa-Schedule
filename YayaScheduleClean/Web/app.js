@@ -737,6 +737,15 @@
     scheduleRenderAll({ force: options.forceRender === true || !options.skipCache });
   }
 
+  function commitNoteChange(message) {
+    commit(message, { skipCache: true, skipNative: true });
+    window.YayaLayers?.registerRuntime?.("cache", {
+      noteOnlyCommit: true,
+      noteCacheSkipped: true,
+      noteNativeBridgeSkipped: true
+    });
+  }
+
   function dataSignature() {
     return JSON.stringify({
       terms: state.terms.map((term) => [term.id, term.termStart, term.label, term.rows || []]),
@@ -4349,7 +4358,7 @@
     if (!state.notes[noteKey]) state.notes[noteKey] = [];
     state.notes[noteKey].push({ id: newId("note"), text, createdAt: new Date().toISOString() });
     clearModalFormDraft();
-    commit("备注已保存");
+    commitNoteChange("备注已保存");
     openModal("detail", state.modalData);
   }
 
@@ -4363,7 +4372,7 @@
     if (!text) {
       state.notes[noteKey] = state.notes[noteKey].filter((note) => note.id !== id);
       if (!state.notes[noteKey].length) delete state.notes[noteKey];
-      commit("备注已删除");
+      commitNoteChange("备注已删除");
       if (detail.type) openModal("detail", detail);
       return;
     }
@@ -4371,7 +4380,7 @@
       note.id === id ? { ...note, text, updatedAt: new Date().toISOString() } : note
     ));
     clearModalFormDraft();
-    commit("备注已更新");
+    commitNoteChange("备注已更新");
     if (detail.type) openModal("detail", detail);
     else closeModal();
   }
@@ -4383,7 +4392,7 @@
     if (!state.notes[noteKey]) return;
     state.notes[noteKey] = state.notes[noteKey].filter((note) => note.id !== id);
     if (!state.notes[noteKey].length) delete state.notes[noteKey];
-    commit("备注已删除");
+    commitNoteChange("备注已删除");
     if (detail.type) openModal("detail", detail);
     else renderModal();
   }
