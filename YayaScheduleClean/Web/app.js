@@ -233,6 +233,10 @@
   let lastNativeReminderSignature = "";
   let lastNativeWidgetSignature = "";
   let lastNativeWidgetAt = 0;
+  let foregroundResumeTimer = 0;
+  let lastForegroundResumeAt = 0;
+  let lastReminderPermissionUiSignature = "";
+  let lastReminderPermissionUiAt = 0;
   let lastPortalImportUiSignature = "";
   let lastAppliedThemeSignature = "";
   let lastAppliedTemplateSignature = "";
@@ -450,11 +454,12 @@
     window.addEventListener("pagehide", flushPersist);
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) {
-        refreshDateIfNeeded();
-        scheduleNativeImportPull();
-        syncNativeNotifications({ requestPermission: false, retry: false, reason: "visible" });
-        if (state.modal) renderModal();
+        scheduleForegroundResumeSync("visible");
       } else {
+        if (foregroundResumeTimer) {
+          window.clearTimeout(foregroundResumeTimer);
+          foregroundResumeTimer = 0;
+        }
         flushPersist();
       }
     });
@@ -5398,10 +5403,19 @@
   }
 
   function handleReminderPermissionUpdated() {
+    const status = reminderPermissionStatus();
+    const statusLabel = reminderPermissionLabels(status).state;
+    const now = Date.now();
+    const signature = JSON.stringify(status);
+    const sameUiState = signature === lastReminderPermissionUiSignature && now - lastReminderPermissionUiAt < 2500;
+    lastReminderPermissionUiSignature = signature;
+    lastReminderPermissionUiAt = now;
     syncNativeNotifications({ requestPermission: false, force: !lastNativeReminderSignature, reason: "permission" });
+    if (sameUiState) return;
     window.YayaLayers?.registerRuntime?.("platform", {
-      reminderPermissionUpdatedAt: Date.now(),
-      reminderStatus: reminderPermissionLabels(reminderPermissionStatus()).state
+      reminderPermissionUpdatedAt: now,
+      reminderStatus: statusLabel,
+      reminderPermissionUiSkipped: false
     });
     if (state.modal) renderModal();
   }
@@ -5968,6 +5982,25 @@
       updateNativeWidget();
     }
     return changed;
+  }
+
+  function scheduleForegroundResumeSync(reason = "visible") {
+    const now = Date.now();
+    if (foregroundResumeTimer) window.clearTimeout(foregroundResumeTimer);
+    if (now - lastForegroundResumeAt < 900) return;
+    foregroundResumeTimer = window.setTimeout(() => {
+      foregroundResumeTimer = 0;
+      lastForegroundResumeAt = Date.now();
+      refreshDateIfNeeded();
+      scheduleNativeImportPull();
+      syncNativeNotifications({ requestPermission: false, retry: false, reason });
+      if (state.modal && !isUserScrollingActive()) renderModal();
+      window.YayaLayers?.registerRuntime?.("platform", {
+        foregroundResumeSync: true,
+        foregroundResumeReason: reason,
+        foregroundResumeAt: lastForegroundResumeAt
+      });
+    }, 120);
   }
 
   function syncFocusToToday(reason = "auto") {
