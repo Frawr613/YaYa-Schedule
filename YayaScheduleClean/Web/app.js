@@ -241,6 +241,8 @@
   let lastPortalImportUiSignature = "";
   let lastAppliedThemeSignature = "";
   let lastAppliedTemplateSignature = "";
+  let lastUiAssemblySignature = "";
+  let lastUiAssembly = null;
   let lastAutoLockSignature = "";
   let lastInteractionLockSignature = "";
   let lastArchitectureRenderRuntimeAt = 0;
@@ -5933,15 +5935,19 @@
   }
 
   function resolveUiAssembly(templateId = state.uiTemplate) {
+    const assemblySignature = uiAssemblySignature(templateId);
+    if (lastUiAssembly && assemblySignature === lastUiAssemblySignature) return lastUiAssembly;
     const nextState = templateId === state.uiTemplate ? state : { ...state, uiTemplate: templateId };
     if (UI_MODULE_REGISTRY?.resolve) {
-      return UI_MODULE_REGISTRY.resolve({ state: nextState, cache: appCache });
+      lastUiAssembly = UI_MODULE_REGISTRY.resolve({ state: nextState, cache: appCache });
+      lastUiAssemblySignature = assemblySignature;
+      return lastUiAssembly;
     }
     const id = normalizeTemplateId(templateId);
     const template = UI_TEMPLATES[id] || {};
     const order = normalizeModuleOrder(state.moduleOrder?.length ? state.moduleOrder : template.order || DEFAULT_MODULE_ORDER);
     const inputUi = normalizeInputUiComponent(template.inputUi || template.interaction?.inputUi || DEFAULT_INPUT_UI.variant);
-    return {
+    lastUiAssembly = {
       id,
       label: template.label || "界面",
       description: template.description || "",
@@ -5957,6 +5963,18 @@
       },
       inputUi
     };
+    lastUiAssemblySignature = assemblySignature;
+    return lastUiAssembly;
+  }
+
+  function uiAssemblySignature(templateId = state.uiTemplate) {
+    return JSON.stringify({
+      templateId: normalizeTemplateId(templateId),
+      moduleOrder: state.moduleOrder || [],
+      moduleVisibility: state.moduleVisibility || {},
+      uiAssemblyOverrides: state.uiAssemblyOverrides || {},
+      cacheBuiltAt: appCache.builtAt || 0
+    });
   }
 
   function resolvedThemeVars() {
