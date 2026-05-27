@@ -44,8 +44,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var reminderScheduleGeneration = 0
     private var lastReminderSchedulePayload = ""
     private var lastReminderScheduleAt: TimeInterval = 0
+    private var lastActiveReminderRefreshAt: TimeInterval = 0
     private var lastReminderPermissionStatusPayload = ""
     private var lastReminderPermissionStatusAt: TimeInterval = 0
+    private var widgetReloadWorkItem: DispatchWorkItem?
     private var portalUiConfig: [String: Any] = [:]
     private weak var portalTermOverlay: UIView?
 
@@ -67,6 +69,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     deinit {
+        widgetReloadWorkItem?.cancel()
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "yayaBridge")
         NotificationCenter.default.removeObserver(self)
     }
@@ -1793,12 +1796,17 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     @objc private func rescheduleStoredReminderNotifications() {
-        pushReminderPermissionStatus()
         let defaults = UserDefaults.standard
         let payload = defaults.string(forKey: reminderNotificationPayloadKey)
             ?? defaults.string(forKey: legacyDdlNotificationPayloadKey)
             ?? ""
         guard !payload.isEmpty else { return }
+        let now = Date().timeIntervalSince1970
+        if payload == lastReminderSchedulePayload,
+           now - lastActiveReminderRefreshAt < 15 * 60 {
+            pushReminderPermissionStatus()
+            return
+        }
         scheduleReminderNotifications(payload, persistPayload: false)
     }
 
@@ -1819,6 +1827,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         }
         lastReminderSchedulePayload = safePayload
         lastReminderScheduleAt = nowTick
+        lastActiveReminderRefreshAt = nowTick
         let oldIds = (defaults.stringArray(forKey: reminderNotificationIdsKey) ?? [])
             + (defaults.stringArray(forKey: legacyDdlNotificationIdsKey) ?? [])
 
@@ -1957,7 +1966,17 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         defaults.set(data, forKey: widgetPayloadKey)
         defaults.set(signature, forKey: widgetPayloadSignatureKey)
         defaults.synchronize()
-        WidgetCenter.shared.reloadAllTimelines()
+        scheduleWidgetTimelineReload()
+    }
+
+    private func scheduleWidgetTimelineReload() {
+        widgetReloadWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.widgetReloadWorkItem = nil
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+        widgetReloadWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
     }
 
     private func payloadSignature(_ payload: [String: Any]) -> String {

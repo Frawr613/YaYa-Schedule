@@ -233,6 +233,8 @@
   let lastNativeWidgetSignature = "";
   let lastNativeWidgetAt = 0;
   let lastPortalImportUiSignature = "";
+  let lastAppliedThemeSignature = "";
+  let lastAppliedTemplateSignature = "";
   let lastArchitectureRenderRuntimeAt = 0;
   let lastKnownToday = todayString();
 
@@ -4095,7 +4097,7 @@
   }
 
   function refreshThemeAfterSave(message) {
-    applyTheme();
+    applyTheme({ force: true });
     updateNativeWidget({ force: true, reason: "theme-save" });
     window.YayaLayers?.registerRuntime?.("theme", {
       immediateThemeRefresh: true,
@@ -5548,6 +5550,18 @@
     const visibility = ui.visibility;
     const interaction = ui.interaction;
     const inputUi = normalizeInputUiComponent(ui.inputUi || interaction.inputUi || templateInputUi(templateId));
+    const templateSignature = JSON.stringify({
+      templateId,
+      icon: normalizeIconId(state.appIcon),
+      mode: interaction.mode,
+      layout: interaction.modalLayout,
+      density: interaction.density,
+      order,
+      visibility,
+      inputUi
+    });
+    if (templateSignature === lastAppliedTemplateSignature) return ui;
+    lastAppliedTemplateSignature = templateSignature;
     document.body.dataset.template = templateId;
     document.body.dataset.icon = normalizeIconId(state.appIcon);
     document.body.dataset.templateInteraction = interaction.mode;
@@ -5591,11 +5605,18 @@
     return ui;
   }
 
-  function applyTheme() {
+  function applyTheme(options = {}) {
     const vars = resolvedThemeVars();
     const root = document.documentElement;
     const themeId = normalizeThemeId(state.theme);
     const darkTone = themeVarsAreDark(vars);
+    const themeSignature = JSON.stringify({
+      themeId,
+      tone: darkTone ? "dark" : "light",
+      vars
+    });
+    if (options.force !== true && themeSignature === lastAppliedThemeSignature) return;
+    lastAppliedThemeSignature = themeSignature;
     document.body.dataset.theme = themeId;
     document.body.dataset.themeTone = darkTone ? "dark" : "light";
     root.style.setProperty("--accent", vars.accent);
