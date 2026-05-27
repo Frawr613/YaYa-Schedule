@@ -765,6 +765,14 @@
     });
   }
 
+  function registerCompletedDdlFilterSkip(action) {
+    registerViewStateSkip(action);
+    window.YayaLayers?.registerRuntime?.("cache", {
+      completedDdlFilterNoopSkipped: true,
+      completedDdlFilterNoopAction: action || ""
+    });
+  }
+
   function applyViewStateChange(action, changed, mutate, render = renderModal) {
     if (!changed) {
       registerViewStateSkip(action);
@@ -784,6 +792,19 @@
     }
     persist();
     scheduleRenderAll({ force: true });
+    return true;
+  }
+
+  function applyCompletedDdlFilterChange(action, updates) {
+    const next = { ...updates, ddlView: "completed" };
+    const changed = Object.entries(next).some(([key, value]) => state[key] !== value);
+    if (!changed) {
+      registerCompletedDdlFilterSkip(action);
+      return false;
+    }
+    Object.assign(state, next);
+    persist();
+    renderModal();
     return true;
   }
 
@@ -3293,34 +3314,29 @@
       applyFocusDateChange("date-lookup-week", dateForWeekDay(state.termStart || DEFAULT_TERM_START, week, dayIndex));
     }
     if (event.target.id === "ddlDoneStart") {
-      state.ddlDoneFilterStart = validDate(event.target.value) ? event.target.value : "";
-      state.ddlView = "completed";
-      persist();
-      renderModal();
+      applyCompletedDdlFilterChange("ddl-done-start", {
+        ddlDoneFilterStart: validDate(event.target.value) ? event.target.value : ""
+      });
     }
     if (event.target.id === "ddlDoneStartTime") {
-      state.ddlDoneFilterStartTime = validTimeInputValue(event.target.value);
-      state.ddlView = "completed";
-      persist();
-      renderModal();
+      applyCompletedDdlFilterChange("ddl-done-start-time", {
+        ddlDoneFilterStartTime: validTimeInputValue(event.target.value)
+      });
     }
     if (event.target.id === "ddlDoneEnd") {
-      state.ddlDoneFilterEnd = validDate(event.target.value) ? event.target.value : "";
-      state.ddlView = "completed";
-      persist();
-      renderModal();
+      applyCompletedDdlFilterChange("ddl-done-end", {
+        ddlDoneFilterEnd: validDate(event.target.value) ? event.target.value : ""
+      });
     }
     if (event.target.id === "ddlDoneEndTime") {
-      state.ddlDoneFilterEndTime = validTimeInputValue(event.target.value);
-      state.ddlView = "completed";
-      persist();
-      renderModal();
+      applyCompletedDdlFilterChange("ddl-done-end-time", {
+        ddlDoneFilterEndTime: validTimeInputValue(event.target.value)
+      });
     }
     if (event.target.id === "ddlDoneQuery") {
-      state.ddlDoneFilterQuery = normalizeText(event.target.value);
-      state.ddlView = "completed";
-      persist();
-      renderModal();
+      applyCompletedDdlFilterChange("ddl-done-query", {
+        ddlDoneFilterQuery: normalizeText(event.target.value)
+      });
     }
   }
 
