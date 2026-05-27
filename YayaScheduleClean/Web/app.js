@@ -201,6 +201,7 @@
   let modalPhaseTimer = 0;
   let userScrollTimer = 0;
   let scrollStateLastAt = 0;
+  let scrollTimerRefreshAt = 0;
   let scrollRenderPending = false;
   let scrollRenderPendingForce = false;
   let renderBusyTimer = 0;
@@ -816,7 +817,8 @@
   function scheduleRenderAll(options = {}) {
     const force = options.force === true || options.forceRender === true;
     if (!force && hasActiveFloatingLayer()) return;
-    if (!force && isUserScrollingActive()) {
+    const bypassScrollGate = options.scrollFlush === true || options.immediate === true || options.bypassScrollGate === true;
+    if (!bypassScrollGate && isUserScrollingActive()) {
       queueRenderAfterScroll(force);
       return;
     }
@@ -833,25 +835,35 @@
   }
 
   function queueRenderAfterScroll(force = false) {
+    const now = Date.now();
     scrollRenderPending = true;
     scrollRenderPendingForce = scrollRenderPendingForce || force;
-    window.clearTimeout(userScrollTimer);
-    userScrollTimer = window.setTimeout(finishUserScrolling, 220);
+    armUserScrollTimer(now);
   }
 
   function markUserScrolling(event) {
     if (hasActiveFloatingLayer()) return;
     if (state.modal && event.target?.closest?.(".modal-card")) return;
     if (event.target?.closest?.(".picker-backdrop,.picker-card")) return;
-    scrollStateLastAt = Date.now();
-    document.body.classList.add("is-user-scrolling");
+    const now = Date.now();
+    const wasActive = scrollStateLastAt > 0 && now - scrollStateLastAt < 180;
+    scrollStateLastAt = now;
+    if (!wasActive) document.body.classList.add("is-user-scrolling");
+    armUserScrollTimer(now);
+  }
+
+  function armUserScrollTimer(now = Date.now()) {
+    if (userScrollTimer && now - scrollTimerRefreshAt < 90) return;
+    scrollTimerRefreshAt = now;
     window.clearTimeout(userScrollTimer);
     userScrollTimer = window.setTimeout(finishUserScrolling, 220);
   }
 
   function finishUserScrolling() {
     document.body.classList.remove("is-user-scrolling");
+    userScrollTimer = 0;
     scrollStateLastAt = 0;
+    scrollTimerRefreshAt = 0;
     const shouldRender = scrollRenderPending;
     const force = scrollRenderPendingForce;
     scrollRenderPending = false;
@@ -863,6 +875,7 @@
     window.clearTimeout(userScrollTimer);
     userScrollTimer = 0;
     scrollStateLastAt = 0;
+    scrollTimerRefreshAt = 0;
     scrollRenderPending = false;
     scrollRenderPendingForce = false;
     document.body.classList.remove("is-user-scrolling");
