@@ -238,6 +238,8 @@
   let lastForegroundResumeAt = 0;
   let lastReminderPermissionUiSignature = "";
   let lastReminderPermissionUiAt = 0;
+  let lastResolvedThemeSignature = "";
+  let lastResolvedThemeVars = null;
   let lastPortalImportUiSignature = "";
   let lastAppliedThemeSignature = "";
   let lastAppliedTemplateSignature = "";
@@ -5978,8 +5980,15 @@
   }
 
   function resolvedThemeVars() {
+    const themeSignature = JSON.stringify({
+      theme: normalizeThemeId(state.theme),
+      vars: state.themeVars || {}
+    });
+    if (lastResolvedThemeVars && themeSignature === lastResolvedThemeSignature) return lastResolvedThemeVars;
     const preset = THEME_PRESETS[normalizeThemeId(state.theme)] || THEME_PRESETS.coolGlass;
-    return sanitizeThemeVars({ ...preset, ...state.themeVars });
+    lastResolvedThemeVars = sanitizeThemeVars({ ...preset, ...state.themeVars });
+    lastResolvedThemeSignature = themeSignature;
+    return lastResolvedThemeVars;
   }
 
   function sanitizeThemeVars(vars = {}) {
