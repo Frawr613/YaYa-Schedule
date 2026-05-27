@@ -253,6 +253,15 @@
   let lastScheduleOverviewBuckets = null;
   let lastSpecialOverviewBucketsSignature = "";
   let lastSpecialOverviewBuckets = null;
+  let lastCompletedIdSignature = "";
+  let lastCompletedIdSet = null;
+  let lastNativeReminderPayloadSignature = "";
+  let lastNativeReminderPayload = null;
+  let lastNativeReminderQueueSignature = "";
+  let pickerScrollFrame = 0;
+  let pickerScrollType = "";
+  let floatingLayerGuardTimer = 0;
+  let lockedScrollRestoreFrame = 0;
   let lastKnownToday = todayString();
 
   function registerArchitectureRuntime(stage = "runtime") {
@@ -808,6 +817,19 @@
     return true;
   }
 
+  function applyNoticeMessage(action, message, options = {}) {
+    const next = String(message || "");
+    if (state.notice === next) {
+      registerViewStateSkip(action);
+      return false;
+    }
+    state.notice = next;
+    persist({ immediate: options.immediate === true });
+    if (options.modal !== false) renderModal();
+    if (options.renderAll === true) scheduleRenderAll({ force: true });
+    return true;
+  }
+
   function dataSignature() {
     return JSON.stringify({
       terms: state.terms.map((term) => [term.id, term.termStart, term.label, term.rows || []]),
@@ -1012,7 +1034,7 @@
     const force = scrollRenderPendingForce;
     scrollRenderPending = false;
     scrollRenderPendingForce = false;
-    if (shouldRender) scheduleRenderAll({ force: true, scrollFlush: !force });
+    if (shouldRender) scheduleRenderAll({ force, scrollFlush: true });
   }
 
   function clearScrollRenderGate() {
@@ -4027,6 +4049,10 @@
 
   function showPickerLayer(panel) {
     if (!panel) return;
+    if (!panel.hidden && panel.getAttribute("aria-hidden") === "false") {
+      syncInteractionLock();
+      return;
+    }
     panel.hidden = false;
     panel.setAttribute("aria-hidden", "false");
     panel.style.zIndex = String(nextFloatingLayer());
@@ -4037,6 +4063,11 @@
 
   function hidePickerLayer(panel) {
     if (!panel) return;
+    if (panel.hidden && panel.getAttribute("aria-hidden") === "true") {
+      if (!timePickerInput && !datePickerInput && !optionPickerSource) document.body.classList.remove("has-picker-layer");
+      syncInteractionLock();
+      return;
+    }
     panel.hidden = true;
     panel.setAttribute("aria-hidden", "true");
     if (!timePickerInput && !datePickerInput && !optionPickerSource) document.body.classList.remove("has-picker-layer");
@@ -4169,15 +4200,21 @@
     event.stopImmediatePropagation?.();
     clearScrollRenderGate();
     document.body.classList.remove("is-user-scrolling", "is-rendering");
-    window.setTimeout(() => {
+    window.clearTimeout(floatingLayerGuardTimer);
+    floatingLayerGuardTimer = window.setTimeout(() => {
       floatingLayerGuardActive = false;
+      floatingLayerGuardTimer = 0;
     }, 0);
   }
 
   function restoreLockedScrollPosition() {
     if (!scrollLockActive) return;
     if ((window.scrollX || window.pageXOffset || 0) !== lockedScrollX || (window.scrollY || window.pageYOffset || 0) !== lockedScrollY) {
-      window.scrollTo(lockedScrollX, lockedScrollY);
+      if (lockedScrollRestoreFrame) return;
+      lockedScrollRestoreFrame = window.requestAnimationFrame(() => {
+        lockedScrollRestoreFrame = 0;
+        window.scrollTo(lockedScrollX, lockedScrollY);
+      });
     }
   }
 
@@ -4190,13 +4227,18 @@
   }
 
   function scrollPickerActiveOptions(type) {
-    window.requestAnimationFrame(() => {
-      if (type === "time") {
+    pickerScrollType = type;
+    if (pickerScrollFrame) return;
+    pickerScrollFrame = window.requestAnimationFrame(() => {
+      const activeType = pickerScrollType;
+      pickerScrollFrame = 0;
+      pickerScrollType = "";
+      if (activeType === "time") {
         keepActivePickerOptionVisible(els.timePickerHourList);
         keepActivePickerOptionVisible(els.timePickerMinuteList);
         return;
       }
-      if (type === "option") {
+      if (activeType === "option") {
         keepActivePickerOptionVisible(els.optionPickerList);
         return;
       }
@@ -4235,17 +4277,28 @@
   }
 
   function openModal(name, data = {}) {
+    const nextData = data || {};
+    if (state.modal === name && JSON.stringify(state.modalData || {}) === JSON.stringify(nextData) && !els.modalRoot?.hidden) {
+      registerViewStateSkip(`open-modal:${name}`);
+      return false;
+    }
     state.modal = name;
-    state.modalData = data;
+    state.modalData = nextData;
     state.modalLayer = nextFloatingLayer();
     renderModal();
+    return true;
   }
 
   function closeModal() {
+    if (!state.modal && !activePickerPanel()) {
+      registerViewStateSkip("close-modal");
+      return false;
+    }
     state.modal = "";
     state.modalData = {};
     state.modalLayer = 0;
     renderModal();
+    return true;
   }
 
   function saveAccount(form) {
@@ -5588,10 +5641,10 @@
     const native = Boolean(window.YayaPlatform?.isNative?.());
     if (!native) {
       if (!options.silent) {
-        state.notice = "网页预览中不会弹出系统权限；打包后的手机 App 内可开启提醒权限";
-        persist({ immediate: true });
-        renderModal();
-        scheduleRenderAll({ force: true });
+        applyNoticeMessage("request-reminder-permission-preview", "网页预览中不会弹出系统权限；打包后的手机 App 内可开启提醒权限", {
+          immediate: true,
+          renderAll: true
+        });
       }
       return false;
     }
@@ -5601,10 +5654,10 @@
     syncNativeNotifications({ requestPermission: false, force: true, reason: "permission-request" });
     if (!options.silent) {
       const labels = reminderPermissionLabels(reminderPermissionStatus());
-      state.notice = labels.state === "ready" ? "提醒权限已开启，系统提醒已重新挂载" : "已发起提醒权限请求，请在系统弹窗或权限页中允许";
-      persist({ immediate: true });
-      renderModal();
-      scheduleRenderAll({ force: true });
+      applyNoticeMessage("request-reminder-permission-native", labels.state === "ready" ? "提醒权限已开启，系统提醒已重新挂载" : "已发起提醒权限请求，请在系统弹窗或权限页中允许", {
+        immediate: true,
+        renderAll: true
+      });
     }
     return ok;
   }
@@ -5617,6 +5670,10 @@
   }
 
   function nativeReminderPayload() {
+    const cacheSignature = dataSignature();
+    if (lastNativeReminderPayload && cacheSignature === lastNativeReminderPayloadSignature) {
+      return lastNativeReminderPayload;
+    }
     const manualDdlPayload = state.ddls
       .filter((ddl) => !isCompleted(ddl.id))
       .filter((ddl) => normalizeReminderValues(ddl.reminders).length)
@@ -5645,7 +5702,9 @@
         kind: "schedule",
         timeLabel: "开始"
       }));
-    return [...manualDdlPayload, ...schedulePayload].filter((item) => validDate(item.date));
+    lastNativeReminderPayload = [...manualDdlPayload, ...schedulePayload].filter((item) => validDate(item.date));
+    lastNativeReminderPayloadSignature = cacheSignature;
+    return lastNativeReminderPayload;
   }
 
   function syncNativeNotifications(options = {}) {
@@ -5700,11 +5759,23 @@
   }
 
   function queueNativeNotificationSync(options = {}) {
+    const delay = Number.isFinite(options.delay) ? options.delay : 220;
+    const queueSignature = JSON.stringify({
+      requestPermission: options.requestPermission !== false,
+      force: options.force === true,
+      forceReschedule: options.forceReschedule === true,
+      retry: options.retry !== false,
+      reason: options.reason || "sync",
+      delay
+    });
+    if (nativeReminderSyncTimer && queueSignature === lastNativeReminderQueueSignature) return;
+    lastNativeReminderQueueSignature = queueSignature;
     if (nativeReminderSyncTimer) window.clearTimeout(nativeReminderSyncTimer);
     nativeReminderSyncTimer = window.setTimeout(() => {
       nativeReminderSyncTimer = 0;
+      lastNativeReminderQueueSignature = "";
       syncNativeNotifications(options);
-    }, Number.isFinite(options.delay) ? options.delay : 220);
+    }, delay);
   }
 
   function reminderPayloadSignature(payload) {
@@ -6532,7 +6603,15 @@
   }
 
   function isCompleted(id) {
-    return state.completedDdls.some((item) => item.id === id);
+    return completedIdSet().has(id);
+  }
+
+  function completedIdSet() {
+    const signature = state.completedDdls.map((item) => item.id).sort().join("|");
+    if (lastCompletedIdSet && signature === lastCompletedIdSignature) return lastCompletedIdSet;
+    lastCompletedIdSignature = signature;
+    lastCompletedIdSet = new Set(state.completedDdls.map((item) => item.id));
+    return lastCompletedIdSet;
   }
 
   function targetKeyForCourse(key) {
