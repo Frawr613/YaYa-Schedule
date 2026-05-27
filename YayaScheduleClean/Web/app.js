@@ -5487,8 +5487,27 @@
   function syncNativeNotifications(options = {}) {
     const payload = nativeReminderPayload();
     const signature = reminderPayloadSignature(payload);
-    const force = options.force === true || signature !== lastNativeReminderSignature;
-    if (!force) return true;
+    const reason = options.reason || "sync";
+    const allowSamePayloadForce = options.force === true && (
+      options.forceReschedule === true
+      || !lastNativeReminderSignature
+      || reason === "init"
+      || reason === "permission"
+      || reason === "permission-request"
+      || reason === "confirm"
+      || reason === "confirm-late"
+    );
+    const shouldSync = signature !== lastNativeReminderSignature || allowSamePayloadForce;
+    if (!shouldSync) {
+      window.YayaLayers?.registerRuntime?.("platform", {
+        reminderPayloadCount: payload.length,
+        reminderPayloadSignature: signature,
+        reminderSyncReason: reason,
+        reminderBridgeMounted: true,
+        reminderBridgeSkipped: true
+      });
+      return true;
+    }
     const serialized = JSON.stringify(payload);
     const bridge = window.YayaPlatform;
     if (!bridge?.scheduleReminderNotifications && !bridge?.scheduleDdlNotifications) return false;
@@ -5504,8 +5523,9 @@
       reminderPayloadCount: payload.length,
       reminderPayloadSignature: signature,
       reminderSyncGeneration: nativeReminderSyncGeneration,
-      reminderSyncReason: options.reason || "sync",
-      reminderBridgeMounted: ok
+      reminderSyncReason: reason,
+      reminderBridgeMounted: ok,
+      reminderBridgeSkipped: false
     });
     if (ok && options.retry !== false) {
       const shouldForceConfirm = reminderPermissionStatus().platform !== "ios";
