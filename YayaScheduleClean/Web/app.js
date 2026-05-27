@@ -723,7 +723,7 @@
 
   function commit(message, options = {}) {
     if (message) state.notice = message;
-    if (!options.skipCache) rebuildCache(true);
+    if (!options.skipCache) rebuildCacheIfChanged(true);
     persist(options);
     if (!options.skipNative) {
       syncNativeNotifications({ reason: "commit", force: true });
@@ -754,6 +754,19 @@
       return;
     }
     rebuildCache(true);
+  }
+
+  function rebuildCacheIfChanged(save = false) {
+    const signature = dataSignature();
+    if (appCache.signature === signature) {
+      window.YayaLayers?.registerRuntime?.("cache", {
+        cacheRebuildSkipped: true,
+        cacheSignature: signature
+      });
+      return false;
+    }
+    rebuildCache(save);
+    return true;
   }
 
   function rebuildCache(save = false) {
