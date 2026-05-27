@@ -753,6 +753,17 @@
     });
   }
 
+  function applyViewStateChange(action, changed, mutate, render = renderModal) {
+    if (!changed) {
+      registerViewStateSkip(action);
+      return false;
+    }
+    mutate();
+    persist();
+    render();
+    return true;
+  }
+
   function dataSignature() {
     return JSON.stringify({
       terms: state.terms.map((term) => [term.id, term.termStart, term.label, term.rows || []]),
@@ -3085,13 +3096,9 @@
     if (action === "request-reminder-permission") requestReminderPermission();
     if (action === "choose-file") els.fileInput.click();
     if (action === "clear-notice") {
-      if (state.notice) {
+      applyViewStateChange(action, Boolean(state.notice), () => {
         state.notice = "";
-        persist();
-        renderAll();
-      } else {
-        registerViewStateSkip(action);
-      }
+      }, renderAll);
     }
     if (action === "shift-date") {
       syncFocusDate(addDays(state.focusDate, Number(target.dataset.delta || 0)));
@@ -3113,13 +3120,11 @@
     }
     if (action === "set-date-lookup-mode") {
       const nextMode = target.dataset.mode === "week" ? "week" : "date";
-      if (state.dateLookupMode !== nextMode) {
+      applyViewStateChange(action, state.dateLookupMode !== nextMode, () => {
         state.dateLookupMode = nextMode;
-        persist();
+      }, () => {
         scheduleRenderAll({ force: true });
-      } else {
-        registerViewStateSkip(action);
-      }
+      });
     }
     if (action === "toggle-recurring-week") {
       toggleRecurringWeek(target);
@@ -3136,14 +3141,10 @@
     }
     if (action === "set-course-overview-page") {
       const nextPage = normalizeCourseOverviewPage(target.dataset.termId || "");
-      if (state.courseOverviewPage !== nextPage) {
+      applyViewStateChange(action, state.courseOverviewPage !== nextPage, () => {
         setOverviewPageMotion("courses", state.courseOverviewPage, nextPage, state.terms.map((term) => term.id));
         state.courseOverviewPage = nextPage;
-        persist();
-        renderModal();
-      } else {
-        registerViewStateSkip(action);
-      }
+      });
     }
     if (action === "open-schedules") {
       state.scheduleOverviewPage = normalizeScheduleOverviewPage(state.scheduleOverviewPage);
@@ -3152,14 +3153,10 @@
     if (action === "set-schedule-overview-page") {
       const nextPage = normalizeScheduleOverviewPage(target.dataset.page || "");
       closeSwipeShells();
-      if (state.scheduleOverviewPage !== nextPage) {
+      applyViewStateChange(action, state.scheduleOverviewPage !== nextPage, () => {
         setOverviewPageMotion("schedules", state.scheduleOverviewPage, nextPage, SCHEDULE_OVERVIEW_PAGES);
         state.scheduleOverviewPage = nextPage;
-        persist();
-        renderModal();
-      } else {
-        registerViewStateSkip(action);
-      }
+      });
     }
     if (action === "open-ddl") {
       if (target.dataset.ddlId) state.ddlView = "active";
@@ -3168,13 +3165,9 @@
     if (action === "set-ddl-view") {
       closeSwipeShells();
       const nextView = target.dataset.view === "completed" ? "completed" : "active";
-      if (state.ddlView !== nextView) {
+      applyViewStateChange(action, state.ddlView !== nextView, () => {
         state.ddlView = nextView;
-        persist();
-        renderModal();
-      } else {
-        registerViewStateSkip(action);
-      }
+      });
     }
     if (action === "new-ddl") {
       state.ddlView = "active";
@@ -3186,18 +3179,14 @@
     if (action === "delete-completed-ddl") deleteCompletedDdl(target.dataset.id);
     if (action === "clear-ddl-filter") {
       const shouldClear = hasCompletedDdlFilters() || state.ddlView !== "completed";
-      if (shouldClear) {
+      applyViewStateChange(action, shouldClear, () => {
         state.ddlDoneFilterQuery = "";
         state.ddlDoneFilterStart = "";
         state.ddlDoneFilterStartTime = "";
         state.ddlDoneFilterEnd = "";
         state.ddlDoneFilterEndTime = "";
         state.ddlView = "completed";
-        persist();
-        renderModal();
-      } else {
-        registerViewStateSkip(action);
-      }
+      });
     }
     if (action === "new-schedule") openModal("schedule-form");
     if (action === "edit-schedule") openModal("schedule-form", { id: target.dataset.id });
@@ -3212,14 +3201,10 @@
     if (action === "set-special-overview-page") {
       const nextPage = normalizeSpecialOverviewPage(target.dataset.page || "");
       closeSwipeShells();
-      if (state.specialOverviewPage !== nextPage) {
+      applyViewStateChange(action, state.specialOverviewPage !== nextPage, () => {
         setOverviewPageMotion("specials", state.specialOverviewPage, nextPage, SPECIAL_OVERVIEW_PAGES);
         state.specialOverviewPage = nextPage;
-        persist();
-        renderModal();
-      } else {
-        registerViewStateSkip(action);
-      }
+      });
     }
     if (action === "new-special") openModal("special-form");
     if (action === "edit-special") openModal("special-form", { id: target.dataset.id });
