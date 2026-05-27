@@ -5327,12 +5327,31 @@
     return Math.floor(Date.now() / 60000);
   }
 
-  function overviewBucketsSignature(scope) {
-    return `${scope}:${appCache.signature || dataSignature()}:${overviewTimeBucket()}`;
+  function overviewBucketsSignature(scope, payload) {
+    return `${scope}:${overviewTimeBucket()}:${JSON.stringify(payload)}`;
+  }
+
+  function scheduleOverviewBucketsSignature() {
+    return overviewBucketsSignature("schedule", {
+      focusDate: state.focusDate,
+      termStart: state.termStart,
+      custom: state.customSchedules,
+      recurring: state.recurringSchedules
+    });
+  }
+
+  function specialOverviewBucketsSignature() {
+    return overviewBucketsSignature("special", {
+      special: state.specialChanges,
+      targetTimes: [
+        ...state.customSchedules.map((item) => [item.id, item.startTime, item.endTime]),
+        ...state.recurringSchedules.map((item) => [item.id, item.startTime, item.endTime])
+      ]
+    });
   }
 
   function scheduleOverviewBuckets() {
-    const signature = overviewBucketsSignature("schedule");
+    const signature = scheduleOverviewBucketsSignature();
     if (lastScheduleOverviewBucketsSignature === signature && lastScheduleOverviewBuckets) {
       return lastScheduleOverviewBuckets;
     }
@@ -5365,7 +5384,7 @@
   }
 
   function specialOverviewBuckets() {
-    const signature = overviewBucketsSignature("special");
+    const signature = specialOverviewBucketsSignature();
     if (lastSpecialOverviewBucketsSignature === signature && lastSpecialOverviewBuckets) {
       return lastSpecialOverviewBuckets;
     }
