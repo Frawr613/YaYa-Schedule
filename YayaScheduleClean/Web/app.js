@@ -244,20 +244,26 @@
   let lastAutoLockSignature = "";
   let lastInteractionLockSignature = "";
   let lastArchitectureRenderRuntimeAt = 0;
+  let lastArchitectureRuntimeSignature = "";
   let lastKnownToday = todayString();
 
   function registerArchitectureRuntime(stage = "runtime") {
     if (!window.YayaLayers?.registerRuntime) return;
     const now = Date.now();
-    if (stage === "render" && now - lastArchitectureRenderRuntimeAt < 700) {
-      window.YayaLayers.registerRuntime("boot", {
-        stage: "render-throttled",
-        refreshBudget: "ios-bridge-friendly",
-        at: now
-      });
-      return;
+    if (stage === "render") {
+      const signature = architectureRuntimeSignature(stage);
+      if (signature === lastArchitectureRuntimeSignature && now - lastArchitectureRenderRuntimeAt < 5000) return;
+      if (now - lastArchitectureRenderRuntimeAt < 700) {
+        window.YayaLayers.registerRuntime("boot", {
+          stage: "render-throttled",
+          refreshBudget: "ios-bridge-friendly",
+          at: now
+        });
+        return;
+      }
+      lastArchitectureRuntimeSignature = signature;
+      lastArchitectureRenderRuntimeAt = now;
     }
-    if (stage === "render") lastArchitectureRenderRuntimeAt = now;
     const ui = resolveUiAssembly();
     const noteCount = Object.values(state.notes || {}).reduce((total, list) => total + (Array.isArray(list) ? list.length : 0), 0);
     const courseCount = appCache.courseCount || state.terms.reduce((total, term) => total + (Array.isArray(term.courses) ? term.courses.length : 0), 0);
@@ -370,6 +376,38 @@
       moduleLoadOk: Boolean(moduleState?.ok),
       loadedModules: moduleState?.loaded || []
     });
+  }
+
+  function architectureRuntimeSignature(stage) {
+    return [
+      stage,
+      state.focusDate,
+      state.activeTermId || "",
+      state.termStart || "",
+      state.modal || "",
+      state.ddlView || "",
+      state.courseOverviewPage || "",
+      state.scheduleOverviewPage || "",
+      state.specialOverviewPage || "",
+      state.theme || "",
+      state.uiTemplate || "",
+      state.terms.length,
+      state.ddls.length,
+      state.completedDdls.length,
+      state.customSchedules.length,
+      state.recurringSchedules.length,
+      state.examSchedules.length,
+      state.specialChanges.length,
+      appCache.builtAt || 0,
+      dayItemsCache.size,
+      lastCommandAction || "",
+      lastCommandAt || 0,
+      scrollRenderPending ? "1" : "0",
+      state.modalData?.__draftForm ? "1" : "0",
+      timePickerInput ? "time" : "",
+      datePickerInput ? "date" : "",
+      optionPickerSource ? "option" : ""
+    ].join("|");
   }
 
   function defaultState() {
