@@ -5686,16 +5686,18 @@
     const config = portalImportUiConfig();
     const signature = JSON.stringify(config);
     const skipped = signature === lastPortalImportUiSignature;
-    if (!skipped) {
-      window.YayaPlatform?.configurePortalUi?.(config);
-      lastPortalImportUiSignature = signature;
+    const bridge = window.YayaPlatform;
+    const hasPortalBridge = Boolean(bridge?.configurePortalUi);
+    if (!skipped && hasPortalBridge) {
+      const ok = bridge.configurePortalUi(config) !== false;
+      if (ok) lastPortalImportUiSignature = signature;
     }
     window.YayaLayers?.registerRuntime?.("platform", {
-      portalUiBridge: Boolean(window.YayaPlatform?.configurePortalUi),
+      portalUiBridge: hasPortalBridge,
       portalTheme: config.themeId,
       portalTemplate: config.templateId,
       portalInputUi: config.inputUi,
-      portalUiBridgeSkipped: skipped
+      portalUiBridgeSkipped: hasPortalBridge && skipped
     });
     window.YayaLayers?.registerRuntime?.("interaction", {
       portalTermOverlay: true,
