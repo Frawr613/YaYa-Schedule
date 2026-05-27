@@ -753,6 +753,18 @@
     });
   }
 
+  function registerFocusDateSkip(action) {
+    registerViewStateSkip(action);
+    window.YayaLayers?.registerRuntime?.("cache", {
+      focusDateNoopSkipped: true,
+      focusDateNoopAction: action || ""
+    });
+    window.YayaLayers?.registerRuntime?.("interaction", {
+      focusDateNoopSkipped: true,
+      focusDateNoopAction: action || ""
+    });
+  }
+
   function applyViewStateChange(action, changed, mutate, render = renderModal) {
     if (!changed) {
       registerViewStateSkip(action);
@@ -761,6 +773,17 @@
     mutate();
     persist();
     render();
+    return true;
+  }
+
+  function applyFocusDateChange(action, nextDate) {
+    const changed = syncFocusDate(nextDate);
+    if (!changed) {
+      registerFocusDateSkip(action);
+      return false;
+    }
+    persist();
+    scheduleRenderAll({ force: true });
     return true;
   }
 
@@ -3041,9 +3064,14 @@
   }
 
   function goToday() {
-    syncFocusToToday("manual");
+    const changed = syncFocusToToday("manual");
+    if (!changed) {
+      registerFocusDateSkip("jump-today");
+      return false;
+    }
     persist();
     scheduleRenderAll({ force: true });
+    return true;
   }
 
   function handleClick(event) {
@@ -3101,22 +3129,16 @@
       }, renderAll);
     }
     if (action === "shift-date") {
-      syncFocusDate(addDays(state.focusDate, Number(target.dataset.delta || 0)));
-      persist();
-      scheduleRenderAll({ force: true });
+      applyFocusDateChange(action, addDays(state.focusDate, Number(target.dataset.delta || 0)));
     }
     if (action === "set-weekday") {
       const week = weekForDate(state.focusDate);
-      syncFocusDate(dateForWeekDay(termStartForDate(state.focusDate), week, Number(target.dataset.dayIndex)));
-      persist();
-      scheduleRenderAll({ force: true });
+      applyFocusDateChange(action, dateForWeekDay(termStartForDate(state.focusDate), week, Number(target.dataset.dayIndex)));
     }
     if (action === "set-date-week") {
       const week = clamp(Number(target.dataset.week), 1, MAX_WEEK);
       const dayIndex = dateInfo(state.focusDate).dayIndex;
-      syncFocusDate(dateForWeekDay(termStartForDate(state.focusDate), week, dayIndex));
-      persist();
-      scheduleRenderAll({ force: true });
+      applyFocusDateChange(action, dateForWeekDay(termStartForDate(state.focusDate), week, dayIndex));
     }
     if (action === "set-date-lookup-mode") {
       const nextMode = target.dataset.mode === "week" ? "week" : "date";
@@ -3260,21 +3282,15 @@
       syncInternalDateLabel(event.target);
     }
     if (event.target.id === "focusDateInput") {
-      syncFocusDate(validDate(event.target.value) ? event.target.value : todayString());
-      persist();
-      scheduleRenderAll({ force: true });
+      applyFocusDateChange("focus-date-input", validDate(event.target.value) ? event.target.value : todayString());
     }
     if (event.target.id === "dateLookupDate") {
-      syncFocusDate(validDate(event.target.value) ? event.target.value : state.focusDate);
-      persist();
-      scheduleRenderAll({ force: true });
+      applyFocusDateChange("date-lookup-date", validDate(event.target.value) ? event.target.value : state.focusDate);
     }
     if (event.target.id === "dateLookupWeek") {
       const week = clamp(Number(event.target.value), 1, MAX_WEEK);
       const dayIndex = dateInfo(state.focusDate).dayIndex;
-      syncFocusDate(dateForWeekDay(state.termStart || DEFAULT_TERM_START, week, dayIndex));
-      persist();
-      scheduleRenderAll({ force: true });
+      applyFocusDateChange("date-lookup-week", dateForWeekDay(state.termStart || DEFAULT_TERM_START, week, dayIndex));
     }
     if (event.target.id === "ddlDoneStart") {
       state.ddlDoneFilterStart = validDate(event.target.value) ? event.target.value : "";
