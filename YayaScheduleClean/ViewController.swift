@@ -49,6 +49,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var lastReminderPermissionStatusAt: TimeInterval = 0
     private var widgetReloadWorkItem: DispatchWorkItem?
     private var portalUiConfig: [String: Any] = [:]
+    private var lastPortalActionStatus = ""
     private weak var portalTermOverlay: UIView?
 
     override func loadView() {
@@ -94,6 +95,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return
         }
         if isTrustedAcademicURL(url) {
+            lastPortalActionStatus = ""
             injectPortalAccountHelper()
             injectAcademicImportControlsV2()
         }
@@ -846,6 +848,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func setPortalActionStatus(_ text: String) {
+        guard text != lastPortalActionStatus else { return }
+        lastPortalActionStatus = text
         DispatchQueue.main.async { [weak self] in
             let script = """
             window.__yayaIosAcademicStatus = \(Self.javaScriptStringLiteral(text));

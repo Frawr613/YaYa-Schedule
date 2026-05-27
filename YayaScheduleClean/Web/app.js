@@ -235,6 +235,8 @@
   let lastPortalImportUiSignature = "";
   let lastAppliedThemeSignature = "";
   let lastAppliedTemplateSignature = "";
+  let lastAutoLockSignature = "";
+  let lastInteractionLockSignature = "";
   let lastArchitectureRenderRuntimeAt = 0;
   let lastKnownToday = todayString();
 
@@ -875,7 +877,18 @@
     }, duration);
   }
 
-  function scheduleAutoLockUi() {
+  function scheduleAutoLockUi(options = {}) {
+    const signature = [
+      state.focusDate,
+      state.dateLookupMode,
+      state.modal || "",
+      state.courseOverviewPage || "",
+      currentCourseTerm()?.id || "",
+      state.activeTermId || "",
+      state.termStart || ""
+    ].join("|");
+    if (options.force !== true && signature === lastAutoLockSignature) return;
+    lastAutoLockSignature = signature;
     if (autoLockFrame) window.cancelAnimationFrame(autoLockFrame);
     autoLockFrame = window.requestAnimationFrame(() => {
       autoLockFrame = 0;
@@ -1131,12 +1144,14 @@
 
   function renderModal() {
     if (!state.modal) {
+      if (els.modalRoot.hidden && !els.modalRoot.dataset.modalKind && !scrollLockActive && !activePickerPanel()) return;
       window.clearTimeout(modalPhaseTimer);
       els.modalRoot.hidden = true;
       clearCachedHtml(els.modalRoot);
       els.modalRoot.removeAttribute("style");
       delete els.modalRoot.dataset.modalKind;
       delete els.modalRoot.dataset.modalPhase;
+      lastInteractionLockSignature = "";
       syncInteractionLock();
       return;
     }
@@ -3882,6 +3897,15 @@
     const pickerPanel = activePickerPanel();
     const pickerLocked = Boolean(pickerPanel);
     const locked = Boolean(state.modal || pickerLocked);
+    const floatingDepth = (state.modal ? 1 : 0) + (pickerLocked ? 1 : 0);
+    const signature = [
+      state.modal || "",
+      pickerPanel?.id || "",
+      locked ? "1" : "0",
+      floatingDepth
+    ].join("|");
+    if (signature === lastInteractionLockSignature) return;
+    lastInteractionLockSignature = signature;
     applyInteractionScrollLock(locked);
     if (locked) {
       clearScrollRenderGate();
@@ -3889,7 +3913,7 @@
     document.body.classList.toggle("is-interaction-locked", locked);
     document.body.classList.toggle("has-floating-card", locked);
     document.body.classList.toggle("has-picker-layer", pickerLocked);
-    document.body.dataset.floatingDepth = String((state.modal ? 1 : 0) + (pickerLocked ? 1 : 0));
+    document.body.dataset.floatingDepth = String(floatingDepth);
     window.YayaLayers?.registerRuntime?.("interaction", {
       locked,
       pickerLayer: pickerLocked,
@@ -6335,6 +6359,7 @@
   function clearCachedHtml(element) {
     if (!element) return;
     htmlCache.delete(element);
+    if (!element.innerHTML) return;
     element.innerHTML = "";
   }
 
