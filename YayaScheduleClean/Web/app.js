@@ -197,6 +197,7 @@
   let persistTimer = 0;
   let floatingLayer = FLOATING_LAYER_BASE;
   let renderAllFrame = 0;
+  let renderAllCoalesced = 0;
   let autoLockFrame = 0;
   let modalPhaseTimer = 0;
   let userScrollTimer = 0;
@@ -786,6 +787,7 @@
     if (renderAllFrame) {
       window.cancelAnimationFrame(renderAllFrame);
       renderAllFrame = 0;
+      renderAllCoalesced = 0;
     }
     const ui = applyTemplate();
     const visibility = ui?.visibility || DEFAULT_MODULE_VISIBILITY;
@@ -827,10 +829,18 @@
       queueRenderAfterScroll(force);
       return;
     }
-    if (renderAllFrame) window.cancelAnimationFrame(renderAllFrame);
+    if (renderAllFrame) {
+      renderAllCoalesced += 1;
+      window.YayaLayers?.registerRuntime?.("interaction", {
+        renderFrameCoalesced: renderAllCoalesced,
+        renderFrameCoalesceReason: options.reason || (force ? "force" : "normal")
+      });
+      return;
+    }
     document.body.classList.add("is-rendering");
     renderAllFrame = window.requestAnimationFrame(() => {
       renderAllFrame = 0;
+      renderAllCoalesced = 0;
       renderAll();
     });
   }
