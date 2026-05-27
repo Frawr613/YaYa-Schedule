@@ -1706,6 +1706,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func pushReminderPermissionStatus(force: Bool = false) {
+        let now = Date().timeIntervalSince1970
+        if !force && now - lastReminderPermissionStatusAt < 2.0 {
+            return
+        }
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { [weak self] settings in
             center.getPendingNotificationRequests { requests in

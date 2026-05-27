@@ -1166,17 +1166,17 @@
       state.ddlDoneFilterEnd,
       state.ddlDoneFilterEndTime,
       state.modal === "courses" ? currentCourseTerm()?.id || "" : "",
-      reminderPermissionSignature(),
+      modalNeedsReminderPermissionSignature(state.modal) ? reminderPermissionSignature() : "",
       normalizeThemeId(state.theme),
       JSON.stringify(state.themeVars || {}),
       normalizeIconId(state.appIcon)
     ].join(":");
-    const changed = setCachedHtml(els.modalRoot, `
+    const changed = setCachedHtmlLazy(els.modalRoot, modalCacheKey, () => `
       <div class="modal-backdrop" data-action="close-modal"></div>
       <article class="modal-card ${escapeAttr(state.modal)}" data-floating-layer="${layer}" data-floating-top="true">
         ${modalContent(state.modal)}
       </article>
-    `, modalCacheKey);
+    `);
     if (overviewPageMotion) overviewPageMotion = null;
     const card = els.modalRoot.querySelector(".modal-card");
     if (card) {
@@ -1191,6 +1191,10 @@
     }
     syncInteractionLock();
     scheduleAutoLockUi();
+  }
+
+  function modalNeedsReminderPermissionSignature(name) {
+    return ["settings", "ddl-form", "schedule-form", "recurring-form"].includes(name);
   }
 
   function modalContent(name) {
@@ -4014,18 +4018,29 @@
   function scrollPickerActiveOptions(type) {
     window.requestAnimationFrame(() => {
       if (type === "time") {
-        els.timePickerHourList?.querySelector(".active")?.scrollIntoView({ block: "center" });
-        els.timePickerMinuteList?.querySelector(".active")?.scrollIntoView({ block: "center" });
+        keepActivePickerOptionVisible(els.timePickerHourList);
+        keepActivePickerOptionVisible(els.timePickerMinuteList);
         return;
       }
       if (type === "option") {
-        els.optionPickerList?.querySelector(".active")?.scrollIntoView({ block: "center" });
+        keepActivePickerOptionVisible(els.optionPickerList);
         return;
       }
-      els.datePickerYearList?.querySelector(".active")?.scrollIntoView({ block: "center" });
-      els.datePickerMonthList?.querySelector(".active")?.scrollIntoView({ block: "center" });
-      els.datePickerDayList?.querySelector(".active")?.scrollIntoView({ block: "center" });
+      keepActivePickerOptionVisible(els.datePickerYearList);
+      keepActivePickerOptionVisible(els.datePickerMonthList);
+      keepActivePickerOptionVisible(els.datePickerDayList);
     });
+  }
+
+  function keepActivePickerOptionVisible(list) {
+    const active = list?.querySelector?.(".active");
+    if (!list || !active) return;
+    const top = active.offsetTop;
+    const bottom = top + active.offsetHeight;
+    const viewTop = list.scrollTop;
+    const viewBottom = viewTop + list.clientHeight;
+    if (top >= viewTop && bottom <= viewBottom) return;
+    list.scrollTop = Math.max(0, top - Math.max(0, (list.clientHeight - active.offsetHeight) / 2));
   }
 
   function handleSubmit(event) {
@@ -6304,6 +6319,15 @@
     const cacheKey = String(key);
     if (htmlCache.get(element) === cacheKey) return false;
     element.innerHTML = html;
+    htmlCache.set(element, cacheKey);
+    return true;
+  }
+
+  function setCachedHtmlLazy(element, key, factory) {
+    if (!element) return false;
+    const cacheKey = String(key);
+    if (htmlCache.get(element) === cacheKey) return false;
+    element.innerHTML = factory();
     htmlCache.set(element, cacheKey);
     return true;
   }
