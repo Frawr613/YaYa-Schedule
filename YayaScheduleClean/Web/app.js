@@ -11,7 +11,7 @@
   const ACCOUNT_USERNAME_KEY = "yaya-schedule-portal-username-v2";
   const GUIDE_ACK_KEY = "yaya-schedule-guide-ack-v2";
   const CURRENT_SCHEMA_VERSION = 3;
-  const CACHE_RUNTIME_VERSION = "20260528-cache-v110";
+  const CACHE_RUNTIME_VERSION = "20260528-cache-v111";
   const DEFAULT_TERM_START = "2026-02-23";
   const MAX_WEEK = 28;
   const COLLATOR = new Intl.Collator("zh-Hans-CN");
@@ -261,6 +261,8 @@
   let lastNativeReminderPayloadSignature = "";
   let lastNativeReminderPayload = null;
   let lastNativeReminderQueueSignature = "";
+  let lastWidgetThemePayloadSignature = "";
+  let lastWidgetThemePayload = null;
   let lastNoteCountSignature = "";
   let lastNoteCount = 0;
   let lastDdlDoneFilterSignature = "";
@@ -5856,11 +5858,11 @@
   }
 
   function updateNativeWidget(options = {}) {
+    const bridge = window.YayaPlatform;
+    if (!bridge?.updateHomeWidget) return false;
     const ddl = appCache.activeDdls[0] || {};
     const current = latestScheduleWidgetItem(todayString());
     const progress = scheduleProgress(current);
-    const bridge = window.YayaPlatform;
-    if (!bridge?.updateHomeWidget) return false;
     const payload = [
       ddl.topic || "暂无 DDL",
       ddl.date ? formatDdlTime(ddl) : "",
@@ -5896,9 +5898,12 @@
 
   function widgetThemePayload() {
     const vars = resolvedThemeVars();
+    const themeId = normalizeThemeId(state.theme);
+    const signature = lastResolvedThemeSignature || JSON.stringify({ theme: themeId, vars: state.themeVars || {} });
+    if (lastWidgetThemePayload && signature === lastWidgetThemePayloadSignature) return lastWidgetThemePayload;
     const fallback = THEME_PRESETS.coolGlass;
-    return {
-      themeId: normalizeThemeId(state.theme),
+    lastWidgetThemePayload = {
+      themeId,
       accent: normalizeColor(vars.accent, fallback.accent),
       warm: normalizeColor(vars.warm, fallback.warm),
       bg: normalizeColor(vars.bg, fallback.bg),
@@ -5907,6 +5912,8 @@
       glassAlpha: clamp(Number(vars.glassAlpha), 18, 96),
       radius: clamp(Number(vars.radius), 10, 30)
     };
+    lastWidgetThemePayloadSignature = signature;
+    return lastWidgetThemePayload;
   }
 
   function latestScheduleWidgetItem(date) {
