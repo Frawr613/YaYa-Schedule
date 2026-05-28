@@ -239,6 +239,7 @@
   let lastNativeWidgetAt = 0;
   let foregroundResumeTimer = 0;
   let lastForegroundResumeAt = 0;
+  let nativeImportPullTimers = [];
   let lastReminderPermissionUiSignature = "";
   let lastReminderPermissionUiAt = 0;
   let lastResolvedThemeSignature = "";
@@ -4649,8 +4650,14 @@
 
   function scheduleNativeImportPull() {
     pullNativeImport();
-    window.setTimeout(pullNativeImport, 180);
-    window.setTimeout(pullNativeImport, 640);
+    nativeImportPullTimers.forEach((timer) => window.clearTimeout(timer));
+    nativeImportPullTimers = [180, 640].map((delay) => {
+      const timer = window.setTimeout(() => {
+        nativeImportPullTimers = nativeImportPullTimers.filter((item) => item !== timer);
+        pullNativeImport();
+      }, delay);
+      return timer;
+    });
   }
 
   function applyAcademicImport(payload) {
