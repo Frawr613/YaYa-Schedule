@@ -330,11 +330,132 @@ struct YayaWidgetProvider: TimelineProvider {
     }
 
     private func readData() -> YayaWidgetData {
-        guard let data = UserDefaults(suiteName: appGroupIdentifier)?.data(forKey: widgetPayloadKey),
-              let payload = try? JSONDecoder().decode(YayaWidgetData.self, from: data) else {
-            return .empty
+        let defaults = UserDefaults(suiteName: appGroupIdentifier)
+        guard let data = widgetPayloadData(from: defaults) else { return .empty }
+        if let payload = try? JSONDecoder().decode(YayaWidgetData.self, from: data) {
+            return payload
         }
-        return payload
+        return legacyPayload(from: data) ?? .empty
+    }
+
+    private func widgetPayloadData(from defaults: UserDefaults?) -> Data? {
+        if let data = defaults?.data(forKey: widgetPayloadKey) {
+            return data
+        }
+        if let text = defaults?.string(forKey: widgetPayloadKey) {
+            return text.data(using: .utf8)
+        }
+        return nil
+    }
+
+    private func legacyPayload(from data: Data) -> YayaWidgetData? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        if let values = object as? [Any] {
+            return legacyPayload(from: values)
+        }
+        if let dictionary = object as? [String: Any] {
+            return legacyPayload(from: dictionary)
+        }
+        if let text = object as? String,
+           let nestedData = text.data(using: .utf8),
+           nestedData != data {
+            return legacyPayload(from: nestedData)
+        }
+        return nil
+    }
+
+    private func legacyPayload(from values: [Any]) -> YayaWidgetData {
+        YayaWidgetData(
+            ddlTitle: legacyString(values[safe: 0], fallback: "暂无 DDL"),
+            ddlTime: legacyString(values[safe: 1]),
+            scheduleTitle: legacyString(values[safe: 2], fallback: "暂无课程或日程"),
+            scheduleTime: legacyString(values[safe: 3]),
+            schedulePlace: legacyString(values[safe: 4]),
+            scheduleLabel: legacyString(values[safe: 5], fallback: "最近日程"),
+            scheduleProgress: min(max(legacyDouble(values[safe: 6]), 0), 100),
+            scheduleActive: legacyBool(values[safe: 7]),
+            theme: legacyTheme(values[safe: 8]),
+            updatedAt: Date().timeIntervalSince1970
+        )
+    }
+
+    private func legacyPayload(from dictionary: [String: Any]) -> YayaWidgetData {
+        YayaWidgetData(
+            ddlTitle: legacyString(dictionary["ddlTitle"], fallback: "暂无 DDL"),
+            ddlTime: legacyString(dictionary["ddlTime"]),
+            scheduleTitle: legacyString(dictionary["scheduleTitle"], fallback: "暂无课程或日程"),
+            scheduleTime: legacyString(dictionary["scheduleTime"]),
+            schedulePlace: legacyString(dictionary["schedulePlace"]),
+            scheduleLabel: legacyString(dictionary["scheduleLabel"], fallback: "最近日程"),
+            scheduleProgress: min(max(legacyDouble(dictionary["scheduleProgress"]), 0), 100),
+            scheduleActive: legacyBool(dictionary["scheduleActive"]),
+            theme: legacyTheme(dictionary["theme"]),
+            updatedAt: legacyDouble(dictionary["updatedAt"], fallback: Date().timeIntervalSince1970)
+        )
+    }
+
+    private func legacyTheme(_ raw: Any?) -> YayaWidgetTheme {
+        let fallback = YayaWidgetTheme.fallback
+        let dictionary: [String: Any]
+        if let raw = raw as? [String: Any] {
+            dictionary = raw
+        } else if let text = raw as? String,
+                  let data = text.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data),
+                  let raw = object as? [String: Any] {
+            dictionary = raw
+        } else {
+            dictionary = [:]
+        }
+        return YayaWidgetTheme(
+            themeId: legacyString(dictionary["themeId"], fallback: fallback.themeId),
+            accent: legacyHex(dictionary["accent"], fallback: fallback.accent),
+            warm: legacyHex(dictionary["warm"], fallback: fallback.warm),
+            bg: legacyHex(dictionary["bg"], fallback: fallback.bg),
+            ink: legacyHex(dictionary["ink"], fallback: fallback.ink),
+            muted: legacyHex(dictionary["muted"], fallback: fallback.muted),
+            glassAlpha: min(max(legacyDouble(dictionary["glassAlpha"], fallback: fallback.glassAlpha ?? 68), 24), 96),
+            radius: min(max(legacyDouble(dictionary["radius"], fallback: fallback.radius ?? 18), 12), 30)
+        )
+    }
+
+    private func legacyString(_ value: Any?, fallback: String = "") -> String {
+        if value == nil || value is NSNull { return fallback }
+        if let value = value as? String { return value.isEmpty ? fallback : value }
+        if let value = value as? NSNumber { return value.stringValue }
+        if let value { return String(describing: value) }
+        return fallback
+    }
+
+    private func legacyDouble(_ value: Any?, fallback: Double = 0) -> Double {
+        if value == nil || value is NSNull { return fallback }
+        if let value = value as? Double, value.isFinite { return value }
+        if let value = value as? NSNumber {
+            let result = value.doubleValue
+            return result.isFinite ? result : fallback
+        }
+        if let value = value as? String, let result = Double(value), result.isFinite { return result }
+        return fallback
+    }
+
+    private func legacyBool(_ value: Any?) -> Bool {
+        if value == nil || value is NSNull { return false }
+        if let value = value as? Bool { return value }
+        if let value = value as? NSNumber { return value.boolValue }
+        if let value = value as? String {
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalized == "true" || normalized == "1"
+        }
+        return false
+    }
+
+    private func legacyHex(_ value: Any?, fallback: String) -> String {
+        let text = legacyString(value).trimmingCharacters(in: .whitespacesAndNewlines)
+        let pattern = "^#[0-9a-fA-F]{6}$"
+        if text.range(of: pattern, options: .regularExpression) != nil {
+            return text.lowercased()
+        }
+        return fallback
     }
 }
 
@@ -757,5 +878,11 @@ struct YayaScheduleWidget: Widget {
         .configurationDisplayName("鸦鸦日程")
         .description("显示最近 DDL 与最近日程。")
         .supportedFamilies([.systemSmall, .systemMedium])
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        index >= startIndex && index < endIndex ? self[index] : nil
     }
 }
