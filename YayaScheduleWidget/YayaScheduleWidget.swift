@@ -184,10 +184,21 @@ struct YayaWidgetProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<YayaWidgetEntry>) -> Void) {
         let data = readData()
         let now = Date()
-        let entries = (0..<12).map { offset in
-            YayaWidgetEntry(date: now.addingTimeInterval(TimeInterval(offset * 300)), data: data)
+        let entries: [YayaWidgetEntry]
+        let refreshMinutes: Int
+
+        if data.scheduleActive {
+            entries = (0..<12).map { offset in
+                YayaWidgetEntry(date: now.addingTimeInterval(TimeInterval(offset * 300)), data: data)
+            }
+            refreshMinutes = 60
+        } else {
+            entries = [YayaWidgetEntry(date: now, data: data)]
+            refreshMinutes = 90
         }
-        let refresh = Calendar.current.date(byAdding: .minute, value: 60, to: now) ?? now.addingTimeInterval(3600)
+
+        let refresh = Calendar.current.date(byAdding: .minute, value: refreshMinutes, to: now)
+            ?? now.addingTimeInterval(TimeInterval(refreshMinutes * 60))
         completion(Timeline(entries: entries, policy: .after(refresh)))
     }
 

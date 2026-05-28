@@ -1,7 +1,25 @@
+# Xcode local state
 DerivedData/
 *.xcuserstate
 xcuserdata/
 .DS_Store
+
+# iOS build outputs
 build/
 *.ipa
-dist/
+*.xcarchive
+*.dSYM
+*.app
+*.appex
+
+# Keep GitHub iOS-only: local Android packages, previews, and snapshot zips stay out.
+*.apk
+*.aab
+*.keystore
+*.jks
+android/
+Android/
+
+# dist keeps only the maintained iOS Xcode package that is already tracked.
+dist/*
+!dist/鸦鸦日程-iOS-Xcode工程包-2.0.zip
