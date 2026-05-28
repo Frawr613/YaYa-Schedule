@@ -212,6 +212,7 @@ struct YayaWidgetProvider: TimelineProvider {
 }
 
 struct YayaScheduleWidgetView: View {
+    private static let timeTokenRegex = try? NSRegularExpression(pattern: #"(?<!\d)(?:[01]?\d|2[0-3]):[0-5]\d(?!\d)"#)
     @Environment(\.widgetFamily) private var family
     let entry: YayaWidgetEntry
     private let palette: YayaWidgetPalette
@@ -560,7 +561,9 @@ struct YayaScheduleWidgetView: View {
         let parts = value.split(separator: ":")
         guard parts.count == 2,
               let hour = Int(parts[0]),
-              let minute = Int(parts[1]) else { return nil }
+              let minute = Int(parts[1]),
+              (0...23).contains(hour),
+              (0...59).contains(minute) else { return nil }
         return hour * 60 + minute
     }
 
@@ -570,12 +573,14 @@ struct YayaScheduleWidgetView: View {
             .replacingOccurrences(of: "—", with: "-")
             .replacingOccurrences(of: "至", with: "-")
             .replacingOccurrences(of: "~", with: "-")
-        let parts = text
-            .components(separatedBy: "-")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard parts.count >= 2 else { return nil }
-        return (start: parts[0], end: parts[1])
+        guard let regex = Self.timeTokenRegex else { return nil }
+        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        let tokens = regex.matches(in: text, range: nsRange).compactMap { match -> String? in
+            guard let range = Range(match.range, in: text) else { return nil }
+            return String(text[range])
+        }
+        guard tokens.count >= 2 else { return nil }
+        return (start: tokens[0], end: tokens[1])
     }
 
     private var widgetPadding: CGFloat {

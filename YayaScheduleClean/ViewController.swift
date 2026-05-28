@@ -101,6 +101,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var lastReminderPermissionStatusAt: TimeInterval = 0
     private var reminderPermissionStatusRequestInFlight = false
     private var widgetReloadWorkItem: DispatchWorkItem?
+    private var widgetPayloadGeneration = 0
     private var portalUiConfig: [String: Any] = [:]
     private var portalUiJSONCache = "{}"
     private var lastAcademicInjectionKey = ""
@@ -2092,14 +2093,17 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         }
         defaults.set(data, forKey: widgetPayloadKey)
         defaults.set(signature, forKey: widgetPayloadSignatureKey)
-        synchronizeWidgetDefaultsAndReload(defaults)
+        widgetPayloadGeneration += 1
+        let generation = widgetPayloadGeneration
+        synchronizeWidgetDefaultsAndReload(defaults, generation: generation)
     }
 
-    private func synchronizeWidgetDefaultsAndReload(_ defaults: UserDefaults) {
+    private func synchronizeWidgetDefaultsAndReload(_ defaults: UserDefaults, generation: Int) {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             defaults.synchronize()
             DispatchQueue.main.async {
-                self?.scheduleWidgetTimelineReload()
+                guard let self, generation == self.widgetPayloadGeneration else { return }
+                self.scheduleWidgetTimelineReload()
             }
         }
     }
@@ -2199,12 +2203,14 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func stringValue(_ value: Any?, fallback: String = "") -> String {
+        if value == nil || value is NSNull { return fallback }
         if let value = value as? String { return value.isEmpty ? fallback : value }
         if let value { return String(describing: value) }
         return fallback
     }
 
     private func numberValue(_ value: Any?) -> Double {
+        if value == nil || value is NSNull { return 0 }
         if let value = value as? Double { return value.isFinite ? value : 0 }
         if let value = value as? NSNumber {
             let result = value.doubleValue
@@ -2217,9 +2223,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func boolValue(_ value: Any?) -> Bool {
+        if value == nil || value is NSNull { return false }
         if let value = value as? Bool { return value }
         if let value = value as? NSNumber { return value.boolValue }
-        if let value = value as? String { return value == "true" || value == "1" }
+        if let value = value as? String {
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalized == "true" || normalized == "1"
+        }
         return false
     }
 
@@ -2303,7 +2313,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
 private extension Array {
     subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
+        index >= startIndex && index < endIndex ? self[index] : nil
     }
 }
 
