@@ -1933,6 +1933,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             guard generation == reminderScheduleGeneration else { return }
             if !oldIds.isEmpty {
                 center.removePendingNotificationRequests(withIdentifiers: oldIds)
+                center.removeDeliveredNotifications(withIdentifiers: oldIds)
             }
             defaults.set([], forKey: reminderNotificationIdsKey)
             defaults.set(0, forKey: reminderScheduledCountKey)
@@ -1983,7 +1984,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             }
         }
 
-        let nextPlans = Array(plans.sorted { $0.fireDate < $1.fireDate }.prefix(64))
+        var seenPlanIdentifiers = Set<String>()
+        let nextPlans = Array(plans
+            .sorted { $0.fireDate < $1.fireDate }
+            .filter { seenPlanIdentifiers.insert($0.identifier).inserted }
+            .prefix(64))
         guard !nextPlans.isEmpty else {
             clearPendingQueue()
             return
@@ -2005,6 +2010,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             }
             if !oldIds.isEmpty {
                 center.removePendingNotificationRequests(withIdentifiers: oldIds)
+                center.removeDeliveredNotifications(withIdentifiers: oldIds)
             }
             let group = DispatchGroup()
             let collector = ReminderNotificationIdCollector()
@@ -2030,7 +2036,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             }
             group.notify(queue: .main) {
                 guard generation == self.reminderScheduleGeneration else { return }
-                let scheduledIds = collector.values()
+                let scheduledSet = Set(collector.values())
+                let scheduledIds = nextPlans.map(\.identifier).filter { scheduledSet.contains($0) }
                 defaults.set(scheduledIds, forKey: self.reminderNotificationIdsKey)
                 defaults.set(scheduledIds.count, forKey: self.reminderScheduledCountKey)
                 defaults.set(Date().timeIntervalSince1970, forKey: self.reminderLastSyncAtKey)
