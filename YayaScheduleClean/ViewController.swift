@@ -39,7 +39,7 @@ private final class ReminderNotificationIdCollector: @unchecked Sendable {
     }
 }
 
-final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UNUserNotificationCenterDelegate {
+final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UNUserNotificationCenterDelegate, UIScrollViewDelegate {
     private let appGroupIdentifier = "group.com.xuyunfan.yayaschedule"
     private let widgetPayloadKey = "homeWidgetPayload"
     private let widgetPayloadSignatureKey = "homeWidgetPayloadSignature"
@@ -116,16 +116,19 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.websiteDataStore = .default()
+        configuration.userContentController.addUserScript(Self.iosInteractionGuardScript())
         configuration.userContentController.addUserScript(Self.yayaNativeBridgeScript())
         configuration.userContentController.add(WeakScriptMessageDelegate(self), name: "yayaBridge")
 
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        webView.allowsBackForwardNavigationGestures = true
+        webView.allowsBackForwardNavigationGestures = false
+        webView.allowsLinkPreview = false
         webView.isOpaque = false
         webView.backgroundColor = UIColor(red: 0.96, green: 0.97, blue: 1.0, alpha: 1.0)
         webView.scrollView.contentInsetAdjustmentBehavior = .never
+        configureWebViewScrollBehavior()
         view = webView
     }
 
@@ -145,6 +148,33 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             object: nil
         )
         loadLocalApp()
+    }
+
+    private func configureWebViewScrollBehavior() {
+        let scrollView = webView.scrollView
+        scrollView.delegate = self
+        scrollView.minimumZoomScale = 1
+        scrollView.maximumZoomScale = 1
+        scrollView.zoomScale = 1
+        scrollView.bouncesZoom = false
+        scrollView.delaysContentTouches = false
+        scrollView.canCancelContentTouches = true
+        scrollView.pinchGestureRecognizer?.isEnabled = false
+    }
+
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+        nil
+    }
+
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        if scrollView.zoomScale != 1 {
+            scrollView.setZoomScale(1, animated: false)
+        }
+    }
+
+    func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
+        scrollView.pinchGestureRecognizer?.isEnabled = false
+        scrollView.setZoomScale(1, animated: false)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -1012,8 +1042,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         guard !username.isEmpty, !password.isEmpty else { return }
         let script = """
         (function() {
-          if (window.__yayaPortalAssistVersion === 'manual-prefill-v1') return;
-          window.__yayaPortalAssistVersion = 'manual-prefill-v1';
+          if (window.__yayaPortalAssistVersion === 'manual-prefill-v2') return;
+          window.__yayaPortalAssistVersion = 'manual-prefill-v2';
           var username = \(Self.javaScriptStringLiteral(username));
           var password = \(Self.javaScriptStringLiteral(password));
           function visible(el) {
@@ -1025,11 +1055,23 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' && !el.disabled && !el.readOnly && aria !== 'true' && !/disabled|is-disabled|btn-disabled/.test(cls);
           }
           function setValue(el, value) {
-            if (!el || el.value === value) return;
-            el.focus();
-            el.value = value;
-            el.dispatchEvent(new Event('input', { bubbles: true }));
+            if (!el || el.value === value) return false;
+            var proto = Object.getPrototypeOf(el);
+            var ownSetter = Object.getOwnPropertyDescriptor(el, 'value') && Object.getOwnPropertyDescriptor(el, 'value').set;
+            var protoSetter = proto && Object.getOwnPropertyDescriptor(proto, 'value') && Object.getOwnPropertyDescriptor(proto, 'value').set;
+            try {
+              if (protoSetter && ownSetter !== protoSetter) protoSetter.call(el, value);
+              else el.value = value;
+            } catch (error) {
+              try { el.value = value; } catch (ignored) {}
+            }
+            try {
+              el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: value }));
+            } catch (error) {
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+            }
             el.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
           }
           function labelText(el) {
             try { return String([el.innerText, el.textContent, el.value, el.title, el.getAttribute && el.getAttribute('aria-label')].join(' ')).replace(/\\s+/g, ' ').trim(); } catch (error) { return ''; }
@@ -1081,21 +1123,44 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             }
             return nodes[0] || null;
           }
+          function shouldFill(el, value) {
+            if (!el) return false;
+            var current = String(el.value || '').trim();
+            if (current && current !== value) return false;
+            if (current === value) return false;
+            var count = Number(el.dataset.yayaPrefillCount || 0);
+            return count < 3;
+          }
+          function markFilled(el) {
+            if (!el) return;
+            el.dataset.yayaPrefillCount = String(Number(el.dataset.yayaPrefillCount || 0) + 1);
+          }
+          function installUserEditGuard(doc) {
+            if (!doc || doc.__yayaUserEditGuard) return;
+            doc.__yayaUserEditGuard = true;
+            try {
+              doc.addEventListener('input', function(event) {
+                if (!event.isTrusted) return;
+                var target = event.target;
+                if (target && /input|textarea/i.test(target.tagName || '')) doc.__yayaUserEditedLogin = true;
+              }, true);
+            } catch (error) {}
+          }
           function prefill() {
             forceSelfWindow();
             var docs = allDocs();
             for (var d = 0; d < docs.length; d += 1) {
               var doc = docs[d];
+              installUserEditGuard(doc);
+              if (doc.__yayaUserEditedLogin) continue;
               var passwordInput = Array.prototype.slice.call(doc.querySelectorAll('input[type=password]')).filter(visible)[0];
               if (!passwordInput) continue;
               var userInput = userInputNear(passwordInput);
-              if (userInput && !userInput.dataset.yayaPrefilled && !userInput.value) {
-                setValue(userInput, username);
-                userInput.dataset.yayaPrefilled = '1';
+              if (shouldFill(userInput, username) && setValue(userInput, username)) {
+                markFilled(userInput);
               }
-              if (!passwordInput.dataset.yayaPrefilled && !passwordInput.value) {
-                setValue(passwordInput, password);
-                passwordInput.dataset.yayaPrefilled = '1';
+              if (shouldFill(passwordInput, password) && setValue(passwordInput, password)) {
+                markFilled(passwordInput);
               }
               return;
             }
@@ -1105,10 +1170,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               if (doc.__yayaManualPrefillObserver) return;
               try {
                 doc.__yayaManualPrefillObserver = new MutationObserver(function() {
-                  clearTimeout(window.__yayaManualPrefillTimer);
-                  window.__yayaManualPrefillTimer = setTimeout(prefill, 180);
+                  clearTimeout(doc.__yayaManualPrefillTimer);
+                  doc.__yayaManualPrefillTimer = setTimeout(prefill, 220);
                 });
-                doc.__yayaManualPrefillObserver.observe(doc.documentElement || doc, { subtree: true, childList: true, attributes: true });
+                doc.__yayaManualPrefillObserver.observe(doc.documentElement || doc, { subtree: true, childList: true });
               } catch (error) {
               }
             });
@@ -2322,6 +2387,60 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return "\"\""
         }
         return String(arrayLiteral.dropFirst().dropLast())
+    }
+
+    private static func iosInteractionGuardScript() -> WKUserScript {
+        let source = """
+        (function() {
+          function ensureViewport(doc) {
+            try {
+              var head = doc.head || doc.documentElement;
+              if (!head) return;
+              var meta = doc.querySelector('meta[name="viewport"]');
+              if (!meta) {
+                meta = doc.createElement('meta');
+                meta.name = 'viewport';
+                head.appendChild(meta);
+              }
+              meta.setAttribute('content', 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover');
+            } catch (error) {}
+          }
+          function installStyle(doc) {
+            try {
+              doc.documentElement.dataset.yayaIosWebview = 'true';
+              if (doc.getElementById('__yayaIosInteractionGuard')) return;
+              var style = doc.createElement('style');
+              style.id = '__yayaIosInteractionGuard';
+              style.textContent = [
+                'html,body{-webkit-text-size-adjust:100% !important;}',
+                'input:not([type=range]),textarea,select{font-size:16px !important;}',
+                'button,a,[role=button],input,textarea,select,label{touch-action:manipulation;}',
+                '*{-webkit-tap-highlight-color:transparent;}'
+              ].join('\\n');
+              (doc.head || doc.documentElement).appendChild(style);
+            } catch (error) {}
+          }
+          function installGestureGuard(doc) {
+            try {
+              if (doc.__yayaIosGestureGuard) return;
+              doc.__yayaIosGestureGuard = true;
+              doc.addEventListener('gesturestart', function(event) { event.preventDefault(); }, { passive: false });
+              doc.addEventListener('gesturechange', function(event) { event.preventDefault(); }, { passive: false });
+              doc.addEventListener('gestureend', function(event) { event.preventDefault(); }, { passive: false });
+            } catch (error) {}
+          }
+          function install(doc) {
+            if (!doc) return;
+            ensureViewport(doc);
+            installStyle(doc);
+            installGestureGuard(doc);
+          }
+          install(document);
+          setTimeout(function() { install(document); }, 120);
+          setTimeout(function() { install(document); }, 720);
+        })();
+        """
+        return WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: false)
     }
 
     private static func yayaNativeBridgeScript() -> WKUserScript {
