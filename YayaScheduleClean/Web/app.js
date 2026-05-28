@@ -522,6 +522,7 @@
     scheduleNativeImportPull();
     window.addEventListener("yaya-native-import-ready", scheduleNativeImportPull);
     window.addEventListener("yaya-reminder-permission-updated", handleReminderPermissionUpdated);
+    window.addEventListener("yaya-launcher-icon-updated", handleLauncherIconUpdated);
     window.addEventListener("pagehide", handlePageHide);
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) {
@@ -4412,8 +4413,8 @@
   function saveIcon(form) {
     const data = new FormData(form);
     state.appIcon = normalizeIconId(data.get("appIcon"));
-    window.YayaPlatform?.setLauncherIcon(state.appIcon);
-    commit("图标设置已保存", { immediate: true, skipCache: true, skipNative: true });
+    const iconBridgeReady = Boolean(window.YayaPlatform?.setLauncherIcon(state.appIcon));
+    commit(iconBridgeReady ? "图标设置已保存，系统正在切换图标" : "图标设置已保存；当前环境只保存预览选择", { immediate: true, skipCache: true, skipNative: true });
     openModal("settings");
   }
 
@@ -5720,6 +5721,16 @@
       reminderPermissionUiSkipped: false
     });
     if (state.modal) renderModal();
+  }
+
+  function handleLauncherIconUpdated(event) {
+    const detail = event?.detail || window.__yayaLauncherIconStatus || {};
+    const message = String(detail.message || "");
+    if (!message) return;
+    applyNoticeMessage("launcher-icon-status", message, {
+      immediate: true,
+      renderAll: true
+    });
   }
 
   function requestReminderPermission(options = {}) {

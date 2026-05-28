@@ -472,18 +472,66 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func setLauncherIcon(_ iconId: String) {
-        guard UIApplication.shared.supportsAlternateIcons else { return }
-        let iconName: String?
+        guard UIApplication.shared.supportsAlternateIcons else {
+            pushLauncherIconStatus(iconId: iconId, success: false, message: "当前系统不支持切换图标")
+            return
+        }
+        let normalizedIconId = normalizedLauncherIconId(iconId)
+        let iconName = launcherIconName(for: normalizedIconId)
+        guard UIApplication.shared.alternateIconName != iconName else {
+            pushLauncherIconStatus(iconId: normalizedIconId, success: true, message: "图标已是当前选择")
+            return
+        }
+        UIApplication.shared.setAlternateIconName(iconName) { [weak self] error in
+            DispatchQueue.main.async {
+                if let error {
+                    self?.pushLauncherIconStatus(iconId: normalizedIconId, success: false, message: "图标切换失败：\(error.localizedDescription)")
+                } else {
+                    self?.pushLauncherIconStatus(iconId: normalizedIconId, success: true, message: "图标已切换")
+                }
+            }
+        }
+    }
+
+    private func normalizedLauncherIconId(_ iconId: String) -> String {
+        switch iconId {
+        case "cartoon", "minimal", "transparent":
+            return iconId
+        default:
+            return "cartoon"
+        }
+    }
+
+    private func launcherIconName(for iconId: String) -> String? {
         switch iconId {
         case "cartoon":
-            iconName = "CartoonIcon"
+            return "CartoonIcon"
         case "minimal":
-            iconName = "MinimalIcon"
+            return "MinimalIcon"
+        case "transparent":
+            return "TransparentIcon"
         default:
-            iconName = nil
+            return "CartoonIcon"
         }
-        guard UIApplication.shared.alternateIconName != iconName else { return }
-        UIApplication.shared.setAlternateIconName(iconName)
+    }
+
+    private func pushLauncherIconStatus(iconId: String, success: Bool, message: String) {
+        let payload: [String: Any] = [
+            "iconId": iconId,
+            "success": success,
+            "message": message
+        ]
+        guard
+            let data = try? JSONSerialization.data(withJSONObject: payload),
+            let json = String(data: data, encoding: .utf8)
+        else {
+            return
+        }
+        let script = """
+        window.__yayaLauncherIconStatus = \(json);
+        try { window.dispatchEvent(new CustomEvent('yaya-launcher-icon-updated', { detail: window.__yayaLauncherIconStatus })); } catch (error) {}
+        """
+        webView.evaluateJavaScript(script)
     }
 
     private func injectPortalNavigationHelper() {
