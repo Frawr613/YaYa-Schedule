@@ -39,7 +39,7 @@ private final class ReminderNotificationIdCollector: @unchecked Sendable {
     }
 }
 
-final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UNUserNotificationCenterDelegate, UIScrollViewDelegate {
+final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UNUserNotificationCenterDelegate, UIScrollViewDelegate, WKDownloadDelegate {
     private let appGroupIdentifier = "group.com.xuyunfan.yayaschedule"
     private let widgetPayloadKey = "homeWidgetPayload"
     private let widgetPayloadSignatureKey = "homeWidgetPayloadSignature"
@@ -111,6 +111,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var lastAcademicInjectionAt: TimeInterval = 0
     private var lastPortalActionStatus = ""
     private weak var portalTermOverlay: UIView?
+    private var academicDownloadDestinations: [ObjectIdentifier: URL] = [:]
 
     override func loadView() {
         let configuration = WKWebViewConfiguration()
@@ -227,6 +228,18 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     func webView(
         _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+    ) {
+        if shouldDownloadAcademicResponse(navigationResponse) {
+            decisionHandler(.download)
+            return
+        }
+        decisionHandler(.allow)
+    }
+
+    func webView(
+        _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
@@ -240,6 +253,102 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             openExternalURL(url)
         }
         return nil
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    func download(
+        _ download: WKDownload,
+        decideDestinationUsing response: URLResponse,
+        suggestedFilename: String,
+        completionHandler: @escaping (URL?) -> Void
+    ) {
+        let directory = academicDownloadDirectory()
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let filename = sanitizedAcademicDownloadFilename(suggestedFilename, response: response)
+        let destination = uniqueAcademicDownloadURL(directory.appendingPathComponent(filename))
+        academicDownloadDestinations[ObjectIdentifier(download)] = destination
+        completionHandler(destination)
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        let key = ObjectIdentifier(download)
+        guard let url = academicDownloadDestinations.removeValue(forKey: key) else { return }
+        setPortalActionStatus("课表文件已导出：\(url.lastPathComponent)")
+        presentAcademicExport(url)
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        academicDownloadDestinations.removeValue(forKey: ObjectIdentifier(download))
+        setPortalActionStatus("课表文件导出失败，请在课表页重试")
+    }
+
+    private func shouldDownloadAcademicResponse(_ navigationResponse: WKNavigationResponse) -> Bool {
+        guard let url = navigationResponse.response.url,
+              isTrustedAcademicURL(url) || portalSessionActive else {
+            return false
+        }
+        if !navigationResponse.canShowMIMEType {
+            return true
+        }
+        let response = navigationResponse.response
+        let mime = (response.mimeType ?? "").lowercased()
+        let filename = response.suggestedFilename?.lowercased() ?? url.lastPathComponent.lowercased()
+        let text = [mime, filename, url.absoluteString.lowercased()].joined(separator: " ")
+        return text.range(of: #"excel|spreadsheet|csv|zip|octet-stream|download|export|\.xls(?:x)?(?:\b|[?#])|\.csv(?:\b|[?#])"#, options: .regularExpression) != nil
+    }
+
+    private func academicDownloadDirectory() -> URL {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return documents.appendingPathComponent("教务导出", isDirectory: true)
+    }
+
+    private func sanitizedAcademicDownloadFilename(_ suggestedFilename: String, response: URLResponse) -> String {
+        let fallback = response.suggestedFilename ?? "课表导出.xls"
+        var name = suggestedFilename.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { name = fallback }
+        name = name.replacingOccurrences(of: #"[/\\:*?"<>|]+"#, with: "-", options: .regularExpression)
+        if !name.contains(".") {
+            let mime = (response.mimeType ?? "").lowercased()
+            name += mime.contains("csv") ? ".csv" : mime.contains("spreadsheet") || mime.contains("excel") ? ".xls" : ".dat"
+        }
+        return name.isEmpty ? "课表导出.xls" : name
+    }
+
+    private func uniqueAcademicDownloadURL(_ url: URL) -> URL {
+        let directory = url.deletingLastPathComponent()
+        let base = url.deletingPathExtension().lastPathComponent
+        let ext = url.pathExtension
+        var candidate = url
+        var index = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            let suffix = ext.isEmpty ? "" : ".\(ext)"
+            candidate = directory.appendingPathComponent("\(base)-\(index)\(suffix)")
+            index += 1
+        }
+        return candidate
+    }
+
+    private func presentAcademicExport(_ url: URL) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+            if let popover = controller.popoverPresentationController {
+                popover.sourceView = self.view
+                popover.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.maxY - 40, width: 1, height: 1)
+                popover.permittedArrowDirections = []
+            }
+            if self.presentedViewController == nil {
+                self.present(controller, animated: true)
+            }
+        }
     }
 
     private func openExternalURL(_ url: URL) {
@@ -382,10 +491,34 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         (function() {
           if (window.__yayaPortalNavigationHelper) return;
           window.__yayaPortalNavigationHelper = true;
+          var originalOpen = window.__yayaPortalOriginalOpen || window.open;
+          window.__yayaPortalOriginalOpen = originalOpen;
+          function exportLike(value) {
+            value = String(value || '').toLowerCase();
+            return /导出|下载|课表|excel|xls|xlsx|csv|export|download|down|file|dc|exp/.test(value);
+          }
+          function exportLikeNode(node) {
+            if (!node) return false;
+            var text = '';
+            try {
+              text = [
+                node.textContent,
+                node.getAttribute && node.getAttribute('href'),
+                node.getAttribute && node.getAttribute('action'),
+                node.getAttribute && node.getAttribute('download'),
+                node.getAttribute && node.getAttribute('title'),
+                node.getAttribute && node.getAttribute('aria-label'),
+                node.className,
+                node.id
+              ].join(' ');
+            } catch (error) {}
+            return exportLike(text);
+          }
           function forceSelf() {
             try {
-              window.open = function(url) {
+              window.open = function(url, target, features) {
                 if (url) {
+                  if (exportLike(url) && originalOpen) return originalOpen.call(window, url, target || '_blank', features);
                   try { location.href = url; } catch (error) { window.location.href = url; }
                 }
                 return window;
@@ -393,6 +526,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             } catch (error) {}
             try {
               Array.prototype.slice.call(document.querySelectorAll('a[target],form[target],area[target]')).forEach(function(node) {
+                if (exportLikeNode(node)) return;
                 try { node.setAttribute('target', '_self'); } catch (error) {}
               });
             } catch (error) {}
@@ -400,7 +534,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           document.addEventListener('click', function(event) {
             try {
               var link = event.target && event.target.closest && event.target.closest('a[target],area[target]');
-              if (link && link.href) link.setAttribute('target', '_self');
+              if (link && link.href && !exportLikeNode(link)) link.setAttribute('target', '_self');
             } catch (error) {}
           }, true);
           forceSelf();
@@ -1090,12 +1224,36 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             add(document);
             return docs;
           }
+          function exportLike(value) {
+            value = String(value || '').toLowerCase();
+            return /导出|下载|课表|excel|xls|xlsx|csv|export|download|down|file|dc|exp/.test(value);
+          }
+          function exportLikeNode(node) {
+            if (!node) return false;
+            var text = '';
+            try {
+              text = [
+                node.textContent,
+                node.getAttribute && node.getAttribute('href'),
+                node.getAttribute && node.getAttribute('action'),
+                node.getAttribute && node.getAttribute('download'),
+                node.getAttribute && node.getAttribute('title'),
+                node.getAttribute && node.getAttribute('aria-label'),
+                node.className,
+                node.id
+              ].join(' ');
+            } catch (error) {}
+            return exportLike(text);
+          }
           function forceSelfWindow() {
             allDocs().forEach(function(doc) {
               try {
                 var win = doc.defaultView || window;
-                win.open = function(url) {
+                var originalOpen = win.__yayaPortalOriginalOpen || win.open;
+                win.__yayaPortalOriginalOpen = originalOpen;
+                win.open = function(url, target, features) {
                   if (url) {
+                    if (exportLike(url) && originalOpen) return originalOpen.call(win, url, target || '_blank', features);
                     try { win.location.href = url; } catch (error) { location.href = url; }
                   }
                   return win;
@@ -1103,6 +1261,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               } catch (error) {}
               try {
                 Array.prototype.slice.call(doc.querySelectorAll('a[target],form[target],area[target]')).forEach(function(node) {
+                  if (exportLikeNode(node)) return;
                   try { node.setAttribute('target', '_self'); } catch (error) {}
                 });
               } catch (error) {}
