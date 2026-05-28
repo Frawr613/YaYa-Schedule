@@ -5,6 +5,54 @@ import WidgetKit
 private let appGroupIdentifier = "group.com.xuyunfan.yayaschedule"
 private let widgetPayloadKey = "homeWidgetPayload"
 
+private extension KeyedDecodingContainer {
+    func yayaString(_ key: Key, fallback: String = "") -> String {
+        if let value = try? decodeIfPresent(String.self, forKey: key) {
+            return value.isEmpty ? fallback : value
+        }
+        if let value = try? decodeIfPresent(Int.self, forKey: key) {
+            return String(value)
+        }
+        if let value = try? decodeIfPresent(Double.self, forKey: key), value.isFinite {
+            return String(value)
+        }
+        if let value = try? decodeIfPresent(Bool.self, forKey: key) {
+            return value ? "true" : "false"
+        }
+        return fallback
+    }
+
+    func yayaDouble(_ key: Key, fallback: Double = 0) -> Double {
+        if let value = try? decodeIfPresent(Double.self, forKey: key), value.isFinite {
+            return value
+        }
+        if let value = try? decodeIfPresent(Int.self, forKey: key) {
+            return Double(value)
+        }
+        if let value = try? decodeIfPresent(String.self, forKey: key), let number = Double(value), number.isFinite {
+            return number
+        }
+        return fallback
+    }
+
+    func yayaBool(_ key: Key, fallback: Bool = false) -> Bool {
+        if let value = try? decodeIfPresent(Bool.self, forKey: key) {
+            return value
+        }
+        if let value = try? decodeIfPresent(Int.self, forKey: key) {
+            return value != 0
+        }
+        if let value = try? decodeIfPresent(Double.self, forKey: key), value.isFinite {
+            return value != 0
+        }
+        if let value = try? decodeIfPresent(String.self, forKey: key) {
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalized == "true" || normalized == "1"
+        }
+        return fallback
+    }
+}
+
 struct YayaWidgetData: Decodable {
     let ddlTitle: String
     let ddlTime: String
@@ -29,6 +77,49 @@ struct YayaWidgetData: Decodable {
         theme: .fallback,
         updatedAt: 0
     )
+
+    init(
+        ddlTitle: String,
+        ddlTime: String,
+        scheduleTitle: String,
+        scheduleTime: String,
+        schedulePlace: String,
+        scheduleLabel: String,
+        scheduleProgress: Double,
+        scheduleActive: Bool,
+        theme: YayaWidgetTheme?,
+        updatedAt: Double
+    ) {
+        self.ddlTitle = ddlTitle
+        self.ddlTime = ddlTime
+        self.scheduleTitle = scheduleTitle
+        self.scheduleTime = scheduleTime
+        self.schedulePlace = schedulePlace
+        self.scheduleLabel = scheduleLabel
+        self.scheduleProgress = scheduleProgress
+        self.scheduleActive = scheduleActive
+        self.theme = theme
+        self.updatedAt = updatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ddlTitle, ddlTime, scheduleTitle, scheduleTime, schedulePlace, scheduleLabel
+        case scheduleProgress, scheduleActive, theme, updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        ddlTitle = container.yayaString(.ddlTitle, fallback: "暂无 DDL")
+        ddlTime = container.yayaString(.ddlTime)
+        scheduleTitle = container.yayaString(.scheduleTitle, fallback: "暂无课程或日程")
+        scheduleTime = container.yayaString(.scheduleTime)
+        schedulePlace = container.yayaString(.schedulePlace)
+        scheduleLabel = container.yayaString(.scheduleLabel, fallback: "最近日程")
+        scheduleProgress = container.yayaDouble(.scheduleProgress)
+        scheduleActive = container.yayaBool(.scheduleActive)
+        theme = (try? container.decodeIfPresent(YayaWidgetTheme.self, forKey: .theme)) ?? .fallback
+        updatedAt = container.yayaDouble(.updatedAt)
+    }
 
     var resolvedTheme: YayaWidgetTheme {
         theme ?? .fallback
@@ -60,6 +151,43 @@ struct YayaWidgetTheme: Decodable {
         glassAlpha: 68,
         radius: 18
     )
+
+    init(
+        themeId: String,
+        accent: String,
+        warm: String,
+        bg: String,
+        ink: String,
+        muted: String,
+        glassAlpha: Double?,
+        radius: Double?
+    ) {
+        self.themeId = themeId
+        self.accent = accent
+        self.warm = warm
+        self.bg = bg
+        self.ink = ink
+        self.muted = muted
+        self.glassAlpha = glassAlpha
+        self.radius = radius
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case themeId, accent, warm, bg, ink, muted, glassAlpha, radius
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = Self.fallback
+        themeId = container.yayaString(.themeId, fallback: fallback.themeId)
+        accent = container.yayaString(.accent, fallback: fallback.accent)
+        warm = container.yayaString(.warm, fallback: fallback.warm)
+        bg = container.yayaString(.bg, fallback: fallback.bg)
+        ink = container.yayaString(.ink, fallback: fallback.ink)
+        muted = container.yayaString(.muted, fallback: fallback.muted)
+        glassAlpha = container.yayaDouble(.glassAlpha, fallback: fallback.glassAlpha ?? 68)
+        radius = container.yayaDouble(.radius, fallback: fallback.radius ?? 18)
+    }
 }
 
 private struct YayaRGB {
@@ -171,7 +299,6 @@ struct YayaWidgetEntry: TimelineEntry {
 }
 
 struct YayaWidgetProvider: TimelineProvider {
-    private static let decoder = JSONDecoder()
 
     func placeholder(in context: Context) -> YayaWidgetEntry {
         YayaWidgetEntry(date: Date(), data: .empty)
@@ -204,7 +331,7 @@ struct YayaWidgetProvider: TimelineProvider {
 
     private func readData() -> YayaWidgetData {
         guard let data = UserDefaults(suiteName: appGroupIdentifier)?.data(forKey: widgetPayloadKey),
-              let payload = try? Self.decoder.decode(YayaWidgetData.self, from: data) else {
+              let payload = try? JSONDecoder().decode(YayaWidgetData.self, from: data) else {
             return .empty
         }
         return payload
