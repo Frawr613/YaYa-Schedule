@@ -11,7 +11,7 @@
   const ACCOUNT_USERNAME_KEY = "yaya-schedule-portal-username-v2";
   const GUIDE_ACK_KEY = "yaya-schedule-guide-ack-v2";
   const CURRENT_SCHEMA_VERSION = 3;
-  const CACHE_RUNTIME_VERSION = "20260528-cache-v111";
+  const CACHE_RUNTIME_VERSION = "20260528-cache-v112";
   const DEFAULT_TERM_START = "2026-02-23";
   const MAX_WEEK = 28;
   const COLLATOR = new Intl.Collator("zh-Hans-CN");
@@ -323,7 +323,7 @@
       builtAt: appCache.builtAt || 0,
       dayItemsCache: dayItemsCache.size,
       localStorage: STORAGE_KEY,
-      nativeReminderPayload: nativeReminderPayload().length,
+      nativeReminderPayload: nativeReminderPayloadCount(),
       serviceWorker: "serviceWorker" in navigator
     });
     window.YayaLayers.registerRuntime("commands", {
@@ -2857,7 +2857,7 @@
       status.canExact === false ? "exact-off" : "exact-on",
       status.canBackground === false ? "background-off" : "background-on",
       Number(status.scheduledCount || 0),
-      nativeReminderPayload().length
+      nativeReminderPayloadCount()
     ].join("|");
   }
 
@@ -2926,7 +2926,7 @@
   function renderReminderPermissionPanel(kind = "inline", options = {}) {
     const status = reminderPermissionStatus();
     const labels = reminderPermissionLabels(status);
-    const localCount = nativeReminderPayload().filter((item) => normalizeReminderValues(item.reminders).length).length;
+    const localCount = nativeReminderPayloadCount();
     const hidden = options.hidden ? " hidden" : "";
     return `
       <div class="reminder-permission reminder-permission-${escapeAttr(kind)} is-${escapeAttr(labels.state)}" data-reminder-permission${hidden}>
@@ -5768,6 +5768,10 @@
     lastNativeReminderPayload = [...manualDdlPayload, ...schedulePayload].filter((item) => validDate(item.date));
     lastNativeReminderPayloadSignature = cacheSignature;
     return lastNativeReminderPayload;
+  }
+
+  function nativeReminderPayloadCount() {
+    return nativeReminderPayload().length;
   }
 
   function syncNativeNotifications(options = {}) {
