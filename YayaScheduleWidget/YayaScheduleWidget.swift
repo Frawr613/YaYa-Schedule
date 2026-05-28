@@ -171,6 +171,8 @@ struct YayaWidgetEntry: TimelineEntry {
 }
 
 struct YayaWidgetProvider: TimelineProvider {
+    private static let decoder = JSONDecoder()
+
     func placeholder(in context: Context) -> YayaWidgetEntry {
         YayaWidgetEntry(date: Date(), data: .empty)
     }
@@ -191,7 +193,7 @@ struct YayaWidgetProvider: TimelineProvider {
 
     private func readData() -> YayaWidgetData {
         guard let data = UserDefaults(suiteName: appGroupIdentifier)?.data(forKey: widgetPayloadKey),
-              let payload = try? JSONDecoder().decode(YayaWidgetData.self, from: data) else {
+              let payload = try? Self.decoder.decode(YayaWidgetData.self, from: data) else {
             return .empty
         }
         return payload
@@ -201,6 +203,12 @@ struct YayaWidgetProvider: TimelineProvider {
 struct YayaScheduleWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: YayaWidgetEntry
+    private let palette: YayaWidgetPalette
+
+    init(entry: YayaWidgetEntry) {
+        self.entry = entry
+        self.palette = YayaWidgetPalette.from(entry.data.resolvedTheme)
+    }
 
     var body: some View {
         ZStack {
@@ -529,10 +537,6 @@ struct YayaScheduleWidgetView: View {
         }
     }
 
-    private var palette: YayaWidgetPalette {
-        YayaWidgetPalette.from(entry.data.resolvedTheme)
-    }
-
     private var scheduleLabel: String {
         entry.data.scheduleLabel.isEmpty ? "最近日程" : entry.data.scheduleLabel
     }
@@ -568,10 +572,17 @@ struct YayaScheduleWidgetView: View {
     }
 
     private var dayText: String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "M月d日 EEEE"
-        return formatter.string(from: entry.date)
+        YayaWidgetFormatters.dayText(from: entry.date)
+    }
+}
+
+private enum YayaWidgetFormatters {
+    static let locale = Locale(identifier: "zh_CN")
+
+    static func dayText(from date: Date) -> String {
+        let monthDay = date.formatted(.dateTime.locale(locale).month(.defaultDigits).day())
+        let weekday = date.formatted(.dateTime.locale(locale).weekday(.wide))
+        return "\(monthDay) \(weekday)"
     }
 }
 

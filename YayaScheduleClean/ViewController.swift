@@ -36,6 +36,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private let accountPasswordKey = "portalPassword"
     private let portalURL = URL(string: "https://one.bnu.edu.cn/")!
     private let portalOpenCooldown: TimeInterval = 6
+    private static let portalDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        return formatter
+    }()
 
     private var webView: WKWebView!
     private var pendingImportJsonQueue: [String] = []
@@ -47,8 +54,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var lastActiveReminderRefreshAt: TimeInterval = 0
     private var lastReminderPermissionStatusPayload = ""
     private var lastReminderPermissionStatusAt: TimeInterval = 0
+    private var reminderPermissionStatusRequestInFlight = false
     private var widgetReloadWorkItem: DispatchWorkItem?
     private var portalUiConfig: [String: Any] = [:]
+    private var portalUiJSONCache = "{}"
+    private var lastAcademicInjectionKey = ""
+    private var lastAcademicInjectionAt: TimeInterval = 0
     private var lastPortalActionStatus = ""
     private weak var portalTermOverlay: UIView?
 
@@ -95,10 +106,22 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return
         }
         if isTrustedAcademicURL(url) {
+            guard shouldInjectAcademicHelpers(for: url) else { return }
             lastPortalActionStatus = ""
             injectPortalAccountHelper()
             injectAcademicImportControlsV2()
         }
+    }
+
+    private func shouldInjectAcademicHelpers(for url: URL) -> Bool {
+        let key = [url.host ?? "", url.path, url.query ?? ""].joined(separator: "|")
+        let now = Date().timeIntervalSince1970
+        if key == lastAcademicInjectionKey, now - lastAcademicInjectionAt < 0.8 {
+            return false
+        }
+        lastAcademicInjectionKey = key
+        lastAcademicInjectionAt = now
+        return true
     }
 
     func webView(
@@ -320,12 +343,21 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               let dictionary = object as? [String: Any] else {
             return
         }
+        let json = serializedPortalUiJSON(dictionary)
+        guard json != portalUiJSONCache else { return }
         portalUiConfig = dictionary
+        portalUiJSONCache = json
     }
 
     private func portalUiJSON() -> String {
-        guard JSONSerialization.isValidJSONObject(portalUiConfig),
-              let data = try? JSONSerialization.data(withJSONObject: portalUiConfig),
+        if !portalUiJSONCache.isEmpty { return portalUiJSONCache }
+        portalUiJSONCache = serializedPortalUiJSON(portalUiConfig)
+        return portalUiJSONCache
+    }
+
+    private func serializedPortalUiJSON(_ dictionary: [String: Any]) -> String {
+        guard JSONSerialization.isValidJSONObject(dictionary),
+              let data = try? JSONSerialization.data(withJSONObject: dictionary, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else {
             return "{}"
         }
@@ -650,14 +682,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             overlay.backgroundColor = UIColor(red: 0.06, green: 0.09, blue: 0.16, alpha: 0.22)
             overlay.isUserInteractionEnabled = true
 
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "zh_CN")
-            formatter.dateFormat = "yyyy-MM-dd"
-            formatter.isLenient = false
             let currentDateText = self.normalizedPortalDate(anchor.title(for: .normal) ?? "")
             let fallbackDateText = self.normalizedPortalDate(fallbackDate)
             let seed = currentDateText.isEmpty ? fallbackDateText : currentDateText
-            let seedDate = formatter.date(from: seed) ?? Date()
+            let seedDate = Self.portalDateFormatter.date(from: seed) ?? Date()
             let seedParts = Calendar.current.dateComponents([.year, .month, .day], from: seedDate)
             var selectedYear = min(max(seedParts.year ?? 2026, 2000), 2077)
             var selectedMonth = min(max(seedParts.month ?? 9, 1), 12)
@@ -797,10 +825,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 bestDistance = distance
             }
         }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: best)
+        return Self.portalDateFormatter.string(from: best)
     }
 
     private func portalDaysInMonth(year: Int, month: Int) -> Int {
@@ -1660,13 +1685,17 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private func hasNotificationAuthorization(_ completion: @escaping (Bool) -> Void) {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
+            let granted: Bool
             switch settings.authorizationStatus {
             case .authorized, .provisional, .ephemeral:
-                completion(true)
+                granted = true
             case .notDetermined, .denied:
-                completion(false)
+                granted = false
             @unknown default:
-                completion(false)
+                granted = false
+            }
+            DispatchQueue.main.async {
+                completion(granted)
             }
         }
     }
@@ -1677,13 +1706,19 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             guard let self else { return }
             switch settings.authorizationStatus {
             case .authorized, .provisional, .ephemeral:
-                self.rescheduleStoredReminderNotifications()
+                DispatchQueue.main.async { [weak self] in
+                    self?.rescheduleStoredReminderNotifications()
+                }
             case .notDetermined:
                 center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, _ in
                     if granted {
-                        self?.rescheduleStoredReminderNotifications()
+                        DispatchQueue.main.async {
+                            self?.rescheduleStoredReminderNotifications()
+                        }
                     } else {
-                        self?.pushReminderPermissionStatus()
+                        DispatchQueue.main.async {
+                            self?.pushReminderPermissionStatus()
+                        }
                     }
                 }
             case .denied:
@@ -1716,6 +1751,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         if !force && now - lastReminderPermissionStatusAt < 2.0 {
             return
         }
+        if !force && reminderPermissionStatusRequestInFlight {
+            return
+        }
+        reminderPermissionStatusRequestInFlight = true
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { [weak self] settings in
             center.getPendingNotificationRequests { requests in
@@ -1784,9 +1823,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 guard JSONSerialization.isValidJSONObject(payload),
                       let data = try? JSONSerialization.data(withJSONObject: payload),
                       let json = String(data: data, encoding: .utf8) else {
+                    DispatchQueue.main.async {
+                        self.reminderPermissionStatusRequestInFlight = false
+                    }
                     return
                 }
                 DispatchQueue.main.async {
+                    self.reminderPermissionStatusRequestInFlight = false
                     let now = Date().timeIntervalSince1970
                     if !force,
                        json == self.lastReminderPermissionStatusPayload,
@@ -1838,8 +1881,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         lastReminderSchedulePayload = safePayload
         lastReminderScheduleAt = nowTick
         lastActiveReminderRefreshAt = nowTick
-        let oldIds = (defaults.stringArray(forKey: reminderNotificationIdsKey) ?? [])
-            + (defaults.stringArray(forKey: legacyDdlNotificationIdsKey) ?? [])
+        let oldIds = Array(Set(
+            (defaults.stringArray(forKey: reminderNotificationIdsKey) ?? [])
+                + (defaults.stringArray(forKey: legacyDdlNotificationIdsKey) ?? [])
+        ))
 
         func clearPendingQueue() {
             guard generation == reminderScheduleGeneration else { return }
@@ -1850,7 +1895,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             defaults.set(0, forKey: reminderScheduledCountKey)
             defaults.set(Date().timeIntervalSince1970, forKey: reminderLastSyncAtKey)
             defaults.removeObject(forKey: legacyDdlNotificationIdsKey)
-            defaults.synchronize()
             pushReminderPermissionStatus()
         }
 
@@ -1916,7 +1960,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 defaults.set(0, forKey: self.reminderScheduledCountKey)
                 defaults.set(Date().timeIntervalSince1970, forKey: self.reminderLastSyncAtKey)
                 defaults.removeObject(forKey: self.legacyDdlNotificationIdsKey)
-                defaults.synchronize()
                 self.pushReminderPermissionStatus()
                 return
             }
@@ -1942,7 +1985,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             defaults.set(nextIds.count, forKey: self.reminderScheduledCountKey)
             defaults.set(Date().timeIntervalSince1970, forKey: self.reminderLastSyncAtKey)
             defaults.removeObject(forKey: self.legacyDdlNotificationIdsKey)
-            defaults.synchronize()
             self.pushReminderPermissionStatus()
         }
     }

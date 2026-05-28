@@ -36,9 +36,11 @@
     needsAction: false
   });
 
-  global.YayaPlatform = {
+  const capabilities = ["savePortalAccount", "setLauncherIcon", "configurePortalUi", "openAcademicPortal", "takeImportedPage", "getReminderPermissionStatus", "requestReminderPermissions", "requestNotificationPermission", "requestBackgroundRunPermission", "scheduleReminderNotifications", "scheduleDdlNotifications"];
+
+  const platformApi = {
     layer: "platform",
-    capabilities: ["savePortalAccount", "setLauncherIcon", "configurePortalUi", "openAcademicPortal", "takeImportedPage", "getReminderPermissionStatus", "requestReminderPermissions", "requestNotificationPermission", "requestBackgroundRunPermission", "scheduleReminderNotifications", "scheduleDdlNotifications", "updateHomeWidget"],
+    capabilities,
     isNative() {
       return Boolean(global.YayaNative);
     },
@@ -87,12 +89,16 @@
     },
     scheduleDdlNotifications(payload) {
       return this.scheduleReminderNotifications(payload);
-    },
-    updateHomeWidget(payload) {
-      const value = Array.isArray(payload) ? JSON.stringify(payload) : String(payload || "");
-      return nativeCall("updateHomeWidget", [value], false);
     }
   };
+  if (hasNativeMethod("updateHomeWidget")) {
+    capabilities.push("updateHomeWidget");
+    platformApi.updateHomeWidget = function updateHomeWidget(payload) {
+      const value = Array.isArray(payload) ? JSON.stringify(payload) : String(payload || "");
+      return nativeCall("updateHomeWidget", [value], false);
+    };
+  }
+  global.YayaPlatform = platformApi;
   global.YayaLayers?.registerModule?.("platform-bridge", {
     layer: "platform",
     dependsOn: ["app-layers"],
