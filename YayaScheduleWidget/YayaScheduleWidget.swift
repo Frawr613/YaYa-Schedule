@@ -127,7 +127,8 @@ struct YayaWidgetData: Decodable {
 
     func isFresh(at date: Date) -> Bool {
         guard updatedAt > 0 else { return false }
-        return date.timeIntervalSince1970 - updatedAt < 60 * 60 * 12
+        let age = date.timeIntervalSince1970 - updatedAt
+        return age >= -60 && age < 60 * 60 * 12
     }
 }
 
@@ -331,7 +332,7 @@ struct YayaWidgetProvider: TimelineProvider {
 
     private func readData() -> YayaWidgetData {
         let defaults = UserDefaults(suiteName: appGroupIdentifier)
-        guard let data = widgetPayloadData(from: defaults) else { return .empty }
+        guard let data = widgetPayloadData(from: defaults) ?? widgetPayloadData(from: .standard) else { return .empty }
         if let payload = try? JSONDecoder().decode(YayaWidgetData.self, from: data) {
             return payload
         }

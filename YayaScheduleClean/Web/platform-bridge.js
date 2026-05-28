@@ -94,7 +94,7 @@
   if (hasNativeMethod("updateHomeWidget")) {
     capabilities.push("updateHomeWidget");
     platformApi.updateHomeWidget = function updateHomeWidget(payload) {
-      const value = Array.isArray(payload) ? JSON.stringify(payload) : String(payload || "");
+      const value = typeof payload === "string" ? payload : JSON.stringify(payload || {});
       return nativeCall("updateHomeWidget", [value], false);
     };
   }

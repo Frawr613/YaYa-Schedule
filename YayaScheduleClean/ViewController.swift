@@ -1780,6 +1780,27 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         }
     }
 
+    private func collectReminderNotificationIdsToClear(
+        storedIds: [String],
+        completion: @escaping ([String]) -> Void
+    ) {
+        let center = UNUserNotificationCenter.current()
+        center.getPendingNotificationRequests { pendingRequests in
+            let pendingIds = pendingRequests
+                .map(\.identifier)
+                .filter { $0.hasPrefix("reminder-") }
+            center.getDeliveredNotifications { deliveredNotifications in
+                let deliveredIds = deliveredNotifications
+                    .map { $0.request.identifier }
+                    .filter { $0.hasPrefix("reminder-") }
+                let ids = Array(Set(storedIds + pendingIds + deliveredIds))
+                DispatchQueue.main.async {
+                    completion(ids)
+                }
+            }
+        }
+    }
+
     private func requestIOSNotificationPermission(openSettingsWhenDenied: Bool) {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { [weak self] settings in
@@ -1983,16 +2004,16 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         lastReminderSchedulePayload = safePayload
         lastReminderScheduleAt = nowTick
         lastActiveReminderRefreshAt = nowTick
-        let oldIds = Array(Set(
+        let storedOldIds = Array(Set(
             (defaults.stringArray(forKey: reminderNotificationIdsKey) ?? [])
                 + (defaults.stringArray(forKey: legacyDdlNotificationIdsKey) ?? [])
         ))
 
-        func clearPendingQueue() {
+        func clearPendingQueue(idsToClear: [String] = storedOldIds) {
             guard generation == reminderScheduleGeneration else { return }
-            if !oldIds.isEmpty {
-                center.removePendingNotificationRequests(withIdentifiers: oldIds)
-                center.removeDeliveredNotifications(withIdentifiers: oldIds)
+            if !idsToClear.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: idsToClear)
+                center.removeDeliveredNotifications(withIdentifiers: idsToClear)
             }
             defaults.set([], forKey: reminderNotificationIdsKey)
             defaults.set(0, forKey: reminderScheduledCountKey)
@@ -2017,7 +2038,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             let kind = stringValue(item["kind"])
             let rawAlarmKey = stringValue(item["alarmKey"])
             let alarmKey = rawAlarmKey.isEmpty ? "\(kind)|\(id)|\(date)|\(time)" : rawAlarmKey
-            let safeAlarmKey = alarmKey.replacingOccurrences(of: "[^A-Za-z0-9_-]+", with: "-", options: .regularExpression)
+            let safeAlarmKey = reminderIdentifierKey(from: alarmKey)
             let topicFallback = kind == "schedule" ? "日程" : "DDL"
             let topic = stringValue(item["topic"]).isEmpty ? topicFallback : stringValue(item["topic"])
             let titlePrefix = kind == "schedule" ? "日程提醒：" : "DDL提醒："
@@ -2054,52 +2075,56 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         hasNotificationAuthorization { [weak self] granted in
             guard let self else { return }
             guard generation == self.reminderScheduleGeneration else { return }
-            guard granted else {
-                if !oldIds.isEmpty {
-                    center.removePendingNotificationRequests(withIdentifiers: oldIds)
+            self.collectReminderNotificationIdsToClear(storedIds: storedOldIds) { idsToClear in
+                guard generation == self.reminderScheduleGeneration else { return }
+                guard granted else {
+                    if !idsToClear.isEmpty {
+                        center.removePendingNotificationRequests(withIdentifiers: idsToClear)
+                        center.removeDeliveredNotifications(withIdentifiers: idsToClear)
+                    }
+                    defaults.set([], forKey: self.reminderNotificationIdsKey)
+                    defaults.set(0, forKey: self.reminderScheduledCountKey)
+                    defaults.set(Date().timeIntervalSince1970, forKey: self.reminderLastSyncAtKey)
+                    defaults.removeObject(forKey: self.legacyDdlNotificationIdsKey)
+                    self.pushReminderPermissionStatus(force: true)
+                    return
                 }
-                defaults.set([], forKey: self.reminderNotificationIdsKey)
-                defaults.set(0, forKey: self.reminderScheduledCountKey)
-                defaults.set(Date().timeIntervalSince1970, forKey: self.reminderLastSyncAtKey)
-                defaults.removeObject(forKey: self.legacyDdlNotificationIdsKey)
-                self.pushReminderPermissionStatus(force: true)
-                return
-            }
-            if !oldIds.isEmpty {
-                center.removePendingNotificationRequests(withIdentifiers: oldIds)
-                center.removeDeliveredNotifications(withIdentifiers: oldIds)
-            }
-            let group = DispatchGroup()
-            let collector = ReminderNotificationIdCollector()
-            for plan in nextPlans {
-                let content = UNMutableNotificationContent()
-                content.title = plan.title
-                content.body = plan.body
-                content.sound = .default
-                content.categoryIdentifier = "reminder"
+                if !idsToClear.isEmpty {
+                    center.removePendingNotificationRequests(withIdentifiers: idsToClear)
+                    center.removeDeliveredNotifications(withIdentifiers: idsToClear)
+                }
+                let group = DispatchGroup()
+                let collector = ReminderNotificationIdCollector()
+                for plan in nextPlans {
+                    let content = UNMutableNotificationContent()
+                    content.title = plan.title
+                    content.body = plan.body
+                    content.sound = .default
+                    content.categoryIdentifier = "reminder"
 
-                var components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: plan.fireDate)
-                components.calendar = Calendar.current
-                components.timeZone = TimeZone.current
-                let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
-                let request = UNNotificationRequest(identifier: plan.identifier, content: content, trigger: trigger)
-                group.enter()
-                center.add(request) { error in
-                    defer { group.leave() }
-                    if error == nil {
-                        collector.append(plan.identifier)
+                    var components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: plan.fireDate)
+                    components.calendar = Calendar.current
+                    components.timeZone = TimeZone.current
+                    let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+                    let request = UNNotificationRequest(identifier: plan.identifier, content: content, trigger: trigger)
+                    group.enter()
+                    center.add(request) { error in
+                        defer { group.leave() }
+                        if error == nil {
+                            collector.append(plan.identifier)
+                        }
                     }
                 }
-            }
-            group.notify(queue: .main) {
-                guard generation == self.reminderScheduleGeneration else { return }
-                let scheduledSet = Set(collector.values())
-                let scheduledIds = nextPlans.map(\.identifier).filter { scheduledSet.contains($0) }
-                defaults.set(scheduledIds, forKey: self.reminderNotificationIdsKey)
-                defaults.set(scheduledIds.count, forKey: self.reminderScheduledCountKey)
-                defaults.set(Date().timeIntervalSince1970, forKey: self.reminderLastSyncAtKey)
-                defaults.removeObject(forKey: self.legacyDdlNotificationIdsKey)
-                self.pushReminderPermissionStatus(force: true)
+                group.notify(queue: .main) {
+                    guard generation == self.reminderScheduleGeneration else { return }
+                    let scheduledSet = Set(collector.values())
+                    let scheduledIds = nextPlans.map(\.identifier).filter { scheduledSet.contains($0) }
+                    defaults.set(scheduledIds, forKey: self.reminderNotificationIdsKey)
+                    defaults.set(scheduledIds.count, forKey: self.reminderScheduledCountKey)
+                    defaults.set(Date().timeIntervalSince1970, forKey: self.reminderLastSyncAtKey)
+                    defaults.removeObject(forKey: self.legacyDdlNotificationIdsKey)
+                    self.pushReminderPermissionStatus(force: true)
+                }
             }
         }
     }
@@ -2119,8 +2144,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             "theme": widgetThemePayload(values[safe: 8])
         ]
         let signature = payloadSignature(cleanPayloadCore)
-        let defaults = UserDefaults(suiteName: appGroupIdentifier) ?? .standard
-        if !signature.isEmpty && signature == defaults.string(forKey: widgetPayloadSignatureKey) {
+        let appGroupDefaults = UserDefaults(suiteName: appGroupIdentifier)
+        let defaults = appGroupDefaults ?? .standard
+        if !signature.isEmpty,
+           signature == defaults.string(forKey: widgetPayloadSignatureKey),
+           defaults.data(forKey: widgetPayloadKey) != nil {
             return
         }
         var cleanPayload = cleanPayloadCore
@@ -2130,11 +2158,18 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               let data = try? JSONSerialization.data(withJSONObject: cleanPayload) else {
             return
         }
-        defaults.set(data, forKey: widgetPayloadKey)
-        defaults.set(signature, forKey: widgetPayloadSignatureKey)
+        persistWidgetPayload(data, signature: signature, to: defaults)
+        if appGroupDefaults != nil {
+            persistWidgetPayload(data, signature: signature, to: .standard)
+        }
         widgetPayloadGeneration += 1
         let generation = widgetPayloadGeneration
         synchronizeWidgetDefaultsAndReload(defaults, generation: generation)
+    }
+
+    private func persistWidgetPayload(_ data: Data, signature: String, to defaults: UserDefaults) {
+        defaults.set(data, forKey: widgetPayloadKey)
+        defaults.set(signature, forKey: widgetPayloadSignatureKey)
     }
 
     private func synchronizeWidgetDefaultsAndReload(_ defaults: UserDefaults, generation: Int) {
@@ -2239,6 +2274,14 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         case 10: return "十分钟前"
         default: return "提醒"
         }
+    }
+
+    private func reminderIdentifierKey(from value: String) -> String {
+        let normalized = value
+            .replacingOccurrences(of: "[^A-Za-z0-9_-]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-_"))
+        let compact = normalized.isEmpty ? "item" : normalized
+        return String(compact.prefix(96))
     }
 
     private func stringValue(_ value: Any?, fallback: String = "") -> String {
