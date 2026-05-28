@@ -60,7 +60,8 @@ jobs:
             -configuration Debug \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/DerivedData \
+            SYMROOT="$PWD/build/Products" \
+            OBJROOT="$PWD/build/Intermediates" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             COMPILER_INDEX_STORE_ENABLE=NO \
@@ -75,7 +76,8 @@ jobs:
             -configuration Debug \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/DerivedData \
+            SYMROOT="$PWD/build/Products" \
+            OBJROOT="$PWD/build/Intermediates" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             COMPILER_INDEX_STORE_ENABLE=NO \
@@ -87,6 +89,6 @@ jobs:
         with:
           name: ios-simulator-compile-products
           path: |
-            build/DerivedData/Build/Products/Debug-iphonesimulator
+            build/Products/Debug-iphonesimulator
             build-logs
           if-no-files-found: warn
