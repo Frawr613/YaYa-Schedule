@@ -140,7 +140,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         UNUserNotificationCenter.current().delegate = self
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(rescheduleStoredReminderNotifications),
+            selector: #selector(handleAppDidBecomeActive),
             name: UIApplication.didBecomeActiveNotification,
             object: nil
         )
@@ -1931,7 +1931,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         pushReminderPermissionStatus(force: true)
     }
 
-    @objc private func rescheduleStoredReminderNotifications() {
+    @objc private func handleAppDidBecomeActive() {
+        rescheduleStoredReminderNotifications()
+        pushReminderPermissionStatus()
+    }
+
+    private func rescheduleStoredReminderNotifications() {
         let defaults = UserDefaults.standard
         let payload = defaults.string(forKey: reminderNotificationPayloadKey)
             ?? defaults.string(forKey: legacyDdlNotificationPayloadKey)

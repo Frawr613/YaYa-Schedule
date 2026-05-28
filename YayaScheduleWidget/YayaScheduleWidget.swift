@@ -125,9 +125,9 @@ struct YayaWidgetData: Decodable {
         theme ?? .fallback
     }
 
-    var isFresh: Bool {
+    func isFresh(at date: Date) -> Bool {
         guard updatedAt > 0 else { return false }
-        return Date().timeIntervalSince1970 - updatedAt < 60 * 60 * 12
+        return date.timeIntervalSince1970 - updatedAt < 60 * 60 * 12
     }
 }
 
@@ -514,7 +514,7 @@ struct YayaScheduleWidgetView: View {
             ZStack {
                 Circle().fill(Color.white.opacity(0.34))
                 Circle()
-                    .fill(entry.data.isFresh ? palette.warm : palette.muted.opacity(0.52))
+                    .fill(entry.data.isFresh(at: entry.date) ? palette.warm : palette.muted.opacity(0.52))
                     .frame(width: 6, height: 6)
             }
             .frame(width: 16, height: 16)
