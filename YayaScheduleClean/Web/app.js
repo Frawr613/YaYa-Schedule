@@ -11,7 +11,7 @@
   const ACCOUNT_USERNAME_KEY = "yaya-schedule-portal-username-v2";
   const GUIDE_ACK_KEY = "yaya-schedule-guide-ack-v2";
   const CURRENT_SCHEMA_VERSION = 3;
-  const CACHE_RUNTIME_VERSION = "20260528-cache-v112";
+  const CACHE_RUNTIME_VERSION = "20260528-cache-v113";
   const DEFAULT_TERM_START = "2026-02-23";
   const MAX_WEEK = 28;
   const COLLATOR = new Intl.Collator("zh-Hans-CN");
@@ -5737,34 +5737,41 @@
       return lastNativeReminderPayload;
     }
     const completed = completedIdSet();
-    const manualDdlPayload = state.ddls
-      .filter((ddl) => !completed.has(ddl.id))
-      .filter((ddl) => normalizeReminderValues(ddl.reminders).length)
-      .map((ddl) => ({
+    const manualDdlPayload = [];
+    for (const ddl of state.ddls) {
+      if (completed.has(ddl.id)) continue;
+      const reminders = normalizeReminderValues(ddl.reminders);
+      if (!reminders.length) continue;
+      manualDdlPayload.push({
         id: ddl.id,
         alarmKey: ["ddl", ddl.id, ddl.date, ddl.time || "23:59"].join("|"),
         date: ddl.date,
         time: ddl.time || "23:59",
         topic: ddl.topic,
         content: ddl.content || "",
-        reminders: normalizeReminderValues(ddl.reminders),
+        reminders,
         kind: "ddl",
         timeLabel: "截止"
-      }));
-    const schedulePayload = state.customSchedules
-      .filter((item) => !completed.has(targetKeyForCustom(item.id)))
-      .filter((item) => normalizeReminderValues(item.reminders).length)
-      .map((item) => ({
-        id: targetKeyForCustom(item.id),
+      });
+    }
+    const schedulePayload = [];
+    for (const item of state.customSchedules) {
+      const targetKey = targetKeyForCustom(item.id);
+      if (completed.has(targetKey)) continue;
+      const reminders = normalizeReminderValues(item.reminders);
+      if (!reminders.length) continue;
+      schedulePayload.push({
+        id: targetKey,
         alarmKey: ["schedule", item.id, item.date, item.startTime || "08:00"].join("|"),
         date: item.date,
         time: item.startTime || "08:00",
         topic: item.title || "日程",
         content: item.place || "",
-        reminders: normalizeReminderValues(item.reminders),
+        reminders,
         kind: "schedule",
         timeLabel: "开始"
-      }));
+      });
+    }
     lastNativeReminderPayload = [...manualDdlPayload, ...schedulePayload].filter((item) => validDate(item.date));
     lastNativeReminderPayloadSignature = cacheSignature;
     return lastNativeReminderPayload;
@@ -5855,7 +5862,7 @@
         item.topic || "",
         item.content || "",
         item.timeLabel || "",
-        normalizeReminderValues(item.reminders).join(",")
+        (Array.isArray(item.reminders) ? item.reminders : normalizeReminderValues(item.reminders)).join(",")
       ].join("@"))
       .sort()
       .join("||");
