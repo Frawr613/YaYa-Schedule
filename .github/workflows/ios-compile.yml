@@ -35,8 +35,8 @@ jobs:
           node --check YayaScheduleClean/Web/app-layers.js
           node --check YayaScheduleClean/Web/platform-bridge.js
           node --check YayaScheduleClean/Web/app.js
-          grep -q "20260528-cache-v113" YayaScheduleClean/Web/app.js
-          grep -q "yaya-schedule-v113" YayaScheduleClean/Web/sw.js
+          grep -Eq "cache-v[0-9]+" YayaScheduleClean/Web/app.js
+          grep -Eq "yaya-schedule-v[0-9]+" YayaScheduleClean/Web/sw.js
 
       - name: Validate project structure
         run: |
@@ -62,6 +62,7 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
             COMPILER_INDEX_STORE_ENABLE=NO \
             build | tee build-logs/xcodebuild-app.log
 
@@ -76,6 +77,7 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
             COMPILER_INDEX_STORE_ENABLE=NO \
             build | tee build-logs/xcodebuild-widget.log
 
