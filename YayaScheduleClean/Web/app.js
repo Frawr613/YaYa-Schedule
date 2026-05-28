@@ -522,11 +522,12 @@
     scheduleNativeImportPull();
     window.addEventListener("yaya-native-import-ready", scheduleNativeImportPull);
     window.addEventListener("yaya-reminder-permission-updated", handleReminderPermissionUpdated);
-    window.addEventListener("pagehide", flushPersist);
+    window.addEventListener("pagehide", handlePageHide);
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) {
         scheduleForegroundResumeSync("visible");
       } else {
+        clearNativeImportPullTimers();
         if (foregroundResumeTimer) {
           window.clearTimeout(foregroundResumeTimer);
           foregroundResumeTimer = 0;
@@ -613,6 +614,11 @@
       focusDate: state.focusDate,
       startupDateFocus: true
     });
+  }
+
+  function handlePageHide() {
+    clearNativeImportPullTimers();
+    flushPersist();
   }
 
   function normalizeStoredState(raw) {
@@ -4648,9 +4654,19 @@
     }
   }
 
-  function scheduleNativeImportPull() {
-    pullNativeImport();
+  function hasNativeImportBridge() {
+    return Boolean(window.YayaPlatform?.isNative?.() && typeof window.YayaPlatform.takeImportedPage === "function");
+  }
+
+  function clearNativeImportPullTimers() {
     nativeImportPullTimers.forEach((timer) => window.clearTimeout(timer));
+    nativeImportPullTimers = [];
+  }
+
+  function scheduleNativeImportPull() {
+    if (!hasNativeImportBridge()) return;
+    pullNativeImport();
+    clearNativeImportPullTimers();
     nativeImportPullTimers = [180, 640].map((delay) => {
       const timer = window.setTimeout(() => {
         nativeImportPullTimers = nativeImportPullTimers.filter((item) => item !== timer);
