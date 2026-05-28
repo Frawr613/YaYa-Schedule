@@ -226,7 +226,14 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         }
         lastExternalOpenURL = key
         lastExternalOpenAt = now
-        UIApplication.shared.open(url)
+        UIApplication.shared.open(url, options: [:]) { [weak self] success in
+            guard !success else { return }
+            DispatchQueue.main.async {
+                guard self?.lastExternalOpenURL == key else { return }
+                self?.lastExternalOpenURL = ""
+                self?.lastExternalOpenAt = 0
+            }
+        }
     }
 
     private func loadLocalApp() {
@@ -315,12 +322,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     @discardableResult
     private func savePortalAccount(username: String, password: String) -> Bool {
-        guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !password.isEmpty else {
+        let normalizedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedUsername.isEmpty, !password.isEmpty else {
             return false
         }
         let defaults = UserDefaults.standard
-        defaults.set(username, forKey: accountUsernameKey)
+        defaults.set(normalizedUsername, forKey: accountUsernameKey)
         defaults.set(password, forKey: accountPasswordKey)
         return true
     }
@@ -336,6 +343,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         default:
             iconName = nil
         }
+        guard UIApplication.shared.alternateIconName != iconName else { return }
         UIApplication.shared.setAlternateIconName(iconName)
     }
 
@@ -1812,9 +1820,15 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 return
             }
             if UIApplication.shared.canOpenURL(url) {
-                UIApplication.shared.open(url)
+                UIApplication.shared.open(url, options: [:]) { [weak self] success in
+                    guard !success else { return }
+                    DispatchQueue.main.async {
+                        self?.pushReminderPermissionStatus(force: true)
+                    }
+                }
+            } else {
+                self?.pushReminderPermissionStatus(force: true)
             }
-            self?.pushReminderPermissionStatus(force: true)
         }
     }
 
