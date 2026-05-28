@@ -11,7 +11,7 @@
   const ACCOUNT_USERNAME_KEY = "yaya-schedule-portal-username-v2";
   const GUIDE_ACK_KEY = "yaya-schedule-guide-ack-v2";
   const CURRENT_SCHEMA_VERSION = 3;
-  const CACHE_RUNTIME_VERSION = "20260528-cache-v109";
+  const CACHE_RUNTIME_VERSION = "20260528-cache-v110";
   const DEFAULT_TERM_START = "2026-02-23";
   const MAX_WEEK = 28;
   const COLLATOR = new Intl.Collator("zh-Hans-CN");
@@ -5514,27 +5514,16 @@
     return Math.floor(Date.now() / 60000);
   }
 
-  function overviewBucketsSignature(scope, payload) {
-    return `${scope}:${overviewTimeBucket()}:${JSON.stringify(payload)}`;
+  function overviewBucketsSignature(scope, extra = "") {
+    return `${scope}:${overviewTimeBucket()}:${cacheDataSignature()}:${extra}`;
   }
 
   function scheduleOverviewBucketsSignature() {
-    return overviewBucketsSignature("schedule", {
-      focusDate: state.focusDate,
-      termStart: state.termStart,
-      custom: state.customSchedules,
-      recurring: state.recurringSchedules
-    });
+    return overviewBucketsSignature("schedule", `${state.focusDate}:${state.termStart}`);
   }
 
   function specialOverviewBucketsSignature() {
-    return overviewBucketsSignature("special", {
-      special: state.specialChanges,
-      targetTimes: [
-        ...state.customSchedules.map((item) => [item.id, item.startTime, item.endTime]),
-        ...state.recurringSchedules.map((item) => [item.id, item.startTime, item.endTime])
-      ]
-    });
+    return overviewBucketsSignature("special");
   }
 
   function scheduleOverviewBuckets() {
