@@ -54,6 +54,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private let accountPasswordKey = "portalPassword"
     private let portalURL = URL(string: "https://one.bnu.edu.cn/")!
     private let portalOpenCooldown: TimeInterval = 6
+    private let externalOpenCooldown: TimeInterval = 1.2
     private static let portalDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
@@ -93,6 +94,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var pendingImportJsonQueue: [String] = []
     private var portalSessionActive = false
     private var lastPortalOpenAt: TimeInterval = 0
+    private var lastExternalOpenURL = ""
+    private var lastExternalOpenAt: TimeInterval = 0
     private var reminderScheduleGeneration = 0
     private var lastReminderSchedulePayload = ""
     private var lastReminderScheduleAt: TimeInterval = 0
@@ -185,7 +188,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return
         }
         if ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-            UIApplication.shared.open(url)
+            openExternalURL(url)
             decisionHandler(.cancel)
             return
         }
@@ -204,9 +207,26 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         if isLocalAppURL(url) || isTrustedAcademicURL(url) || portalSessionActive {
             webView.load(URLRequest(url: url))
         } else if ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-            UIApplication.shared.open(url)
+            openExternalURL(url)
         }
         return nil
+    }
+
+    private func openExternalURL(_ url: URL) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.openExternalURL(url)
+            }
+            return
+        }
+        let now = Date().timeIntervalSince1970
+        let key = url.absoluteString
+        if key == lastExternalOpenURL, now - lastExternalOpenAt < externalOpenCooldown {
+            return
+        }
+        lastExternalOpenURL = key
+        lastExternalOpenAt = now
+        UIApplication.shared.open(url)
     }
 
     private func loadLocalApp() {
