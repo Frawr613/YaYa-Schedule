@@ -11,7 +11,7 @@
   const ACCOUNT_USERNAME_KEY = "yaya-schedule-portal-username-v2";
   const GUIDE_ACK_KEY = "yaya-schedule-guide-ack-v2";
   const CURRENT_SCHEMA_VERSION = 3;
-  const CACHE_RUNTIME_VERSION = "20260528-cache-v106";
+  const CACHE_RUNTIME_VERSION = "20260528-cache-v108";
   const DEFAULT_TERM_START = "2026-02-23";
   const MAX_WEEK = 28;
   const COLLATOR = new Intl.Collator("zh-Hans-CN");
@@ -489,6 +489,7 @@
       specialByTarget: {},
       specialByDate: {},
       ddlByTarget: {},
+      ddlActiveCountByTarget: {},
       activeDdls: [],
       completedDdls: []
     };
@@ -938,6 +939,10 @@
 
     cache.activeDdls = activeDdlList();
     cache.completedDdls = completedDdlList();
+    for (const ddl of cache.activeDdls) {
+      if (!ddl.targetKey) continue;
+      cache.ddlActiveCountByTarget[ddl.targetKey] = (cache.ddlActiveCountByTarget[ddl.targetKey] || 0) + 1;
+    }
     for (const ddl of [...cache.activeDdls, ...cache.completedDdls]) {
       if (!ddl.targetKey) continue;
       if (!cache.ddlByTarget[ddl.targetKey]) cache.ddlByTarget[ddl.targetKey] = [];
@@ -5656,7 +5661,7 @@
 
   function targetDdlBadge(targetKey) {
     if (!targetKey) return "";
-    const count = (appCache.ddlByTarget[targetKey] || []).filter((ddl) => !isCompleted(ddl.id)).length;
+    const count = appCache.ddlActiveCountByTarget[targetKey] || 0;
     return count ? `DDL ${count}` : "";
   }
 
