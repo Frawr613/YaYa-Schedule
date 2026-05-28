@@ -28,15 +28,14 @@ private final class ReminderNotificationIdCollector: @unchecked Sendable {
 
     func append(_ id: String) {
         lock.lock()
+        defer { lock.unlock() }
         ids.append(id)
-        lock.unlock()
     }
 
     func values() -> [String] {
         lock.lock()
-        let result = ids
-        lock.unlock()
-        return result
+        defer { lock.unlock() }
+        return ids
     }
 }
 
@@ -69,6 +68,26 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         formatter.isLenient = false
         return formatter
     }()
+    private static let portalDateFormatterLock = NSLock()
+    private static let reminderDateFormatterLock = NSLock()
+
+    private static func parsePortalDate(_ text: String) -> Date? {
+        portalDateFormatterLock.lock()
+        defer { portalDateFormatterLock.unlock() }
+        return portalDateFormatter.date(from: text)
+    }
+
+    private static func formatPortalDate(_ date: Date) -> String {
+        portalDateFormatterLock.lock()
+        defer { portalDateFormatterLock.unlock() }
+        return portalDateFormatter.string(from: date)
+    }
+
+    private static func parseReminderDate(date: String, time: String) -> Date? {
+        reminderDateFormatterLock.lock()
+        defer { reminderDateFormatterLock.unlock() }
+        return reminderDateFormatter.date(from: "\(date) \(time)")
+    }
 
     private var webView: WKWebView!
     private var pendingImportJsonQueue: [String] = []
@@ -261,8 +280,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         DispatchQueue.main.async { [weak self] in
             self?.portalSessionActive = false
             self?.loadLocalApp()
-            completionHandler()
         }
+        completionHandler()
     }
 
     private func openAcademicPortal() {
@@ -717,7 +736,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             let currentDateText = self.normalizedPortalDate(anchor.title(for: .normal) ?? "")
             let fallbackDateText = self.normalizedPortalDate(fallbackDate)
             let seed = currentDateText.isEmpty ? fallbackDateText : currentDateText
-            let seedDate = Self.portalDateFormatter.date(from: seed) ?? Date()
+            let seedDate = Self.parsePortalDate(seed) ?? Date()
             let seedParts = Calendar.current.dateComponents([.year, .month, .day], from: seedDate)
             var selectedYear = min(max(seedParts.year ?? 2026, 2000), 2077)
             var selectedMonth = min(max(seedParts.month ?? 9, 1), 12)
@@ -857,7 +876,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 bestDistance = distance
             }
         }
-        return Self.portalDateFormatter.string(from: best)
+        return Self.formatPortalDate(best)
     }
 
     private func portalDaysInMonth(year: Int, month: Int) -> Int {
@@ -1949,8 +1968,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return
         }
 
-        let formatter = Self.reminderDateFormatter
-
         var plans: [ReminderNotificationPlan] = []
         let now = Date()
         for item in items {
@@ -1968,7 +1985,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             let timeLabel = stringValue(item["timeLabel"]).isEmpty ? defaultTimeLabel : stringValue(item["timeLabel"])
             let detail = stringValue(item["content"])
             guard !id.isEmpty,
-                  let deadline = formatter.date(from: "\(date) \(time)"),
+                  let deadline = Self.parseReminderDate(date: date, time: time),
                   let reminders = item["reminders"] as? [Any] else {
                 continue
             }
@@ -2028,10 +2045,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 let request = UNNotificationRequest(identifier: plan.identifier, content: content, trigger: trigger)
                 group.enter()
                 center.add(request) { error in
+                    defer { group.leave() }
                     if error == nil {
                         collector.append(plan.identifier)
                     }
-                    group.leave()
                 }
             }
             group.notify(queue: .main) {
@@ -2075,8 +2092,16 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         }
         defaults.set(data, forKey: widgetPayloadKey)
         defaults.set(signature, forKey: widgetPayloadSignatureKey)
-        defaults.synchronize()
-        scheduleWidgetTimelineReload()
+        synchronizeWidgetDefaultsAndReload(defaults)
+    }
+
+    private func synchronizeWidgetDefaultsAndReload(_ defaults: UserDefaults) {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            defaults.synchronize()
+            DispatchQueue.main.async {
+                self?.scheduleWidgetTimelineReload()
+            }
+        }
     }
 
     private func scheduleWidgetTimelineReload() {
