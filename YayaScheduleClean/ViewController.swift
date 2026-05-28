@@ -22,10 +22,29 @@ private struct ReminderNotificationPlan {
     let fireDate: Date
 }
 
+private final class ReminderNotificationIdCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ids: [String] = []
+
+    func append(_ id: String) {
+        lock.lock()
+        ids.append(id)
+        lock.unlock()
+    }
+
+    func values() -> [String] {
+        lock.lock()
+        let result = ids
+        lock.unlock()
+        return result
+    }
+}
+
 final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UNUserNotificationCenterDelegate {
     private let appGroupIdentifier = "group.com.xuyunfan.yayaschedule"
     private let widgetPayloadKey = "homeWidgetPayload"
     private let widgetPayloadSignatureKey = "homeWidgetPayloadSignature"
+    private let widgetKind = "YayaScheduleWidget"
     private let reminderNotificationIdsKey = "reminderNotificationIds"
     private let reminderNotificationPayloadKey = "reminderNotificationPayload"
     private let reminderScheduledCountKey = "reminderScheduledCount"
@@ -40,6 +59,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        return formatter
+    }()
+    private static let reminderDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
         formatter.isLenient = false
         return formatter
     }()
@@ -108,6 +134,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         if isTrustedAcademicURL(url) {
             guard shouldInjectAcademicHelpers(for: url) else { return }
             lastPortalActionStatus = ""
+            injectPortalNavigationHelper()
             injectPortalAccountHelper()
             injectAcademicImportControlsV2()
         }
@@ -151,8 +178,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        if navigationAction.targetFrame == nil, let url = navigationAction.request.url {
+        guard navigationAction.targetFrame == nil, let url = navigationAction.request.url else {
+            return nil
+        }
+        if isLocalAppURL(url) || isTrustedAcademicURL(url) || portalSessionActive {
             webView.load(URLRequest(url: url))
+        } else if ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+            UIApplication.shared.open(url)
         }
         return nil
     }
@@ -1707,17 +1739,17 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             switch settings.authorizationStatus {
             case .authorized, .provisional, .ephemeral:
                 DispatchQueue.main.async { [weak self] in
-                    self?.rescheduleStoredReminderNotifications()
+                    self?.refreshStoredReminderStateAfterPermission()
                 }
             case .notDetermined:
                 center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, _ in
                     if granted {
                         DispatchQueue.main.async {
-                            self?.rescheduleStoredReminderNotifications()
+                            self?.refreshStoredReminderStateAfterPermission()
                         }
                     } else {
                         DispatchQueue.main.async {
-                            self?.pushReminderPermissionStatus()
+                            self?.pushReminderPermissionStatus(force: true)
                         }
                     }
                 }
@@ -1725,10 +1757,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 if openSettingsWhenDenied {
                     self.openIOSNotificationSettings()
                 } else {
-                    self.pushReminderPermissionStatus()
+                    self.pushReminderPermissionStatus(force: true)
                 }
             @unknown default:
-                self.pushReminderPermissionStatus()
+                self.pushReminderPermissionStatus(force: true)
             }
         }
     }
@@ -1736,17 +1768,23 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private func openIOSNotificationSettings() {
         DispatchQueue.main.async { [weak self] in
             guard let url = URL(string: UIApplication.openSettingsURLString) else {
-                self?.pushReminderPermissionStatus()
+                self?.pushReminderPermissionStatus(force: true)
                 return
             }
             if UIApplication.shared.canOpenURL(url) {
                 UIApplication.shared.open(url)
             }
-            self?.pushReminderPermissionStatus()
+            self?.pushReminderPermissionStatus(force: true)
         }
     }
 
     private func pushReminderPermissionStatus(force: Bool = false) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.pushReminderPermissionStatus(force: force)
+            }
+            return
+        }
         let now = Date().timeIntervalSince1970
         if !force && now - lastReminderPermissionStatusAt < 2.0 {
             return
@@ -1848,6 +1886,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         }
     }
 
+    private func refreshStoredReminderStateAfterPermission() {
+        rescheduleStoredReminderNotifications()
+        pushReminderPermissionStatus(force: true)
+    }
+
     @objc private func rescheduleStoredReminderNotifications() {
         let defaults = UserDefaults.standard
         let payload = defaults.string(forKey: reminderNotificationPayloadKey)
@@ -1905,10 +1948,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return
         }
 
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        formatter.isLenient = false
+        let formatter = Self.reminderDateFormatter
 
         var plans: [ReminderNotificationPlan] = []
         let now = Date()
@@ -1943,7 +1983,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             }
         }
 
-        let nextPlans = plans.sorted { $0.fireDate < $1.fireDate }.prefix(64)
+        let nextPlans = Array(plans.sorted { $0.fireDate < $1.fireDate }.prefix(64))
         guard !nextPlans.isEmpty else {
             clearPendingQueue()
             return
@@ -1960,13 +2000,14 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 defaults.set(0, forKey: self.reminderScheduledCountKey)
                 defaults.set(Date().timeIntervalSince1970, forKey: self.reminderLastSyncAtKey)
                 defaults.removeObject(forKey: self.legacyDdlNotificationIdsKey)
-                self.pushReminderPermissionStatus()
+                self.pushReminderPermissionStatus(force: true)
                 return
             }
             if !oldIds.isEmpty {
                 center.removePendingNotificationRequests(withIdentifiers: oldIds)
             }
-            var nextIds: [String] = []
+            let group = DispatchGroup()
+            let collector = ReminderNotificationIdCollector()
             for plan in nextPlans {
                 let content = UNMutableNotificationContent()
                 content.title = plan.title
@@ -1978,14 +2019,24 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 components.calendar = Calendar.current
                 components.timeZone = TimeZone.current
                 let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
-                center.add(UNNotificationRequest(identifier: plan.identifier, content: content, trigger: trigger))
-                nextIds.append(plan.identifier)
+                let request = UNNotificationRequest(identifier: plan.identifier, content: content, trigger: trigger)
+                group.enter()
+                center.add(request) { error in
+                    if error == nil {
+                        collector.append(plan.identifier)
+                    }
+                    group.leave()
+                }
             }
-            defaults.set(nextIds, forKey: self.reminderNotificationIdsKey)
-            defaults.set(nextIds.count, forKey: self.reminderScheduledCountKey)
-            defaults.set(Date().timeIntervalSince1970, forKey: self.reminderLastSyncAtKey)
-            defaults.removeObject(forKey: self.legacyDdlNotificationIdsKey)
-            self.pushReminderPermissionStatus()
+            group.notify(queue: .main) {
+                guard generation == self.reminderScheduleGeneration else { return }
+                let scheduledIds = collector.values()
+                defaults.set(scheduledIds, forKey: self.reminderNotificationIdsKey)
+                defaults.set(scheduledIds.count, forKey: self.reminderScheduledCountKey)
+                defaults.set(Date().timeIntervalSince1970, forKey: self.reminderLastSyncAtKey)
+                defaults.removeObject(forKey: self.legacyDdlNotificationIdsKey)
+                self.pushReminderPermissionStatus(force: true)
+            }
         }
     }
 
@@ -2023,9 +2074,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     private func scheduleWidgetTimelineReload() {
         widgetReloadWorkItem?.cancel()
+        let kind = widgetKind
         let work = DispatchWorkItem { [weak self] in
             self?.widgetReloadWorkItem = nil
-            WidgetCenter.shared.reloadAllTimelines()
+            WidgetCenter.shared.reloadTimelines(ofKind: kind)
         }
         widgetReloadWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
