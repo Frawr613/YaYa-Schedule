@@ -11,7 +11,7 @@
   const ACCOUNT_USERNAME_KEY = "yaya-schedule-portal-username-v2";
   const GUIDE_ACK_KEY = "yaya-schedule-guide-ack-v2";
   const CURRENT_SCHEMA_VERSION = 3;
-  const CACHE_RUNTIME_VERSION = "20260528-cache-v108";
+  const CACHE_RUNTIME_VERSION = "20260528-cache-v109";
   const DEFAULT_TERM_START = "2026-02-23";
   const MAX_WEEK = 28;
   const COLLATOR = new Intl.Collator("zh-Hans-CN");
@@ -196,6 +196,8 @@
   let appCache = emptyCache();
   let pendingImport = null;
   let persistTimer = 0;
+  let lastPersistedPayload = "";
+  let lastPersistQueuedPayload = "";
   let floatingLayer = FLOATING_LAYER_BASE;
   let renderAllFrame = 0;
   let renderAllCoalesced = 0;
@@ -685,14 +687,21 @@
 
   function persist(options = {}) {
     const payload = JSON.stringify(serializableState());
+    if (!options.immediate && persistTimer && payload === lastPersistQueuedPayload) return;
     if (persistTimer) window.clearTimeout(persistTimer);
-    if (options.immediate) {
-      localStorage.setItem(STORAGE_KEY, payload);
+    if (!options.immediate && payload === lastPersistedPayload) {
+      persistTimer = 0;
+      lastPersistQueuedPayload = "";
       return;
     }
+    if (options.immediate) {
+      writePersistPayload(payload);
+      return;
+    }
+    lastPersistQueuedPayload = payload;
     persistTimer = window.setTimeout(() => {
       persistTimer = 0;
-      localStorage.setItem(STORAGE_KEY, payload);
+      writePersistPayload(lastPersistQueuedPayload || payload);
     }, 120);
   }
 
@@ -700,7 +709,13 @@
     if (!persistTimer) return;
     window.clearTimeout(persistTimer);
     persistTimer = 0;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(serializableState()));
+    writePersistPayload(lastPersistQueuedPayload || JSON.stringify(serializableState()));
+  }
+
+  function writePersistPayload(payload) {
+    localStorage.setItem(STORAGE_KEY, payload);
+    lastPersistedPayload = payload;
+    lastPersistQueuedPayload = "";
   }
 
   function serializableState() {
@@ -874,7 +889,7 @@
       appCache = { ...emptyCache(), ...cached };
       return;
     }
-    rebuildCache(true);
+    rebuildCache(true, signature);
   }
 
   function rebuildCacheIfChanged(save = false) {
@@ -886,12 +901,12 @@
       });
       return false;
     }
-    rebuildCache(save);
+    rebuildCache(save, signature);
     return true;
   }
 
-  function rebuildCache(save = false) {
-    const signature = dataSignature();
+  function rebuildCache(save = false, knownSignature = "") {
+    const signature = knownSignature || dataSignature();
     const cache = emptyCache();
     cache.signature = signature;
     cache.cacheVersion = CACHE_RUNTIME_VERSION;

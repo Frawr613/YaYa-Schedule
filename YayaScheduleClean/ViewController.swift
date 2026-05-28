@@ -203,9 +203,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         center.removeDeliveredNotifications(withIdentifiers: [response.notification.request.identifier])
-        portalSessionActive = false
-        loadLocalApp()
-        completionHandler()
+        DispatchQueue.main.async { [weak self] in
+            self?.portalSessionActive = false
+            self?.loadLocalApp()
+            completionHandler()
+        }
     }
 
     private func openAcademicPortal() {
