@@ -1042,8 +1042,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         guard !username.isEmpty, !password.isEmpty else { return }
         let script = """
         (function() {
-          if (window.__yayaPortalAssistVersion === 'manual-prefill-v2') return;
-          window.__yayaPortalAssistVersion = 'manual-prefill-v2';
+          if (window.__yayaPortalAssistVersion === 'manual-prefill-v3') return;
+          window.__yayaPortalAssistVersion = 'manual-prefill-v3';
           var username = \(Self.javaScriptStringLiteral(username));
           var password = \(Self.javaScriptStringLiteral(password));
           function visible(el) {
@@ -1123,13 +1123,33 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             }
             return nodes[0] || null;
           }
+          function isManualLoginTarget(target) {
+            try {
+              if (!target) return false;
+              var node = target.closest && target.closest('input,textarea,select,[contenteditable=true],[contenteditable=plaintext-only]');
+              if (!node) node = target;
+              return /input|textarea|select/i.test(node.tagName || '') || node.isContentEditable;
+            } catch (error) {
+              return false;
+            }
+          }
+          function releaseToManual(doc) {
+            if (!doc) return;
+            doc.__yayaUserEditedLogin = true;
+            try {
+              if (doc.__yayaManualPrefillTimer) clearTimeout(doc.__yayaManualPrefillTimer);
+              if (doc.__yayaManualPrefillObserver) doc.__yayaManualPrefillObserver.disconnect();
+            } catch (error) {}
+          }
           function shouldFill(el, value) {
             if (!el) return false;
+            var doc = el.ownerDocument || document;
+            if (doc.__yayaUserEditedLogin || doc.activeElement === el) return false;
             var current = String(el.value || '').trim();
             if (current && current !== value) return false;
             if (current === value) return false;
             var count = Number(el.dataset.yayaPrefillCount || 0);
-            return count < 3;
+            return count < 2;
           }
           function markFilled(el) {
             if (!el) return;
@@ -1139,11 +1159,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             if (!doc || doc.__yayaUserEditGuard) return;
             doc.__yayaUserEditGuard = true;
             try {
-              doc.addEventListener('input', function(event) {
-                if (!event.isTrusted) return;
-                var target = event.target;
-                if (target && /input|textarea/i.test(target.tagName || '')) doc.__yayaUserEditedLogin = true;
-              }, true);
+              ['touchstart', 'pointerdown', 'mousedown', 'focusin', 'keydown', 'beforeinput', 'input', 'compositionstart', 'paste'].forEach(function(name) {
+                doc.addEventListener(name, function(event) {
+                  if (event && event.isTrusted === false) return;
+                  if (isManualLoginTarget(event && event.target)) releaseToManual(doc);
+                }, true);
+              });
             } catch (error) {}
           }
           function prefill() {
@@ -1694,6 +1715,35 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               pages: data && data.pages || 1
             });
           }
+          function hasVisiblePasswordField() {
+            var docs = allDocs();
+            for (var d = 0; d < docs.length; d += 1) {
+              var inputs = docs[d].querySelectorAll && docs[d].querySelectorAll('input[type=password]');
+              for (var i = 0; inputs && i < inputs.length; i += 1) {
+                if (visible(inputs[i])) return true;
+              }
+            }
+            return false;
+          }
+          function makeLoginExitChip() {
+            var old = document.getElementById('yaya-sync-panel');
+            if (old) old.remove();
+            var accent = portalColor('accent', '#2563eb');
+            var ink = portalColor('ink', '#16233a');
+            var panel = portalColor('panel', '#eff6ff');
+            var chip = document.createElement('button');
+            chip.id = 'yaya-sync-panel';
+            chip.type = 'button';
+            chip.textContent = '返回鸦鸦';
+            chip.setAttribute('aria-label', '返回鸦鸦日程');
+            chip.style.cssText = 'position:fixed;right:10px;top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;min-width:86px;height:38px;border:1px solid rgba(255,255,255,.72);border-radius:19px;padding:0 13px;font-size:13px;font-weight:900;color:' + ink + ';background:linear-gradient(145deg,rgba(255,255,255,.92),' + rgba(panel,.84) + ');box-shadow:0 10px 22px ' + rgba(accent,.16) + ',inset 0 1px 0 rgba(255,255,255,.72);-webkit-backdrop-filter:blur(14px) saturate(1.24);backdrop-filter:blur(14px) saturate(1.24);touch-action:manipulation';
+            chip.onclick = function(event) {
+              event.preventDefault();
+              event.stopPropagation();
+              post('returnHome');
+            };
+            document.documentElement.appendChild(chip);
+          }
           function makePanel() {
             var old = document.getElementById('yaya-sync-panel');
             if (old) old.remove();
@@ -1809,7 +1859,25 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             }, true);
             document.documentElement.appendChild(box);
           }
-          makePanel();
+          function renderImportPanelWhenReady() {
+            if (hasVisiblePasswordField()) {
+              makeLoginExitChip();
+              return;
+            }
+            makePanel();
+          }
+          function watchLoginTransition() {
+            if (document.__yayaImportPanelLoginObserver) return;
+            try {
+              document.__yayaImportPanelLoginObserver = new MutationObserver(function() {
+                clearTimeout(document.__yayaImportPanelLoginTimer);
+                document.__yayaImportPanelLoginTimer = setTimeout(renderImportPanelWhenReady, 260);
+              });
+              document.__yayaImportPanelLoginObserver.observe(document.documentElement || document, { subtree: true, childList: true });
+            } catch (error) {}
+          }
+          renderImportPanelWhenReady();
+          watchLoginTransition();
         })();
         """
         webView.evaluateJavaScript(script)
