@@ -11,6 +11,7 @@
   const ACCOUNT_USERNAME_KEY = "yaya-schedule-portal-username-v2";
   const GUIDE_ACK_KEY = "yaya-schedule-guide-ack-v2";
   const CURRENT_SCHEMA_VERSION = 3;
+  const CACHE_RUNTIME_VERSION = "20260528-cache-v106";
   const DEFAULT_TERM_START = "2026-02-23";
   const MAX_WEEK = 28;
   const COLLATOR = new Intl.Collator("zh-Hans-CN");
@@ -258,6 +259,12 @@
   let lastNativeReminderPayloadSignature = "";
   let lastNativeReminderPayload = null;
   let lastNativeReminderQueueSignature = "";
+  let lastNoteCountSignature = "";
+  let lastNoteCount = 0;
+  let lastDdlDoneFilterSignature = "";
+  let lastDdlDoneFilter = null;
+  let lastFilteredCompletedDdlSignature = "";
+  let lastFilteredCompletedDdls = null;
   let pickerScrollFrame = 0;
   let pickerScrollType = "";
   let floatingLayerGuardTimer = 0;
@@ -282,7 +289,7 @@
       lastArchitectureRenderRuntimeAt = now;
     }
     const ui = resolveUiAssembly();
-    const noteCount = Object.values(state.notes || {}).reduce((total, list) => total + (Array.isArray(list) ? list.length : 0), 0);
+    const noteCount = cachedNoteCount();
     const courseCount = appCache.courseCount || state.terms.reduce((total, term) => total + (Array.isArray(term.courses) ? term.courses.length : 0), 0);
     window.YayaLayers.registerRuntime("source", {
       stage,
@@ -468,6 +475,7 @@
   function emptyCache() {
     return {
       signature: "",
+      cacheVersion: CACHE_RUNTIME_VERSION,
       builtAt: 0,
       maxWeek: 1,
       courseCount: 0,
@@ -479,6 +487,7 @@
       customByDate: {},
       examsByDate: {},
       specialByTarget: {},
+      specialByDate: {},
       ddlByTarget: {},
       activeDdls: [],
       completedDdls: []
@@ -830,6 +839,21 @@
     return true;
   }
 
+  function cachedNoteCount() {
+    const signature = Object.entries(state.notes || {})
+      .map(([key, list]) => `${key}:${Array.isArray(list) ? list.length : 0}`)
+      .sort()
+      .join("|");
+    if (signature === lastNoteCountSignature) return lastNoteCount;
+    lastNoteCountSignature = signature;
+    lastNoteCount = Object.values(state.notes || {}).reduce((total, list) => total + (Array.isArray(list) ? list.length : 0), 0);
+    return lastNoteCount;
+  }
+
+  function cacheDataSignature() {
+    return appCache.signature || dataSignature();
+  }
+
   function dataSignature() {
     return JSON.stringify({
       terms: state.terms.map((term) => [term.id, term.termStart, term.label, term.rows || []]),
@@ -845,7 +869,7 @@
   function rebuildCacheIfNeeded() {
     const signature = dataSignature();
     const cached = readJson(CACHE_KEY);
-    if (cached && cached.signature === signature) {
+    if (cached && cached.signature === signature && cached.cacheVersion === CACHE_RUNTIME_VERSION) {
       appCache = { ...emptyCache(), ...cached };
       return;
     }
@@ -869,6 +893,7 @@
     const signature = dataSignature();
     const cache = emptyCache();
     cache.signature = signature;
+    cache.cacheVersion = CACHE_RUNTIME_VERSION;
     cache.builtAt = Date.now();
     dayItemsCache.clear();
 
@@ -903,6 +928,12 @@
       if (!change.targetKey) continue;
       if (!cache.specialByTarget[change.targetKey]) cache.specialByTarget[change.targetKey] = [];
       cache.specialByTarget[change.targetKey].push(change);
+      if ((change.action === "cancel" || change.action === "move") && change.sourceDate) {
+        pushDateItem(cache.specialByDate, change.sourceDate, change);
+      }
+      if (change.action === "move" && change.date && change.date !== change.sourceDate) {
+        pushDateItem(cache.specialByDate, change.date, change);
+      }
     }
 
     cache.activeDdls = activeDdlList();
@@ -5189,7 +5220,7 @@
     ];
     const hidden = new Set();
     const specials = [];
-    for (const change of state.specialChanges) {
+    for (const change of appCache.specialByDate[date] || []) {
       const title = targetTitle(change.targetKey) || "特殊变更";
       if ((change.action === "cancel" || change.action === "move") && change.sourceDate === date) {
         hidden.add(change.targetKey);
@@ -5234,9 +5265,10 @@
   }
 
   function activeDdlList() {
-    const manual = state.ddls.filter((ddl) => !isCompleted(ddl.id));
+    const completed = completedIdSet();
+    const manual = state.ddls.filter((ddl) => !completed.has(ddl.id));
     const schedule = state.customSchedules
-      .filter((item) => item.syncToDdl && item.reminders?.length && !isCompleted(targetKeyForCustom(item.id)))
+      .filter((item) => item.syncToDdl && item.reminders?.length && !completed.has(targetKeyForCustom(item.id)))
       .map((item) => ({
         id: targetKeyForCustom(item.id),
         date: item.date,
@@ -5256,6 +5288,14 @@
   }
 
   function ddlDoneFilters() {
+    const signature = [
+      state.ddlDoneFilterQuery,
+      state.ddlDoneFilterStart,
+      state.ddlDoneFilterStartTime,
+      state.ddlDoneFilterEnd,
+      state.ddlDoneFilterEndTime
+    ].join("|");
+    if (lastDdlDoneFilter && signature === lastDdlDoneFilterSignature) return lastDdlDoneFilter;
     const query = normalizeText(state.ddlDoneFilterQuery);
     const startDate = validDateInputValue(state.ddlDoneFilterStart);
     const startTime = validTimeInputValue(state.ddlDoneFilterStartTime);
@@ -5271,7 +5311,8 @@
     if (fromMinute !== null && toMinute !== null && fromMinute > toMinute) {
       [fromMinute, toMinute] = [toMinute, fromMinute];
     }
-    return {
+    lastDdlDoneFilterSignature = signature;
+    lastDdlDoneFilter = {
       query,
       tokens: searchTokens(query),
       startDate,
@@ -5283,6 +5324,7 @@
       fromMinute,
       toMinute
     };
+    return lastDdlDoneFilter;
   }
 
   function hasCompletedDdlFilters(filters = ddlDoneFilters()) {
@@ -5291,7 +5333,15 @@
 
   function filteredCompletedDdls() {
     const filters = ddlDoneFilters();
-    return appCache.completedDdls.filter((ddl) => {
+    const signature = `${cacheDataSignature()}|${lastDdlDoneFilterSignature}`;
+    if (lastFilteredCompletedDdls && signature === lastFilteredCompletedDdlSignature) return lastFilteredCompletedDdls;
+    if (!hasCompletedDdlFilters(filters)) {
+      lastFilteredCompletedDdlSignature = signature;
+      lastFilteredCompletedDdls = appCache.completedDdls;
+      return lastFilteredCompletedDdls;
+    }
+    lastFilteredCompletedDdlSignature = signature;
+    lastFilteredCompletedDdls = appCache.completedDdls.filter((ddl) => {
       if (filters.tokens.length && !completedDdlMatchesQuery(ddl, filters.tokens)) return false;
       const stamp = ddlDueStamp(ddl);
       if ((filters.fromStamp !== null || filters.toStamp !== null) && stamp === null) return false;
@@ -5302,6 +5352,7 @@
       if (filters.toMinute !== null && minute > filters.toMinute) return false;
       return true;
     });
+    return lastFilteredCompletedDdls;
   }
 
   function completedDdlMatchesQuery(ddl, tokens) {
@@ -5670,12 +5721,13 @@
   }
 
   function nativeReminderPayload() {
-    const cacheSignature = dataSignature();
+    const cacheSignature = cacheDataSignature();
     if (lastNativeReminderPayload && cacheSignature === lastNativeReminderPayloadSignature) {
       return lastNativeReminderPayload;
     }
+    const completed = completedIdSet();
     const manualDdlPayload = state.ddls
-      .filter((ddl) => !isCompleted(ddl.id))
+      .filter((ddl) => !completed.has(ddl.id))
       .filter((ddl) => normalizeReminderValues(ddl.reminders).length)
       .map((ddl) => ({
         id: ddl.id,
@@ -5689,7 +5741,7 @@
         timeLabel: "截止"
       }));
     const schedulePayload = state.customSchedules
-      .filter((item) => !isCompleted(targetKeyForCustom(item.id)))
+      .filter((item) => !completed.has(targetKeyForCustom(item.id)))
       .filter((item) => normalizeReminderValues(item.reminders).length)
       .map((item) => ({
         id: targetKeyForCustom(item.id),
