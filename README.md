@@ -34,6 +34,19 @@
 5. 连接 iPhone 后可直接运行到设备。
 6. 需要 `.ipa` 时，使用 `Product > Archive`，再 `Distribute App` 导出。
 
+## 真实编译环境
+
+本仓库已加入 GitHub Actions macOS 编译流水线：
+
+- `.github/workflows/ios-compile.yml`
+- 编译主 App：`YayaScheduleClean`
+- 编译 Widget：`YayaScheduleWidget`
+- 默认生成 iOS Simulator 编译产物，不需要本地 Windows 安装 Xcode
+
+更完整的跨平台环境说明见：
+
+- `跨平台真实编译环境.md`
+
 ## Bundle
 
 - 主 App Bundle ID：`com.xuyunfan.yayaschedule.clean`

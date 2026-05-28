@@ -1,0 +1,90 @@
+name: iOS Real Compile
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-real-compile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-simulator-compile:
+    name: Xcode simulator compile
+    runs-on: macos-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode toolchain
+        run: |
+          xcodebuild -version
+          xcode-select -p
+          xcrun simctl list runtimes
+
+      - name: Validate bundled web scripts
+        run: |
+          node --check YayaScheduleClean/Web/app-layers.js
+          node --check YayaScheduleClean/Web/platform-bridge.js
+          node --check YayaScheduleClean/Web/app.js
+          grep -q "20260528-cache-v113" YayaScheduleClean/Web/app.js
+          grep -q "yaya-schedule-v113" YayaScheduleClean/Web/sw.js
+
+      - name: Validate project structure
+        run: |
+          test -d YayaScheduleClean.xcodeproj
+          test -f YayaScheduleClean/ViewController.swift
+          test -f YayaScheduleWidget/YayaScheduleWidget.swift
+          test -f YayaScheduleClean/YayaScheduleClean.entitlements
+          test -f YayaScheduleWidget/YayaScheduleWidget.entitlements
+          plutil -lint YayaScheduleClean/Info.plist
+          plutil -lint YayaScheduleWidget/Info.plist
+          plutil -lint YayaScheduleClean/YayaScheduleClean.entitlements
+          plutil -lint YayaScheduleWidget/YayaScheduleWidget.entitlements
+
+      - name: Compile app target for iOS Simulator
+        run: |
+          set -o pipefail
+          mkdir -p build-logs
+          xcodebuild \
+            -project YayaScheduleClean.xcodeproj \
+            -target YayaScheduleClean \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build | tee build-logs/xcodebuild-app.log
+
+      - name: Compile widget target for iOS Simulator
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project YayaScheduleClean.xcodeproj \
+            -target YayaScheduleWidget \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build | tee build-logs/xcodebuild-widget.log
+
+      - name: Upload simulator build products
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-compile-products
+          path: |
+            build/DerivedData/Build/Products/Debug-iphonesimulator
+            build-logs
+          if-no-files-found: warn
