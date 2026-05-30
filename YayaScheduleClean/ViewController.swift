@@ -161,6 +161,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         scrollView.bouncesZoom = false
         scrollView.delaysContentTouches = false
         scrollView.canCancelContentTouches = true
+        scrollView.keyboardDismissMode = .interactive
         scrollView.pinchGestureRecognizer?.isEnabled = false
     }
 
@@ -256,12 +257,94 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         return nil
     }
 
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptAlertPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping () -> Void
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            let alert = UIAlertController(title: self?.webDialogTitle(for: frame), message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "好", style: .default) { _ in
+                completionHandler()
+            })
+            guard let presenter = self?.webDialogPresenter() else {
+                completionHandler()
+                return
+            }
+            presenter.present(alert, animated: true)
+        }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptConfirmPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (Bool) -> Void
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            let alert = UIAlertController(title: self?.webDialogTitle(for: frame), message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "取消", style: .cancel) { _ in
+                completionHandler(false)
+            })
+            alert.addAction(UIAlertAction(title: "确定", style: .default) { _ in
+                completionHandler(true)
+            })
+            guard let presenter = self?.webDialogPresenter() else {
+                completionHandler(false)
+                return
+            }
+            presenter.present(alert, animated: true)
+        }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptTextInputPanelWithPrompt prompt: String,
+        defaultText: String?,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (String?) -> Void
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            let alert = UIAlertController(title: self?.webDialogTitle(for: frame), message: prompt, preferredStyle: .alert)
+            alert.addTextField { field in
+                field.text = defaultText
+            }
+            alert.addAction(UIAlertAction(title: "取消", style: .cancel) { _ in
+                completionHandler(nil)
+            })
+            alert.addAction(UIAlertAction(title: "确定", style: .default) { [weak alert] _ in
+                completionHandler(alert?.textFields?.first?.text)
+            })
+            guard let presenter = self?.webDialogPresenter() else {
+                completionHandler(defaultText)
+                return
+            }
+            presenter.present(alert, animated: true)
+        }
+    }
+
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
         download.delegate = self
     }
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         download.delegate = self
+    }
+
+    private func webDialogTitle(for frame: WKFrameInfo) -> String? {
+        let host = frame.request.url?.host ?? webView.url?.host
+        guard let host, !host.isEmpty else { return nil }
+        return host
+    }
+
+    private func webDialogPresenter() -> UIViewController? {
+        guard view.window != nil else { return nil }
+        var presenter: UIViewController = self
+        while let next = presenter.presentedViewController {
+            presenter = next
+        }
+        return presenter is UIAlertController ? nil : presenter
     }
 
     func download(
