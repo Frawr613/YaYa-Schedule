@@ -116,6 +116,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     override func loadView() {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         configuration.websiteDataStore = .default()
         configuration.userContentController.addUserScript(Self.iosInteractionGuardScript())
         configuration.userContentController.addUserScript(Self.yayaNativeBridgeScript())
@@ -1224,10 +1225,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         guard !username.isEmpty, !password.isEmpty else { return }
         let script = """
         (function() {
-          if (window.__yayaPortalAssistVersion === 'manual-prefill-v3') return;
-          window.__yayaPortalAssistVersion = 'manual-prefill-v3';
+          if (window.__yayaPortalAssistVersion === 'manual-prefill-v4') return;
+          window.__yayaPortalAssistVersion = 'manual-prefill-v4';
           var username = \(Self.javaScriptStringLiteral(username));
           var password = \(Self.javaScriptStringLiteral(password));
+          var startedAt = Date.now();
+          var maxRuns = 10;
+          var runCount = 0;
           function visible(el) {
             if (!el) return false;
             var r = el.getBoundingClientRect();
@@ -1343,15 +1347,24 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           function releaseToManual(doc) {
             if (!doc) return;
             doc.__yayaUserEditedLogin = true;
+            doc.__yayaManualLoginReleasedAt = Date.now();
             try {
               if (doc.__yayaManualPrefillTimer) clearTimeout(doc.__yayaManualPrefillTimer);
               if (doc.__yayaManualPrefillObserver) doc.__yayaManualPrefillObserver.disconnect();
             } catch (error) {}
           }
+          function stopPrefill(doc) {
+            if (!doc) return;
+            try {
+              if (doc.__yayaManualPrefillTimer) clearTimeout(doc.__yayaManualPrefillTimer);
+              if (doc.__yayaManualPrefillObserver) doc.__yayaManualPrefillObserver.disconnect();
+              doc.__yayaManualPrefillObserver = null;
+            } catch (error) {}
+          }
           function shouldFill(el, value) {
             if (!el) return false;
             var doc = el.ownerDocument || document;
-            if (doc.__yayaUserEditedLogin || doc.activeElement === el) return false;
+            if (doc.__yayaUserEditedLogin) return false;
             var current = String(el.value || '').trim();
             if (current && current !== value) return false;
             if (current === value) return false;
@@ -1366,17 +1379,26 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             if (!doc || doc.__yayaUserEditGuard) return;
             doc.__yayaUserEditGuard = true;
             try {
-              ['touchstart', 'pointerdown', 'mousedown', 'focusin', 'keydown', 'beforeinput', 'input', 'compositionstart', 'paste'].forEach(function(name) {
+              ['touchstart', 'pointerdown', 'mousedown', 'keydown', 'beforeinput', 'input', 'compositionstart', 'paste'].forEach(function(name) {
                 doc.addEventListener(name, function(event) {
                   if (event && event.isTrusted === false) return;
                   if (isManualLoginTarget(event && event.target)) releaseToManual(doc);
                 }, true);
               });
+              doc.addEventListener('focusin', function(event) {
+                if (event && event.isTrusted === false) return;
+                if (isManualLoginTarget(event && event.target)) doc.__yayaLoginFieldFocusedAt = Date.now();
+              }, true);
             } catch (error) {}
           }
           function prefill() {
+            runCount += 1;
             forceSelfWindow();
             var docs = allDocs();
+            if (runCount > maxRuns || Date.now() - startedAt > 10000) {
+              docs.forEach(stopPrefill);
+              return;
+            }
             for (var d = 0; d < docs.length; d += 1) {
               var doc = docs[d];
               installUserEditGuard(doc);
@@ -1384,11 +1406,19 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               var passwordInput = Array.prototype.slice.call(doc.querySelectorAll('input[type=password]')).filter(visible)[0];
               if (!passwordInput) continue;
               var userInput = userInputNear(passwordInput);
+              var filledUser = false;
+              var filledPassword = false;
               if (shouldFill(userInput, username) && setValue(userInput, username)) {
                 markFilled(userInput);
+                filledUser = true;
               }
               if (shouldFill(passwordInput, password) && setValue(passwordInput, password)) {
                 markFilled(passwordInput);
+                filledPassword = true;
+              }
+              if ((filledUser || String(userInput && userInput.value || '').trim() === username) && (filledPassword || String(passwordInput.value || '').trim() === password)) {
+                doc.__yayaAutoPrefillDone = true;
+                setTimeout(function(targetDoc) { stopPrefill(targetDoc); }, 800, doc);
               }
               return;
             }
@@ -1408,6 +1438,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           }
           prefill();
           setTimeout(prefill, 650);
+          setTimeout(prefill, 1800);
+          setTimeout(function() { allDocs().forEach(stopPrefill); }, 11000);
           observe();
         })();
         """
@@ -2667,8 +2699,17 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private static func iosInteractionGuardScript() -> WKUserScript {
         let source = """
         (function() {
+          function isLocalAppDocument(doc) {
+            try {
+              var location = doc.location || window.location;
+              return location.protocol === 'file:' && /index\\.html$/i.test(location.pathname || '');
+            } catch (error) {
+              return false;
+            }
+          }
           function ensureViewport(doc) {
             try {
+              if (!isLocalAppDocument(doc)) return;
               var head = doc.head || doc.documentElement;
               if (!head) return;
               var meta = doc.querySelector('meta[name="viewport"]');
@@ -2686,17 +2727,22 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               if (doc.getElementById('__yayaIosInteractionGuard')) return;
               var style = doc.createElement('style');
               style.id = '__yayaIosInteractionGuard';
-              style.textContent = [
+              var localApp = isLocalAppDocument(doc);
+              var rules = [
                 'html,body{-webkit-text-size-adjust:100% !important;}',
                 'input:not([type=range]),textarea,select{font-size:16px !important;}',
-                'button,a,[role=button],input,textarea,select,label{touch-action:manipulation;}',
                 '*{-webkit-tap-highlight-color:transparent;}'
-              ].join('\\n');
+              ];
+              if (localApp) {
+                rules.push('button,a,[role=button],input,textarea,select,label{touch-action:manipulation;}');
+              }
+              style.textContent = rules.join('\\n');
               (doc.head || doc.documentElement).appendChild(style);
             } catch (error) {}
           }
           function installGestureGuard(doc) {
             try {
+              if (!isLocalAppDocument(doc)) return;
               if (doc.__yayaIosGestureGuard) return;
               doc.__yayaIosGestureGuard = true;
               doc.addEventListener('gesturestart', function(event) { event.preventDefault(); }, { passive: false });
