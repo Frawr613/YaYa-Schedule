@@ -521,6 +521,7 @@
     updateNativeWidget();
     scheduleNativeImportPull();
     window.addEventListener("yaya-native-import-ready", scheduleNativeImportPull);
+    window.addEventListener("yaya-native-file-import-ready", handleNativeFileImportReady);
     window.addEventListener("yaya-reminder-permission-updated", handleReminderPermissionUpdated);
     window.addEventListener("yaya-launcher-icon-updated", handleLauncherIconUpdated);
     window.addEventListener("pagehide", handlePageHide);
@@ -3226,7 +3227,9 @@
     if (action === "open-guide") openModal("guide");
     if (action === "open-portal") openAcademicPortal(event);
     if (action === "request-reminder-permission") requestReminderPermission();
-    if (action === "choose-file") els.fileInput.click();
+    if (action === "choose-file") {
+      if (!openNativeFileImport()) els.fileInput.click();
+    }
     if (action === "clear-notice") {
       applyViewStateChange(action, Boolean(state.notice), () => {
         state.notice = "";
@@ -4677,6 +4680,48 @@
     });
   }
 
+  function openNativeFileImport() {
+    const bridge = window.YayaPlatform;
+    if (!bridge?.isNative?.() || typeof bridge.openFileImport !== "function") return false;
+    const opened = Boolean(bridge.openFileImport());
+    if (opened) {
+      applyNoticeMessage("open-native-file-import", "正在打开文件选择", {
+        immediate: true,
+        renderAll: true
+      });
+    }
+    return opened;
+  }
+
+  async function handleNativeFileImportReady(event) {
+    const payload = event?.detail || window.__yayaPendingFileImport || {};
+    window.__yayaPendingFileImport = null;
+    if (payload.error) {
+      applyNoticeMessage("native-file-import-error", String(payload.message || "文件导入失败"), {
+        immediate: true,
+        renderAll: true
+      });
+      return;
+    }
+    try {
+      activateRenderBusy(820);
+      const text = decodeFile(base64ToArrayBuffer(String(payload.base64 || "")));
+      handleImportedFileText(text, String(payload.name || "iOS 文件导入"));
+    } catch (error) {
+      state.notice = "文件导入失败：当前支持网页型 .xls、HTML、CSV 或 TXT";
+      renderAll();
+    }
+  }
+
+  function base64ToArrayBuffer(value) {
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+
   function applyAcademicImport(payload) {
     activateRenderBusy(820);
     const html = payload.html || "";
@@ -4731,18 +4776,22 @@
     try {
       activateRenderBusy(820);
       const text = decodeFile(await file.arrayBuffer());
-      const rows = /<table\b/i.test(text) ? parseHtmlSchedule(text) : parseDelimitedSchedule(text);
-      if (!rows.length) throw new Error("未识别到课程");
-      pendingImport = {
-        rows,
-        sourceName: file.name,
-        rawText: text
-      };
-      openModal("term-import");
+      handleImportedFileText(text, file.name);
     } catch (error) {
       state.notice = "文件导入失败：当前支持网页型 .xls、HTML、CSV 或 TXT";
       renderAll();
     }
+  }
+
+  function handleImportedFileText(text, sourceName) {
+    const rows = /<table\b/i.test(text) ? parseHtmlSchedule(text) : parseDelimitedSchedule(text);
+    if (!rows.length) throw new Error("未识别到课程");
+    pendingImport = {
+      rows,
+      sourceName,
+      rawText: text
+    };
+    openModal("term-import");
   }
 
   function confirmTermImport(form) {

@@ -2,6 +2,7 @@ import UIKit
 import WebKit
 import WidgetKit
 import UserNotifications
+import UniformTypeIdentifiers
 
 private final class WeakScriptMessageDelegate: NSObject, WKScriptMessageHandler {
     weak var delegate: WKScriptMessageHandler?
@@ -39,7 +40,7 @@ private final class ReminderNotificationIdCollector: @unchecked Sendable {
     }
 }
 
-final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UNUserNotificationCenterDelegate, UIScrollViewDelegate, WKDownloadDelegate {
+final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UNUserNotificationCenterDelegate, UIScrollViewDelegate, WKDownloadDelegate, UIDocumentPickerDelegate {
     private let appGroupIdentifier = "group.com.xuyunfan.yayaschedule"
     private let widgetPayloadKey = "homeWidgetPayload"
     private let widgetPayloadSignatureKey = "homeWidgetPayloadSignature"
@@ -55,6 +56,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private let portalURL = URL(string: "https://one.bnu.edu.cn/")!
     private let portalOpenCooldown: TimeInterval = 6
     private let externalOpenCooldown: TimeInterval = 1.2
+    private let nativeFileImportMaxBytes = 12 * 1024 * 1024
     private static let portalDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
@@ -494,6 +496,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             configurePortalUi(stringValue(body["payload"]))
         case "openAcademicPortal":
             openAcademicPortal()
+        case "openFileImport":
+            openNativeFileImport()
         case "returnHome":
             portalSessionActive = false
             loadLocalApp()
@@ -541,6 +545,112 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         lastPortalOpenAt = now
         portalSessionActive = true
         webView.load(URLRequest(url: portalURL))
+    }
+
+    private func openNativeFileImport() {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: supportedImportContentTypes(), asCopy: true)
+        picker.delegate = self
+        picker.allowsMultipleSelection = false
+        picker.modalPresentationStyle = .formSheet
+        guard let presenter = webDialogPresenter() else {
+            deliverNativeFileImportError("当前无法打开文件选择")
+            return
+        }
+        presenter.present(picker, animated: true)
+    }
+
+    private func supportedImportContentTypes() -> [UTType] {
+        var types: [UTType] = [.html, .xml, .plainText, .text, .commaSeparatedText]
+        ["xls", "csv", "html", "htm", "txt"].compactMap { UTType(filenameExtension: $0) }.forEach { type in
+            if !types.contains(type) {
+                types.append(type)
+            }
+        }
+        return types
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first else { return }
+        let filename = url.lastPathComponent.isEmpty ? "iOS 文件导入" : url.lastPathComponent
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer {
+                if scoped {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            do {
+                let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+                if let size = values?.fileSize, size > self.nativeFileImportMaxBytes {
+                    DispatchQueue.main.async {
+                        self.deliverNativeFileImportError("文件过大，请选择 12MB 以内的课表文件")
+                    }
+                    return
+                }
+                let data = try Data(contentsOf: url)
+                if data.count > self.nativeFileImportMaxBytes {
+                    DispatchQueue.main.async {
+                        self.deliverNativeFileImportError("文件过大，请选择 12MB 以内的课表文件")
+                    }
+                    return
+                }
+                DispatchQueue.main.async {
+                    self.deliverNativeFileImport(name: filename, data: data)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.deliverNativeFileImportError("文件读取失败，请重新选择课表文件")
+                }
+            }
+        }
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        deliverNativeFileImportError("已取消文件选择")
+    }
+
+    private func deliverNativeFileImport(name: String, data: Data) {
+        let payload: [String: Any] = [
+            "name": name,
+            "base64": data.base64EncodedString()
+        ]
+        guard JSONSerialization.isValidJSONObject(payload),
+              let jsonData = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: jsonData, encoding: .utf8) else {
+            deliverNativeFileImportError("文件导入失败，请重新选择")
+            return
+        }
+        let script = """
+        window.__yayaPendingFileImport = \(json);
+        try {
+          window.dispatchEvent(new CustomEvent('yaya-native-file-import-ready', { detail: window.__yayaPendingFileImport }));
+        } catch (error) {
+          try { window.dispatchEvent(new Event('yaya-native-file-import-ready')); } catch (ignored) {}
+        }
+        """
+        webView.evaluateJavaScript(script)
+    }
+
+    private func deliverNativeFileImportError(_ message: String) {
+        let payload: [String: Any] = [
+            "error": true,
+            "message": message
+        ]
+        guard JSONSerialization.isValidJSONObject(payload),
+              let jsonData = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: jsonData, encoding: .utf8) else {
+            return
+        }
+        let script = """
+        window.__yayaPendingFileImport = \(json);
+        try {
+          window.dispatchEvent(new CustomEvent('yaya-native-file-import-ready', { detail: window.__yayaPendingFileImport }));
+        } catch (error) {
+          try { window.dispatchEvent(new Event('yaya-native-file-import-ready')); } catch (ignored) {}
+        }
+        """
+        webView.evaluateJavaScript(script)
     }
 
     @discardableResult
@@ -2853,6 +2963,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         (function() {
           if (window.YayaNative && window.YayaNative.__iosBridgeReady) return;
           window.__yayaPendingImport = window.__yayaPendingImport || "";
+          window.__yayaPendingFileImport = window.__yayaPendingFileImport || null;
           window.__yayaReminderPermissionStatus = window.__yayaReminderPermissionStatus || \(javaScriptStringLiteral(fallback));
           function post(type, payload) {
             try {
@@ -2881,6 +2992,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             },
             openAcademicPortal: function() {
               return post("openAcademicPortal");
+            },
+            openFileImport: function() {
+              return post("openFileImport");
             },
             takeImportedPage: function() {
               var value = String(window.__yayaPendingImport || "");
