@@ -63,6 +63,7 @@
   --ui-caption-size: 12px;
   --ui-line-body: 1.6;
   --ui-line-title: 1.14;
+  --yaya-ios-keyboard-inset: 0px;
   color-scheme: light;
   font-family: var(--ui-font-family);
 }
@@ -1077,7 +1078,10 @@ body[data-input-ui="compactInput"] {
   z-index: 14000;
   display: grid;
   place-items: end center;
-  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+  padding:
+    max(12px, env(safe-area-inset-top, 0px))
+    12px
+    max(12px, calc(env(safe-area-inset-bottom, 0px) + var(--yaya-ios-keyboard-inset, 0px)));
   background:
     radial-gradient(circle at 50% 90%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 42%),
     rgba(15, 23, 42, 0.18);
@@ -1106,7 +1110,7 @@ body[data-input-ui="compactInput"] {
   gap: 12px;
   width: min(430px, 100%);
   max-width: calc(100vw - 24px);
-  max-height: min(82vh, 720px);
+  max-height: min(max(320px, calc(82vh - var(--yaya-ios-keyboard-inset, 0px))), 720px);
   overflow-x: hidden;
   overflow-y: auto;
   padding: 14px;
@@ -2256,11 +2260,11 @@ body[data-template="compact"] .dashboard-panel {
 .modal-card {
   position: absolute;
   left: 50%;
-  bottom: max(10px, env(safe-area-inset-bottom));
+  bottom: max(10px, calc(env(safe-area-inset-bottom, 0px) + var(--yaya-ios-keyboard-inset, 0px)));
   transform: translateX(-50%);
   width: min(720px, calc(100% - 20px));
   max-width: calc(100vw - 20px);
-  max-height: min(88vh, 760px);
+  max-height: min(max(320px, calc(88vh - var(--yaya-ios-keyboard-inset, 0px))), 760px);
   overflow-x: hidden;
   overflow-y: auto;
   padding: 14px;
@@ -2336,21 +2340,21 @@ body[data-template="compact"] .dashboard-panel {
 }
 
 .modal-root[data-modal-layout="floating"] .modal-card {
-  top: max(68px, env(safe-area-inset-top));
+  top: max(68px, env(safe-area-inset-top, 0px));
   bottom: auto;
   width: min(680px, calc(100% - 24px));
 }
 
 .modal-root[data-modal-layout="bottomSheet"] .modal-card {
-  bottom: max(10px, env(safe-area-inset-bottom));
-  max-height: min(78vh, 680px);
+  bottom: max(10px, calc(env(safe-area-inset-bottom, 0px) + var(--yaya-ios-keyboard-inset, 0px)));
+  max-height: min(max(300px, calc(78vh - var(--yaya-ios-keyboard-inset, 0px))), 680px);
 }
 
 .modal-root[data-modal-layout="sideSheet"] .modal-card {
   left: auto;
-  right: max(10px, env(safe-area-inset-right));
-  top: max(58px, env(safe-area-inset-top));
-  bottom: max(10px, env(safe-area-inset-bottom));
+  right: max(10px, env(safe-area-inset-right, 0px));
+  top: max(58px, env(safe-area-inset-top, 0px));
+  bottom: max(10px, calc(env(safe-area-inset-bottom, 0px) + var(--yaya-ios-keyboard-inset, 0px)));
   transform: none;
   width: min(520px, calc(100% - 20px));
   max-height: none;
@@ -2362,7 +2366,7 @@ body[data-template="compact"] .dashboard-panel {
   bottom: auto;
   transform: translate(-50%, -50%);
   width: min(640px, calc(100% - 28px));
-  max-height: min(82vh, 720px);
+  max-height: min(max(320px, calc(82vh - var(--yaya-ios-keyboard-inset, 0px))), 720px);
   transform-origin: 50% 50%;
 }
 
@@ -2375,9 +2379,9 @@ body[data-template="compact"] .dashboard-panel {
   place-items: center;
   overflow-x: hidden;
   padding:
-    max(16px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-top, 0px))
     14px
-    max(16px, env(safe-area-inset-bottom));
+    max(16px, calc(env(safe-area-inset-bottom, 0px) + var(--yaya-ios-keyboard-inset, 0px)));
 }
 
 .modal-root[data-modal-kind="settings"] .modal-backdrop {
@@ -2397,7 +2401,7 @@ body[data-template="compact"] .dashboard-panel {
   transform: none;
   width: min(430px, calc(100vw - 28px));
   max-width: calc(100vw - 28px);
-  max-height: min(72vh, 560px);
+  max-height: min(max(300px, calc(72vh - var(--yaya-ios-keyboard-inset, 0px))), 560px);
   overflow-x: hidden;
   padding: 14px;
   border-radius: max(24px, calc(var(--glass-card-radius, var(--radius)) + 6px));

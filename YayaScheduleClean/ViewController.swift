@@ -112,6 +112,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var lastAcademicInjectionKey = ""
     private var lastAcademicInjectionAt: TimeInterval = 0
     private var lastPortalActionStatus = ""
+    private var lastKeyboardInset: CGFloat = -1
     private weak var portalTermOverlay: UIView?
     private var academicDownloadDestinations: [ObjectIdentifier: URL] = [:]
 
@@ -151,6 +152,18 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             name: UIApplication.didBecomeActiveNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleKeyboardWillChangeFrame),
+            name: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleKeyboardWillHide),
+            name: UIResponder.keyboardWillHideNotification,
+            object: nil
+        )
         loadLocalApp()
     }
 
@@ -182,9 +195,55 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         scrollView.setZoomScale(1, animated: false)
     }
 
+    @objc private func handleKeyboardWillChangeFrame(_ notification: Notification) {
+        pushKeyboardInset(from: notification, hidden: false)
+    }
+
+    @objc private func handleKeyboardWillHide(_ notification: Notification) {
+        pushKeyboardInset(from: notification, hidden: true)
+    }
+
+    private func pushKeyboardInset(from notification: Notification, hidden: Bool) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.pushKeyboardInset(from: notification, hidden: hidden)
+            }
+            return
+        }
+        let inset: CGFloat
+        if hidden {
+            inset = 0
+        } else if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+            let keyboardFrame = view.convert(frame, from: nil)
+            inset = max(0, view.bounds.maxY - keyboardFrame.minY - view.safeAreaInsets.bottom)
+        } else {
+            inset = 0
+        }
+        pushKeyboardInset(inset)
+    }
+
+    private func pushKeyboardInset(_ inset: CGFloat) {
+        let roundedInset = max(0, (inset * 10).rounded() / 10)
+        guard abs(roundedInset - lastKeyboardInset) >= 1 else { return }
+        lastKeyboardInset = roundedInset
+        let script = """
+        (function() {
+          var inset = \(String(format: "%.1f", Double(roundedInset)));
+          window.__yayaIosKeyboardInset = inset;
+          try {
+            document.documentElement.style.setProperty('--yaya-ios-keyboard-inset', inset + 'px');
+            window.YayaLayers && window.YayaLayers.registerRuntime && window.YayaLayers.registerRuntime('platform', { iosKeyboardInset: inset, iosKeyboardInsetReady: true });
+            window.dispatchEvent(new CustomEvent('yaya-ios-keyboard-inset-updated', { detail: { inset: inset } }));
+          } catch (error) {}
+        })();
+        """
+        webView.evaluateJavaScript(script)
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard let url = webView.url else { return }
         if isLocalAppURL(url) {
+            pushKeyboardInset(lastKeyboardInset < 0 ? 0 : lastKeyboardInset)
             pushReminderPermissionStatus()
             deliverPendingImportIfNeeded()
             return
@@ -276,6 +335,31 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             }
             presenter.present(alert, animated: true)
         }
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        handleNavigationFailure(error)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        handleNavigationFailure(error)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        lastAcademicInjectionKey = ""
+        if portalSessionActive || isTrustedAcademicURL(webView.url) {
+            setPortalActionStatus("网页已恢复，请继续操作")
+            webView.reload()
+        } else {
+            loadLocalApp()
+        }
+    }
+
+    private func handleNavigationFailure(_ error: Error) {
+        let nsError = error as NSError
+        guard nsError.domain != NSURLErrorDomain || nsError.code != NSURLErrorCancelled else { return }
+        guard portalSessionActive || isTrustedAcademicURL(webView.url) else { return }
+        setPortalActionStatus("网页加载失败，请检查网络后重试")
     }
 
     func webView(
