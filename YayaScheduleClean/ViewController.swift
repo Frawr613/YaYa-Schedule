@@ -277,6 +277,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             decisionHandler(.allow)
             return
         }
+        if #available(iOS 14.5, *),
+           navigationAction.shouldPerformDownload,
+           (isTrustedAcademicURL(url) || portalSessionActive) {
+            decisionHandler(.download)
+            return
+        }
         if isLocalAppURL(url) || isTrustedAcademicURL(url) || portalSessionActive {
             decisionHandler(.allow)
             return
@@ -311,7 +317,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return nil
         }
         if isLocalAppURL(url) || isTrustedAcademicURL(url) || portalSessionActive {
-            webView.load(URLRequest(url: url))
+            webView.load(navigationAction.request)
         } else if ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
             openExternalURL(url)
         }
@@ -645,7 +651,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     private func supportedImportContentTypes() -> [UTType] {
         var types: [UTType] = [.html, .xml, .plainText, .text, .commaSeparatedText]
-        ["xls", "csv", "html", "htm", "txt"].compactMap { UTType(filenameExtension: $0) }.forEach { type in
+        ["xls", "xlsx", "xlsm", "csv", "tsv", "html", "htm", "mht", "mhtml", "txt"].compactMap { UTType(filenameExtension: $0) }.forEach { type in
             if !types.contains(type) {
                 types.append(type)
             }
@@ -691,7 +697,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-        deliverNativeFileImportError("已取消文件选择")
+        deliverNativeFileImportCancelled()
     }
 
     private func deliverNativeFileImport(name: String, data: Data) {
@@ -720,6 +726,27 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         let payload: [String: Any] = [
             "error": true,
             "message": message
+        ]
+        guard JSONSerialization.isValidJSONObject(payload),
+              let jsonData = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: jsonData, encoding: .utf8) else {
+            return
+        }
+        let script = """
+        window.__yayaPendingFileImport = \(json);
+        try {
+          window.dispatchEvent(new CustomEvent('yaya-native-file-import-ready', { detail: window.__yayaPendingFileImport }));
+        } catch (error) {
+          try { window.dispatchEvent(new Event('yaya-native-file-import-ready')); } catch (ignored) {}
+        }
+        """
+        webView.evaluateJavaScript(script)
+    }
+
+    private func deliverNativeFileImportCancelled() {
+        let payload: [String: Any] = [
+            "cancelled": true,
+            "message": "已取消文件选择"
         ]
         guard JSONSerialization.isValidJSONObject(payload),
               let jsonData = try? JSONSerialization.data(withJSONObject: payload),
@@ -2274,7 +2301,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             var card = portalColor('card', '#ffffff');
             var radius = Math.max(20, Math.min(36, portalNumber('radius', 22) + 4));
             var control = mixHex(panel, accent, 0.08);
-            box.style.cssText = 'position:fixed;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);z-index:2147483646;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:minmax(48px,1fr) minmax(48px,1fr) auto auto;gap:10px;width:min(320px,calc(100vw - 20px));min-width:188px;min-height:164px;max-width:calc(100vw - 20px);max-height:calc(100vh - 20px);overflow:hidden;padding:11px 12px 8px;border:1px solid rgba(255,255,255,.72);border-radius:' + radius + 'px;background:linear-gradient(145deg,' + rgba(card,.94) + ',' + rgba(control,.82) + ');box-shadow:0 18px 46px ' + rgba(accent,.24) + ',inset 0 1px 0 rgba(255,255,255,.86);-webkit-backdrop-filter:blur(18px) saturate(1.35);backdrop-filter:blur(18px) saturate(1.35);font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;color:' + ink + ';user-select:none;-webkit-user-select:none;touch-action:none';
+            box.style.cssText = 'position:fixed;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);z-index:2147483646;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:minmax(48px,1fr) minmax(48px,1fr) auto auto;gap:10px;width:min(320px,calc(100vw - 20px));min-width:188px;min-height:164px;max-width:calc(100vw - 20px);max-height:calc(100vh - 20px);overflow:hidden;padding:11px 12px 8px;border:1px solid rgba(255,255,255,.72);border-radius:' + radius + 'px;background:linear-gradient(145deg,' + rgba(card,.94) + ',' + rgba(control,.82) + ');box-shadow:0 18px 46px ' + rgba(accent,.24) + ',inset 0 1px 0 rgba(255,255,255,.86);-webkit-backdrop-filter:blur(18px) saturate(1.35);backdrop-filter:blur(18px) saturate(1.35);font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;color:' + ink + ';user-select:none;-webkit-user-select:none;touch-action:manipulation';
             function button(text, tone, fn) {
               var node = document.createElement('button');
               node.type = 'button';
@@ -3008,10 +3035,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               var rules = [
                 'html,body{-webkit-text-size-adjust:100% !important;}',
                 'input:not([type=range]),textarea,select{font-size:16px !important;}',
+                'button,a,[role=button],input,textarea,select,label{touch-action:manipulation;}',
                 '*{-webkit-tap-highlight-color:transparent;}'
               ];
               if (localApp) {
-                rules.push('button,a,[role=button],input,textarea,select,label{touch-action:manipulation;}');
+                rules.push('html,body{overscroll-behavior-y:contain;}');
               }
               style.textContent = rules.join('\\n');
               (doc.head || doc.documentElement).appendChild(style);

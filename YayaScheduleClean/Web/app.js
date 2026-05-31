@@ -4696,6 +4696,14 @@
   async function handleNativeFileImportReady(event) {
     const payload = event?.detail || window.__yayaPendingFileImport || {};
     window.__yayaPendingFileImport = null;
+    if (payload.cancelled) {
+      applyNoticeMessage("native-file-import-cancelled", "", {
+        immediate: true,
+        modal: false,
+        renderAll: true
+      });
+      return;
+    }
     if (payload.error) {
       applyNoticeMessage("native-file-import-error", String(payload.message || "文件导入失败"), {
         immediate: true,
