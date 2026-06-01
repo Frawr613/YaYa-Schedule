@@ -2090,7 +2090,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                   if (!text || text.length > 260000) return;
                   var score = payloadScore(kind, text);
                   if (score < (kind === 'exam' ? 46 : 52)) return;
-                  items.push({ score: score - 6, source: 'embedded-data', docIndex: docIndex, nodeIndex: nodeIndex, text: text, html: '<table data-yaya-embedded-data="true"><tr><td>' + escapeHtml(text).replace(/\n/g, '</td></tr><tr><td>') + '</td></tr></table>' });
+                  items.push({ score: score - 6, source: 'embedded-data', docIndex: docIndex, nodeIndex: nodeIndex, text: text, html: '<table data-yaya-embedded-data="true"><tr><td>' + escapeHtml(text).replace(/\\n/g, '</td></tr><tr><td>') + '</td></tr></table>' });
                 });
               } catch (error) {}
             });
@@ -2101,7 +2101,48 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               html += '\n<!-- yaya-structured-' + index + ' source=' + item.source + ' score=' + item.score + ' -->\n' + item.html;
             });
             return { method: 'structured-dom', pages: Math.max(1, Math.min(items.length || 1, kind === 'exam' ? 20 : 32)), html: html, text: text };
-          }          function collect(kind) {
+          }
+          function resourceLikely(kind, url) {
+            var text = String(url || '').toLowerCase();
+            if (!/^https?:/.test(text)) return false;
+            if (/\\.(?:png|jpe?g|gif|webp|svg|css|woff2?|ttf|ico)(?:\\?|#|$)/i.test(text)) return false;
+            if (kind === 'exam') return /exam|ks|kaoshi|kssj|kcap|考试|考场|cjcx|xsdks/i.test(text);
+            return /kcb|kb|xskb|xskbcx|course|lesson|schedule|timetable|jskb|xsxk|xk|课表|课程/i.test(text);
+          }
+          async function collectResourcePayloads(kind) {
+            var entries = [];
+            try { entries = performance && performance.getEntriesByType ? performance.getEntriesByType('resource') : []; } catch (error) { entries = []; }
+            var seen = {}, urls = [];
+            entries.forEach(function(entry) {
+              var url = String(entry && entry.name || '');
+              if (!resourceLikely(kind, url) || seen[url]) return;
+              seen[url] = true;
+              urls.push(url);
+            });
+            urls = urls.slice(-18).reverse();
+            var items = [];
+            for (var i = 0; i < urls.length; i += 1) {
+              try {
+                var response = await fetch(urls[i], { credentials: 'include', cache: 'no-store' });
+                var type = String(response.headers && response.headers.get('content-type') || '').toLowerCase();
+                if (!response.ok || /image|font|css/.test(type)) continue;
+                var body = await response.text();
+                if (!body || body.length > 900000) continue;
+                var score = payloadScore(kind, body + ' ' + urls[i]);
+                if (score < (kind === 'exam' ? 46 : 52)) continue;
+                var looksHtml = /<table|<tr|<td|<tbody|<html/i.test(body);
+                items.push({ url: urls[i], score: score, text: body, html: looksHtml ? body : '<table data-yaya-resource-data="true"><tr><td>' + escapeHtml(body).replace(/\\n/g, '</td></tr><tr><td>') + '</td></tr></table>' });
+              } catch (error) {}
+            }
+            items.sort(function(a, b) { return b.score - a.score; });
+            var html = '', text = '';
+            items.slice(0, 8).forEach(function(item, index) {
+              text += '\n<!-- yaya-resource-' + index + ' score=' + item.score + ' url=' + item.url + ' -->\n' + item.text;
+              html += '\n<!-- yaya-resource-' + index + ' score=' + item.score + ' url=' + item.url + ' -->\n' + item.html;
+            });
+            return { method: 'resource-payload', pages: Math.max(1, items.length), html: html, text: text };
+          }
+          function collect(kind) {
             var html = '', text = '';
             var docs = allDocs();
             for (var i = 0; i < docs.length; i += 1) {
@@ -2276,6 +2317,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               var data = collectStructured(kind);
               if (finishAcademicImport(kind, data)) {
                 setStatus(kind === 'exam' ? '已从页面结构抓取考试' : '已从页面结构抓取课表，请确认学期');
+                return;
+              }
+              setStatus(kind === 'exam' ? '正在读取教务请求中的考试数据' : '正在读取教务请求中的课表数据');
+              data = await collectResourcePayloads(kind);
+              if (finishAcademicImport(kind, data)) {
+                setStatus(kind === 'exam' ? '已从教务请求数据抓取考试' : '已从教务请求数据抓取课表，请确认学期');
                 return;
               }
               var exportHint = triggerAcademicExport(kind);
