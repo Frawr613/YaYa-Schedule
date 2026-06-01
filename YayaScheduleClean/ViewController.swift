@@ -198,8 +198,13 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             academicWebInteractionActive = false
             return
         }
-        scrollView.minimumZoomScale = 1
-        scrollView.maximumZoomScale = 4
+        scrollView.minimumZoomScale = 0.35
+        scrollView.maximumZoomScale = 5
+        if scrollView.zoomScale < scrollView.minimumZoomScale {
+            scrollView.setZoomScale(scrollView.minimumZoomScale, animated: false)
+        } else if scrollView.zoomScale > scrollView.maximumZoomScale {
+            scrollView.setZoomScale(scrollView.maximumZoomScale, animated: false)
+        }
         scrollView.bouncesZoom = true
         scrollView.pinchGestureRecognizer?.isEnabled = true
         webView.allowsBackForwardNavigationGestures = true
@@ -2109,6 +2114,29 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             if (kind === 'exam') return /exam|ks|kaoshi|kssj|kcap|考试|考场|cjcx|xsdks/i.test(text);
             return /kcb|kb|xskb|xskbcx|course|lesson|schedule|timetable|jskb|xsxk|xk|课表|课程/i.test(text);
           }
+          async function fetchTextWithTimeout(url, timeoutMs) {
+            var controller = null;
+            var timer = null;
+            try {
+              var options = { credentials: 'include', cache: 'no-store' };
+              if (typeof AbortController !== 'undefined') {
+                controller = new AbortController();
+                options.signal = controller.signal;
+                timer = setTimeout(function() {
+                  try { controller.abort(); } catch (error) {}
+                }, timeoutMs || 2600);
+              }
+              var response = await fetch(url, options);
+              if (timer) clearTimeout(timer);
+              var type = String(response.headers && response.headers.get('content-type') || '').toLowerCase();
+              if (!response.ok || /image|font|css/.test(type)) return null;
+              var body = await response.text();
+              return { body: body, type: type };
+            } catch (error) {
+              if (timer) clearTimeout(timer);
+              return null;
+            }
+          }
           async function collectResourcePayloads(kind) {
             var entries = [];
             try { entries = performance && performance.getEntriesByType ? performance.getEntriesByType('resource') : []; } catch (error) { entries = []; }
@@ -2123,10 +2151,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             var items = [];
             for (var i = 0; i < urls.length; i += 1) {
               try {
-                var response = await fetch(urls[i], { credentials: 'include', cache: 'no-store' });
-                var type = String(response.headers && response.headers.get('content-type') || '').toLowerCase();
-                if (!response.ok || /image|font|css/.test(type)) continue;
-                var body = await response.text();
+                var payload = await fetchTextWithTimeout(urls[i], 2600);
+                if (!payload) continue;
+                var body = payload.body;
                 if (!body || body.length > 900000) continue;
                 var score = payloadScore(kind, body + ' ' + urls[i]);
                 if (score < (kind === 'exam' ? 46 : 52)) continue;
