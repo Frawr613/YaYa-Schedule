@@ -94,6 +94,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     private var webView: WKWebView!
     private var pendingImportJsonQueue: [String] = []
+    private var pendingFileImportJsonQueue: [String] = []
     private var portalSessionActive = false
     private var lastPortalOpenAt: TimeInterval = 0
     private var lastExternalOpenURL = ""
@@ -273,6 +274,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             pushKeyboardInset(lastKeyboardInset < 0 ? 0 : lastKeyboardInset)
             pushReminderPermissionStatus()
             deliverPendingImportIfNeeded()
+            deliverPendingFileImportIfNeeded()
             return
         }
         if isTrustedAcademicURL(url) {
@@ -485,8 +487,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     func downloadDidFinish(_ download: WKDownload) {
         let key = ObjectIdentifier(download)
         guard let url = academicDownloadDestinations.removeValue(forKey: key) else { return }
-        setPortalActionStatus("课表文件已导出：\(url.lastPathComponent)")
-        presentAcademicExport(url)
+        if enqueueNativeFileImport(url: url, preferDeferred: true) {
+            setPortalActionStatus("课表文件已导出并暂存：\(url.lastPathComponent)，点返回鸦鸦后自动解析")
+        } else {
+            setPortalActionStatus("课表文件已导出：\(url.lastPathComponent)，如未能自动解析请用文件导入")
+            presentAcademicExport(url)
+        }
     }
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
@@ -682,7 +688,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     private func supportedImportContentTypes() -> [UTType] {
         var types: [UTType] = [.html, .xml, .plainText, .text, .commaSeparatedText]
-        ["xls", "xlsx", "xlsm", "csv", "tsv", "html", "htm", "mht", "mhtml", "txt"].compactMap { UTType(filenameExtension: $0) }.forEach { type in
+        ["xls", "csv", "tsv", "html", "htm", "mht", "mhtml", "txt"].compactMap { UTType(filenameExtension: $0) }.forEach { type in
             if !types.contains(type) {
                 types.append(type)
             }
@@ -710,14 +716,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                     return
                 }
                 let data = try Data(contentsOf: url)
-                if data.count > self.nativeFileImportMaxBytes {
-                    DispatchQueue.main.async {
-                        self.deliverNativeFileImportError("文件过大，请选择 12MB 以内的课表文件")
-                    }
-                    return
-                }
                 DispatchQueue.main.async {
-                    self.deliverNativeFileImport(name: filename, data: data)
+                    self.deliverNativeFileImport(name: filename, data: data, preferDeferred: false)
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -731,7 +731,29 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         deliverNativeFileImportCancelled()
     }
 
-    private func deliverNativeFileImport(name: String, data: Data) {
+    @discardableResult
+    private func enqueueNativeFileImport(url: URL, preferDeferred: Bool) -> Bool {
+        let filename = url.lastPathComponent.isEmpty ? "教务导出课表" : url.lastPathComponent
+        do {
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+            if let size = values?.fileSize, size > nativeFileImportMaxBytes {
+                deliverNativeFileImportError("文件过大，请选择 12MB 以内的课表文件")
+                return false
+            }
+            let data = try Data(contentsOf: url)
+            return deliverNativeFileImport(name: filename, data: data, preferDeferred: preferDeferred)
+        } catch {
+            deliverNativeFileImportError("文件读取失败，请重新选择课表文件")
+            return false
+        }
+    }
+
+    @discardableResult
+    private func deliverNativeFileImport(name: String, data: Data, preferDeferred: Bool = false) -> Bool {
+        guard data.count <= nativeFileImportMaxBytes else {
+            deliverNativeFileImportError("文件过大，请选择 12MB 以内的课表文件")
+            return false
+        }
         let payload: [String: Any] = [
             "name": name,
             "base64": data.base64EncodedString()
@@ -740,7 +762,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               let jsonData = try? JSONSerialization.data(withJSONObject: payload),
               let json = String(data: jsonData, encoding: .utf8) else {
             deliverNativeFileImportError("文件导入失败，请重新选择")
-            return
+            return false
+        }
+        if preferDeferred || !isLocalAppURL(webView.url) {
+            pendingFileImportJsonQueue.append(json)
+            return true
         }
         let script = """
         window.__yayaPendingFileImport = \(json);
@@ -751,6 +777,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         }
         """
         webView.evaluateJavaScript(script)
+        return true
     }
 
     private func deliverNativeFileImportError(_ message: String) {
@@ -1532,6 +1559,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         return json
     }
 
+    private func drainPendingFileImportPayload() -> String {
+        guard !pendingFileImportJsonQueue.isEmpty else { return "" }
+        let json = pendingFileImportJsonQueue.removeFirst()
+        return json
+    }
+
     private func setPortalActionStatus(_ text: String) {
         guard text != lastPortalActionStatus else { return }
         lastPortalActionStatus = text
@@ -1580,6 +1613,20 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         let script = """
         window.__yayaPendingImport = \(Self.javaScriptStringLiteral(json));
         try { window.dispatchEvent(new Event('yaya-native-import-ready')); } catch (error) {}
+        """
+        webView.evaluateJavaScript(script)
+    }
+
+    private func deliverPendingFileImportIfNeeded() {
+        let json = drainPendingFileImportPayload()
+        guard !json.isEmpty else { return }
+        let script = """
+        window.__yayaPendingFileImport = \(json);
+        try {
+          window.dispatchEvent(new CustomEvent('yaya-native-file-import-ready', { detail: window.__yayaPendingFileImport }));
+        } catch (error) {
+          try { window.dispatchEvent(new Event('yaya-native-file-import-ready')); } catch (ignored) {}
+        }
         """
         webView.evaluateJavaScript(script)
     }
@@ -2090,12 +2137,145 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               }
               if (!pages.length) pages.push(collect(kind));
               return {
+                method: 'paged',
                 pages: pages.length,
                 html: pages.map(function(p, i) { return '\\n<!-- yaya-page-' + (i + 1) + ' -->\\n' + p.html; }).join('\\n'),
                 text: pages.map(function(p) { return p.text; }).join('\\n')
               };
             } finally {
               window.__yayaIosAcademicImportBusy = false;
+            }
+          }
+          function hasUsefulPayload(data, kind) {
+            var text = norm([(data && data.text) || '', (data && data.html) || ''].join(' '));
+            if (!text || text.length < 18) return false;
+            if (kind === 'exam') return /考试|考场|考试时间|考试地点|监考|座位/.test(text) && /20\\d{2}|\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日|\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}/.test(text);
+            return /课表|课程|课程名称|上课|任课|教师|学分|节次|周次|星期|教学班|周[一二三四五六日天]|\\[\\d{1,2}(?:-\\d{1,2})?\\]/.test(text);
+          }
+          function escapeHtml(value) {
+            return String(value || '').replace(/[&<>"']/g, function(ch) {
+              return ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : ch === '"' ? '&quot;' : '&#39;';
+            });
+          }
+          function collectVisible(kind) {
+            var html = '', text = '', count = 0;
+            var selectors = [
+              'table',
+              '[role=table]',
+              '[role=grid]',
+              '.ant-table',
+              '.el-table',
+              '.layui-table',
+              '.ui-jqgrid',
+              '.fc-view',
+              '.fc',
+              '[class*=kcb]',
+              '[id*=kcb]',
+              '[class*=timetable]',
+              '[class*=schedule]',
+              '[class*=course]',
+              '[id*=course]'
+            ].join(',');
+            allDocs().forEach(function(doc, docIndex) {
+              try {
+                var nodes = Array.prototype.slice.call(doc.querySelectorAll(selectors));
+                nodes.forEach(function(node, nodeIndex) {
+                  if (count >= 120 || !visible(node)) return;
+                  var nodeText = norm(node.innerText || node.textContent || '');
+                  if (!hasUsefulPayload({ text: nodeText, html: '' }, kind)) return;
+                  count += 1;
+                  text += '\\n<!-- yaya-visible-' + docIndex + '-' + nodeIndex + ' -->\\n' + nodeText;
+                  html += '\\n<!-- yaya-visible-' + docIndex + '-' + nodeIndex + ' -->\\n';
+                  if (node.tagName && node.tagName.toLowerCase() === 'table') {
+                    html += node.outerHTML || '';
+                  } else {
+                    html += '<table data-yaya-visible-scan="true"><tr><td>' + escapeHtml(nodeText).replace(/\\n/g, '</td></tr><tr><td>') + '</td></tr></table>';
+                  }
+                });
+              } catch (error) {}
+            });
+            var selected = allDocs().map(function(doc) {
+              return selectedTerms(doc) + '\\n' + courseTitleTerms(doc);
+            }).join('\\n');
+            if (selected) text = selected + '\\n' + text;
+            return { method: 'visible-scan', pages: Math.max(1, count), html: html, text: text };
+          }
+          function exportNodeText(node) {
+            try {
+              return norm([
+                node.textContent,
+                node.value,
+                node.getAttribute && node.getAttribute('href'),
+                node.getAttribute && node.getAttribute('action'),
+                node.getAttribute && node.getAttribute('download'),
+                node.getAttribute && node.getAttribute('title'),
+                node.getAttribute && node.getAttribute('aria-label'),
+                node.className,
+                node.id
+              ].join(' '));
+            } catch (error) {
+              return '';
+            }
+          }
+          function triggerAcademicExport(kind) {
+            var now = Date.now();
+            if (window.__yayaIosAcademicExportClickedAt && now - window.__yayaIosAcademicExportClickedAt < 3500) return '';
+            var best = null;
+            allDocs().forEach(function(doc) {
+              try {
+                var nodes = Array.prototype.slice.call(doc.querySelectorAll('a,button,input[type=button],input[type=submit],[role=button],.btn,.button'));
+                nodes.forEach(function(node) {
+                  if (!visible(node) || disabled(node)) return;
+                  var text = exportNodeText(node);
+                  if (!text) return;
+                  var score = 0;
+                  if (/导出|下载|excel|xls|csv|export|download|down|file|dc|exp/i.test(text)) score += 45;
+                  if (kind === 'exam' && /考试|考场|exam/i.test(text)) score += 22;
+                  if (kind !== 'exam' && /课表|课程|我的课表|schedule|course|kcb/i.test(text)) score += 22;
+                  if (/删除|取消|返回|退出|登录|修改|保存|查询|检索|打印/i.test(text)) score -= 18;
+                  if (!/导出|下载|excel|xls|csv|export|download|down|dc|exp/i.test(text)) score -= 28;
+                  if (score < 42) return;
+                  if (!best || score > best.score) best = { node: targetOf(node), score: score, text: text };
+                });
+              } catch (error) {}
+            });
+            if (!best || !best.node) return '';
+            window.__yayaIosAcademicExportClickedAt = now;
+            clickNext(best.node);
+            return best.text.slice(0, 80);
+          }
+          function finishAcademicImport(kind, data) {
+            if (!hasUsefulPayload(data, kind)) return false;
+            if (kind === 'exam') {
+              post('captureAcademicPage', { kind: 'exam', title: (document.title || '') + ' 共' + (data.pages || 1) + '页', url: location.href, text: data.text, html: data.html });
+              return true;
+            }
+            confirmTerm(data);
+            return true;
+          }
+          async function runAcademicImport(kind, node) {
+            if (node) node.textContent = kind === 'exam' ? '采集考试中...' : '采集课表中...';
+            setStatus(kind === 'exam' ? '正在分页采集考试' : '正在分页采集课表');
+            try {
+              var data = await crawl(kind);
+              if (finishAcademicImport(kind, data)) {
+                setStatus(kind === 'exam' ? '已抓取考试，点返回鸦鸦完成导入' : '请在视窗确认学期');
+                return;
+              }
+              setStatus('分页未识别，正在扫描当前视窗');
+              data = collectVisible(kind);
+              if (finishAcademicImport(kind, data)) {
+                setStatus(kind === 'exam' ? '已通过当前视窗抓取考试' : '已通过当前视窗抓取课表，请确认学期');
+                return;
+              }
+              var exportHint = triggerAcademicExport(kind);
+              if (exportHint) {
+                setStatus('已触发网页导出，导出完成后点返回鸦鸦自动读取');
+                return;
+              }
+              setStatus(kind === 'exam' ? '未抓取到考试，请进入考试安排页后重试' : '未抓取到课表，请进入“网上选课-我的课表”检索后重试');
+            } finally {
+              if (node) node.textContent = kind === 'exam' ? '导入考试' : '导入课表';
             }
           }
           function ymd(date) {
@@ -2379,24 +2559,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               return node;
             }
             button('导入课表', 'course', function(node) {
-              node.textContent = '采集中...';
-              setStatus('正在分页采集课表');
-              crawl('course').then(function(data) {
-                node.textContent = '导入课表';
-                if (!data) { setStatus('未抓取到内容，请换页面重试'); return; }
-                setStatus('请在视窗确认学期');
-                confirmTerm(data);
-              });
+              runAcademicImport('course', node);
             });
             button('导入考试', 'exam', function(node) {
-              node.textContent = '采集中...';
-              setStatus('正在分页采集考试');
-              crawl('exam').then(function(data) {
-                node.textContent = '导入考试';
-                if (!data) { setStatus('未抓取到内容，请换页面重试'); return; }
-                post('captureAcademicPage', { kind: 'exam', title: (document.title || '') + ' 共' + (data.pages || 1) + '页', url: location.href, text: data.text, html: data.html });
-                setStatus('已抓取，点返回鸦鸦完成导入');
-              });
+              runAcademicImport('exam', node);
             });
             button('返回鸦鸦', 'home', function() { post('returnHome'); });
             var status = document.createElement('div');

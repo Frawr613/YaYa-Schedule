@@ -531,6 +531,9 @@
     scheduleNativeImportPull();
     window.addEventListener("yaya-native-import-ready", scheduleNativeImportPull);
     window.addEventListener("yaya-native-file-import-ready", handleNativeFileImportReady);
+    if (window.__yayaPendingFileImport) {
+      window.setTimeout(() => handleNativeFileImportReady({ detail: window.__yayaPendingFileImport }), 80);
+    }
     window.addEventListener("yaya-reminder-permission-updated", handleReminderPermissionUpdated);
     window.addEventListener("yaya-launcher-icon-updated", handleLauncherIconUpdated);
     window.addEventListener("pagehide", handlePageHide);
@@ -4836,7 +4839,7 @@
       const text = decodeFile(base64ToArrayBuffer(String(payload.base64 || "")));
       handleImportedFileText(text, String(payload.name || "iOS 文件导入"));
     } catch (error) {
-      state.notice = "文件导入失败：当前支持网页型 .xls、HTML、CSV 或 TXT";
+      state.notice = nativeFileImportFailureMessage(error, String(payload.name || ""));
       renderAll();
     }
   }
@@ -4866,8 +4869,10 @@
       commit(`已导入考试安排：${exams.length} 项`);
       return;
     }
+    const combinedText = `${text}\n${htmlToPlainText(html)}`;
     let rows = parseHtmlSchedule(html);
-    if (!rows.length) rows = parseDelimitedSchedule(text);
+    if (!rows.length) rows = parseDelimitedSchedule(combinedText);
+    if (!rows.length) rows = parseLooseScheduleText(combinedText);
     if (!rows.length) {
       state.notice = "未识别到课程，请确认已打开“我的课表”并检索完成";
       renderAll();
@@ -4906,20 +4911,38 @@
       const text = decodeFile(await file.arrayBuffer());
       handleImportedFileText(text, file.name);
     } catch (error) {
-      state.notice = "文件导入失败：当前支持网页型 .xls、HTML、CSV 或 TXT";
+      state.notice = nativeFileImportFailureMessage(error, file.name);
       renderAll();
     }
   }
 
   function handleImportedFileText(text, sourceName) {
-    const rows = /<table\b/i.test(text) ? parseHtmlSchedule(text) : parseDelimitedSchedule(text);
+    const normalizedText = normalizeImportFileText(text);
+    let rows = parseHtmlSchedule(normalizedText);
+    if (!rows.length) rows = parseDelimitedSchedule(normalizedText);
+    if (!rows.length) rows = parseLooseScheduleText(normalizedText);
     if (!rows.length) throw new Error("未识别到课程");
     pendingImport = {
       rows,
       sourceName,
-      rawText: text
+      rawText: normalizedText
     };
     openModal("term-import");
+  }
+
+  function nativeFileImportFailureMessage(error, sourceName = "") {
+    const name = String(sourceName || "").toLowerCase();
+    const message = String(error?.message || error || "");
+    if (message.includes("xlsx") || /\.(xlsx|xlsm)$/i.test(name)) {
+      return "文件导入失败：iOS 端当前请导入网页型 .xls、HTML、CSV、TSV 或 TXT；xlsx/xlsm 请先在教务网页导出为网页型课表或直接使用教务导入按钮";
+    }
+    if (message.includes("binary-xls")) {
+      return "文件导入失败：这是二进制 Excel 文件，请在教务网页选择网页型 .xls/CSV 导出，或打开课表页后使用教务导入按钮";
+    }
+    if (message.includes("未识别到课程")) {
+      return "文件导入失败：没有识别到课程，请确认文件来自“我的课表”页面，且包含课程、周次、星期和节次";
+    }
+    return "文件导入失败：当前支持网页型 .xls、HTML、CSV、TSV 或 TXT";
   }
 
   function confirmTermImport(form) {
@@ -4948,11 +4971,14 @@
 
   function decodeFile(buffer) {
     const bytes = new Uint8Array(buffer);
+    if (!bytes.length) throw new Error("empty-file");
     if (bytes[0] === 0xd0 && bytes[1] === 0xcf) throw new Error("binary-xls");
     if (bytes[0] === 0x50 && bytes[1] === 0x4b) throw new Error("xlsx");
     const labels = bytes[0] === 0xff && bytes[1] === 0xfe
-      ? ["utf-16le", "gb18030", "gbk", "utf-8"]
-      : ["gb18030", "gbk", "utf-8", "utf-16le"];
+      ? ["utf-16le", "utf-8", "gb18030", "gbk"]
+      : bytes[0] === 0xfe && bytes[1] === 0xff
+        ? ["utf-16be", "utf-8", "gb18030", "gbk"]
+        : ["gb18030", "gbk", "utf-8", "utf-16le"];
     let best = "";
     let score = -Infinity;
     for (const label of labels) {
@@ -4968,6 +4994,30 @@
       } catch (error) {}
     }
     return best;
+  }
+
+  function normalizeImportFileText(text) {
+    let value = String(text || "").replace(/^\ufeff/, "");
+    if (/Content-Type:\s*text\/html/i.test(value) && /quoted-printable|base64/i.test(value)) {
+      value = decodeMhtmlText(value) || value;
+    }
+    return value;
+  }
+
+  function decodeMhtmlText(value) {
+    const parts = String(value || "").split(/\r?\n--[^\n\r]+/g);
+    const htmlPart = parts.find((part) => /Content-Type:\s*text\/html/i.test(part)) || "";
+    if (!htmlPart) return "";
+    const body = htmlPart.replace(/^[\s\S]*?\r?\n\r?\n/, "");
+    if (/Content-Transfer-Encoding:\s*base64/i.test(htmlPart)) {
+      try { return decodeURIComponent(escape(atob(body.replace(/\s+/g, "")))); } catch (error) {}
+    }
+    if (/Content-Transfer-Encoding:\s*quoted-printable/i.test(htmlPart)) {
+      return body
+        .replace(/=\r?\n/g, "")
+        .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+    }
+    return body;
   }
 
   function parseHtmlSchedule(text) {
@@ -5108,6 +5158,36 @@
         scheduleText: courseScheduleTextFromCells(cells, headers, index)
       };
     }).filter((row) => row.name && hasCourseSchedule(row.scheduleText));
+    return dedupeRows(rows);
+  }
+
+  function parseLooseScheduleText(text) {
+    const lines = htmlToPlainText(text)
+      .split(/\r?\n|(?=周[一二三四五六日天]\s*\[\d{1,2})|(?=[0-9,\-，\s单双]+周\s*(?:周)?[一二三四五六日天])/)
+      .map(normalizeText)
+      .filter(Boolean)
+      .slice(0, 1600);
+    const rows = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = normalizeImportedScheduleText(lines[index]);
+      if (!hasCourseSchedule(line)) continue;
+      const previous = lines[index - 1] || "";
+      const next = lines[index + 1] || "";
+      let name = courseNameFromCell(line);
+      if (!name || name.length < 2 || /^(周次|节次|星期|地点|教室|教师|老师|课程|时间)$/.test(name)) {
+        name = courseNameFromCell(`${previous} ${line}`);
+      }
+      if (!name || name.length < 2 || /^(周次|节次|星期|地点|教室|教师|老师|课程|时间)$/.test(name)) {
+        name = courseNameFromCell(next);
+      }
+      if (!name || /^(周次|节次|星期|地点|教室|教师|老师|课程|时间)$/.test(name)) continue;
+      rows.push({
+        name,
+        teacher: teacherFromCell(`${line} ${previous} ${next}`),
+        credit: "",
+        scheduleText: line
+      });
+    }
     return dedupeRows(rows);
   }
 
@@ -5727,6 +5807,17 @@
 
   function specialOverviewBucketsSignature() {
     return overviewBucketsSignature("special");
+  }
+
+  function htmlToPlainText(value) {
+    const text = String(value || "");
+    if (!/<[a-z][\s\S]*>/i.test(text)) return text;
+    try {
+      const doc = new DOMParser().parseFromString(text, "text/html");
+      return normalizeText(doc.body?.innerText || doc.body?.textContent || "");
+    } catch (error) {
+      return text.replace(/<[^>]+>/g, " ");
+    }
   }
 
   function examOverviewBucketsSignature() {
