@@ -112,6 +112,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var lastAcademicInjectionKey = ""
     private var lastAcademicInjectionAt: TimeInterval = 0
     private var lastPortalActionStatus = ""
+    private var academicWebInteractionActive = false
     private var lastKeyboardInset: CGFloat = -1
     private weak var portalTermOverlay: UIView?
     private var academicDownloadDestinations: [ObjectIdentifier: URL] = [:]
@@ -170,27 +171,52 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private func configureWebViewScrollBehavior() {
         let scrollView = webView.scrollView
         scrollView.delegate = self
-        scrollView.minimumZoomScale = 1
-        scrollView.maximumZoomScale = 1
-        scrollView.zoomScale = 1
-        scrollView.bouncesZoom = false
         scrollView.delaysContentTouches = false
         scrollView.canCancelContentTouches = true
         scrollView.keyboardDismissMode = .interactive
-        scrollView.pinchGestureRecognizer?.isEnabled = false
+        applyWebInteractionMode(academic: false, resetZoom: true)
+    }
+
+    private func applyWebInteractionMode(for url: URL?, resetZoom: Bool = false) {
+        let academic = !isLocalAppURL(url) && (portalSessionActive || isTrustedAcademicURL(url))
+        applyWebInteractionMode(academic: academic, resetZoom: resetZoom)
+    }
+
+    private func applyWebInteractionMode(academic: Bool, resetZoom: Bool = false) {
+        guard webView != nil else { return }
+        let scrollView = webView.scrollView
+        if !academic {
+            if resetZoom || scrollView.zoomScale != 1 {
+                scrollView.setZoomScale(1, animated: false)
+            }
+            scrollView.minimumZoomScale = 1
+            scrollView.maximumZoomScale = 1
+            scrollView.bouncesZoom = false
+            scrollView.pinchGestureRecognizer?.isEnabled = false
+            webView.allowsBackForwardNavigationGestures = false
+            academicWebInteractionActive = false
+            return
+        }
+        scrollView.minimumZoomScale = 1
+        scrollView.maximumZoomScale = 4
+        scrollView.bouncesZoom = true
+        scrollView.pinchGestureRecognizer?.isEnabled = true
+        webView.allowsBackForwardNavigationGestures = true
+        academicWebInteractionActive = true
     }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? {
-        nil
+        academicWebInteractionActive ? scrollView.subviews.first : nil
     }
 
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
-        if scrollView.zoomScale != 1 {
+        if !academicWebInteractionActive, scrollView.zoomScale != 1 {
             scrollView.setZoomScale(1, animated: false)
         }
     }
 
     func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
+        guard !academicWebInteractionActive else { return }
         scrollView.pinchGestureRecognizer?.isEnabled = false
         scrollView.setZoomScale(1, animated: false)
     }
@@ -242,6 +268,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard let url = webView.url else { return }
+        applyWebInteractionMode(for: url)
         if isLocalAppURL(url) {
             pushKeyboardInset(lastKeyboardInset < 0 ? 0 : lastKeyboardInset)
             pushReminderPermissionStatus()
@@ -251,6 +278,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         if isTrustedAcademicURL(url) {
             guard shouldInjectAcademicHelpers(for: url) else { return }
             lastPortalActionStatus = ""
+            injectAcademicZoomPolicy()
             injectPortalNavigationHelper()
             injectPortalAccountHelper()
             injectAcademicImportControlsV2()
@@ -284,6 +312,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return
         }
         if isLocalAppURL(url) || isTrustedAcademicURL(url) || portalSessionActive {
+            applyWebInteractionMode(for: url, resetZoom: isLocalAppURL(url))
             decisionHandler(.allow)
             return
         }
@@ -553,6 +582,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
 
     private func loadLocalApp() {
         hidePortalTermOverlay()
+        applyWebInteractionMode(academic: false, resetZoom: true)
         guard let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Web"),
               let webRoot = Bundle.main.resourceURL?.appendingPathComponent("Web") else {
             return
@@ -634,6 +664,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         guard now - lastPortalOpenAt >= portalOpenCooldown else { return }
         lastPortalOpenAt = now
         portalSessionActive = true
+        applyWebInteractionMode(academic: true)
         webView.load(URLRequest(url: portalURL))
     }
 
@@ -774,6 +805,36 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         defaults.set(normalizedUsername, forKey: accountUsernameKey)
         defaults.set(password, forKey: accountPasswordKey)
         return true
+    }
+
+    private func injectAcademicZoomPolicy() {
+        let script = """
+        (function() {
+          try {
+            var doc = document;
+            var meta = doc.querySelector('meta[name="viewport"]');
+            if (!meta) {
+              doc.documentElement.dataset.yayaAcademicZoom = 'native';
+              return;
+            }
+            var content = String(meta.getAttribute('content') || '');
+            var kept = [];
+            content.split(',').forEach(function(part) {
+              var text = String(part || '').trim();
+              if (!text) return;
+              var key = text.split('=')[0].trim().toLowerCase();
+              if (key === 'maximum-scale' || key === 'minimum-scale' || key === 'user-scalable') return;
+              kept.push(text);
+            });
+            kept.push('minimum-scale=0.25');
+            kept.push('maximum-scale=5');
+            kept.push('user-scalable=yes');
+            meta.setAttribute('content', kept.join(', '));
+            doc.documentElement.dataset.yayaAcademicZoom = 'enabled';
+          } catch (error) {}
+        })();
+        """
+        webView.evaluateJavaScript(script)
     }
 
     private func setLauncherIcon(_ iconId: String) {
@@ -3033,12 +3094,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               style.id = '__yayaIosInteractionGuard';
               var localApp = isLocalAppDocument(doc);
               var rules = [
-                'html,body{-webkit-text-size-adjust:100% !important;}',
                 'input:not([type=range]),textarea,select{font-size:16px !important;}',
-                'button,a,[role=button],input,textarea,select,label{touch-action:manipulation;}',
                 '*{-webkit-tap-highlight-color:transparent;}'
               ];
               if (localApp) {
+                rules.unshift('html,body{-webkit-text-size-adjust:100% !important;}');
+                rules.push('button,a,[role=button],input,textarea,select,label{touch-action:manipulation;}');
                 rules.push('html,body{overscroll-behavior-y:contain;}');
               }
               style.textContent = rules.join('\\n');
