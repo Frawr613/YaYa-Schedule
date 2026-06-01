@@ -2042,7 +2042,66 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             if (kind === 'exam') return /考试|考场|考试时间|考试地点|监考|座位/.test(text);
             return /课表|课程|上课|任课|教师|学分|节次|周次|星期|教学班/.test(text);
           }
-          function collect(kind) {
+          function payloadScore(kind, value) {
+            var raw = String(value || '');
+            var text = norm(raw);
+            if (!text) return 0;
+            var score = 0;
+            var courseHits = text.match(/课表|课程名称|课程|上课|任课|教师|地点|学分|节次|周次|星期|教学班|周[一二三四五六日天]|第\s*\d+\s*节|\[\d{1,2}(?:-\d{1,2})?\]/g) || [];
+            var examHits = text.match(/考试|考场|考试时间|考试地点|监考|座位|考试日期|科目|闭卷|开卷|机考/g) || [];
+            score += (kind === 'exam' ? examHits : courseHits).length * 8;
+            score += (/20\d{2}|\d{1,2}\s*月\s*\d{1,2}\s*日|\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(text) ? 10 : 0);
+            score += (/星期|周[一二三四五六日天]|Mon|Tue|Wed|Thu|Fri|Sat|Sun/i.test(text) ? 10 : 0);
+            score += (/<table|<tbody|<tr|<td|role=.?(table|grid)/i.test(raw) ? 22 : 0);
+            score += (text.length > 500 ? 6 : 0);
+            if (/登录|密码|验证码|统一身份认证/.test(text) && score < 54) score -= 28;
+            return score;
+          }
+          function nodeText(node) {
+            try { return norm([node.innerText, node.textContent, node.value, node.title, node.getAttribute && node.getAttribute('aria-label')].join('\n')); } catch (error) { return ''; }
+          }
+          function nodeHtml(node) {
+            try { return node.outerHTML || ''; } catch (error) { return ''; }
+          }
+          function addStructuredItem(items, kind, node, source, docIndex, nodeIndex) {
+            var text = nodeText(node);
+            var html = nodeHtml(node);
+            var score = payloadScore(kind, text + ' ' + html);
+            if (score < (kind === 'exam' ? 34 : 40)) return;
+            items.push({ score: score, source: source, docIndex: docIndex, nodeIndex: nodeIndex, text: text, html: html });
+          }
+          function collectStructured(kind) {
+            var items = [];
+            var selected = '';
+            var selectors = [
+              'table', '[role=table]', '[role=grid]', '.ant-table', '.ant-table-content', '.el-table', '.layui-table', '.ui-jqgrid', '.datagrid', '.bootstrap-table', '.x-grid',
+              '[class*=kcb]', '[id*=kcb]', '[class*=timetable]', '[class*=schedule]', '[class*=course]', '[id*=course]', '[class*=exam]', '[id*=exam]'
+            ].join(',');
+            allDocs().forEach(function(doc, docIndex) {
+              try { selected += '\n' + selectedTerms(doc) + '\n' + courseTitleTerms(doc); } catch (error) {}
+              try {
+                Array.prototype.slice.call(doc.querySelectorAll(selectors)).forEach(function(node, nodeIndex) {
+                  addStructuredItem(items, kind, node, 'dom-structure', docIndex, nodeIndex);
+                });
+              } catch (error) {}
+              try {
+                Array.prototype.slice.call(doc.querySelectorAll('script[type*=json],script:not([src]),textarea,pre')).forEach(function(node, nodeIndex) {
+                  var text = nodeText(node);
+                  if (!text || text.length > 260000) return;
+                  var score = payloadScore(kind, text);
+                  if (score < (kind === 'exam' ? 46 : 52)) return;
+                  items.push({ score: score - 6, source: 'embedded-data', docIndex: docIndex, nodeIndex: nodeIndex, text: text, html: '<table data-yaya-embedded-data="true"><tr><td>' + escapeHtml(text).replace(/\n/g, '</td></tr><tr><td>') + '</td></tr></table>' });
+                });
+              } catch (error) {}
+            });
+            items.sort(function(a, b) { return b.score - a.score; });
+            var html = '', text = norm(selected);
+            items.slice(0, kind === 'exam' ? 20 : 32).forEach(function(item, index) {
+              text += '\n<!-- yaya-structured-' + index + ' score=' + item.score + ' -->\n' + item.text;
+              html += '\n<!-- yaya-structured-' + index + ' source=' + item.source + ' score=' + item.score + ' -->\n' + item.html;
+            });
+            return { method: 'structured-dom', pages: Math.max(1, Math.min(items.length || 1, kind === 'exam' ? 20 : 32)), html: html, text: text };
+          }          function collect(kind) {
             var html = '', text = '';
             var docs = allDocs();
             for (var i = 0; i < docs.length; i += 1) {
@@ -2157,49 +2216,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               return ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : ch === '"' ? '&quot;' : '&#39;';
             });
           }
-          function collectVisible(kind) {
-            var html = '', text = '', count = 0;
-            var selectors = [
-              'table',
-              '[role=table]',
-              '[role=grid]',
-              '.ant-table',
-              '.el-table',
-              '.layui-table',
-              '.ui-jqgrid',
-              '.fc-view',
-              '.fc',
-              '[class*=kcb]',
-              '[id*=kcb]',
-              '[class*=timetable]',
-              '[class*=schedule]',
-              '[class*=course]',
-              '[id*=course]'
-            ].join(',');
-            allDocs().forEach(function(doc, docIndex) {
-              try {
-                var nodes = Array.prototype.slice.call(doc.querySelectorAll(selectors));
-                nodes.forEach(function(node, nodeIndex) {
-                  if (count >= 120 || !visible(node)) return;
-                  var nodeText = norm(node.innerText || node.textContent || '');
-                  if (!hasUsefulPayload({ text: nodeText, html: '' }, kind)) return;
-                  count += 1;
-                  text += '\\n<!-- yaya-visible-' + docIndex + '-' + nodeIndex + ' -->\\n' + nodeText;
-                  html += '\\n<!-- yaya-visible-' + docIndex + '-' + nodeIndex + ' -->\\n';
-                  if (node.tagName && node.tagName.toLowerCase() === 'table') {
-                    html += node.outerHTML || '';
-                  } else {
-                    html += '<table data-yaya-visible-scan="true"><tr><td>' + escapeHtml(nodeText).replace(/\\n/g, '</td></tr><tr><td>') + '</td></tr></table>';
-                  }
-                });
-              } catch (error) {}
-            });
-            var selected = allDocs().map(function(doc) {
-              return selectedTerms(doc) + '\\n' + courseTitleTerms(doc);
-            }).join('\\n');
-            if (selected) text = selected + '\\n' + text;
-            return { method: 'visible-scan', pages: Math.max(1, count), html: html, text: text };
-          }
           function exportNodeText(node) {
             try {
               return norm([
@@ -2255,17 +2271,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           }
           async function runAcademicImport(kind, node) {
             if (node) node.textContent = kind === 'exam' ? '采集考试中...' : '采集课表中...';
-            setStatus(kind === 'exam' ? '正在分页采集考试' : '正在分页采集课表');
+            setStatus(kind === 'exam' ? '正在读取考试页面结构' : '正在读取课表页面结构');
             try {
-              var data = await crawl(kind);
+              var data = collectStructured(kind);
               if (finishAcademicImport(kind, data)) {
-                setStatus(kind === 'exam' ? '已抓取考试，点返回鸦鸦完成导入' : '请在视窗确认学期');
-                return;
-              }
-              setStatus('分页未识别，正在扫描当前视窗');
-              data = collectVisible(kind);
-              if (finishAcademicImport(kind, data)) {
-                setStatus(kind === 'exam' ? '已通过当前视窗抓取考试' : '已通过当前视窗抓取课表，请确认学期');
+                setStatus(kind === 'exam' ? '已从页面结构抓取考试' : '已从页面结构抓取课表，请确认学期');
                 return;
               }
               var exportHint = triggerAcademicExport(kind);
@@ -2273,7 +2283,19 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 setStatus('已触发网页导出，导出完成后点返回鸦鸦自动读取');
                 return;
               }
-              setStatus(kind === 'exam' ? '未抓取到考试，请进入考试安排页后重试' : '未抓取到课表，请进入“网上选课-我的课表”检索后重试');
+              setStatus(kind === 'exam' ? '未发现可用导出，正在读取分页考试源数据' : '未发现可用导出，正在读取分页课表源数据');
+              data = await crawl(kind);
+              if (finishAcademicImport(kind, data)) {
+                setStatus(kind === 'exam' ? '已抓取考试，点返回鸦鸦完成导入' : '请确认学期');
+                return;
+              }
+              setStatus(kind === 'exam' ? '正在读取完整考试页面文本' : '正在读取完整课表页面文本');
+              data = collect(kind);
+              if (finishAcademicImport(kind, data)) {
+                setStatus(kind === 'exam' ? '已从页面文本抓取考试' : '已从页面文本抓取课表，请确认学期');
+                return;
+              }
+              setStatus(kind === 'exam' ? '未抓取到考试，请进入考试安排页或使用网页导出后重试' : '未抓取到课表，请进入“网上选课-我的课表”检索，或使用网页导出后重试');
             } finally {
               if (node) node.textContent = kind === 'exam' ? '导入考试' : '导入课表';
             }
