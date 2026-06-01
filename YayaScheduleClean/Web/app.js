@@ -4917,7 +4917,7 @@
   }
 
   function handleImportedFileText(text, sourceName) {
-    const normalizedText = normalizeImportFileText(text);
+    const normalizedText = normalizeImportFileText(text, sourceName);
     let rows = parseHtmlSchedule(normalizedText);
     if (!rows.length) rows = parseDelimitedSchedule(normalizedText);
     if (!rows.length) rows = parseLooseScheduleText(normalizedText);
@@ -4985,8 +4985,10 @@
       try {
         const text = new TextDecoder(label).decode(buffer);
         const chinese = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+        const keywords = (text.match(/课程|课表|周次|星期|节次|上课|任课|教师|地点|<html|<table|Workbook|Worksheet/gi) || []).length;
         const bad = (text.match(/\ufffd/g) || []).length;
-        const current = chinese * 2 - bad * 12;
+        const controls = (text.match(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g) || []).length;
+        const current = keywords * 80 + chinese * 2 - bad * 14 - controls * 8;
         if (current > score) {
           score = current;
           best = text;
@@ -4996,12 +4998,25 @@
     return best;
   }
 
-  function normalizeImportFileText(text) {
+  function normalizeImportFileText(text, sourceName = "") {
     let value = String(text || "").replace(/^\ufeff/, "");
     if (/Content-Type:\s*text\/html/i.test(value) && /quoted-printable|base64/i.test(value)) {
       value = decodeMhtmlText(value) || value;
     }
-    return value;
+    return normalizeSpreadsheetHtml(value, sourceName);
+  }
+
+  function normalizeSpreadsheetHtml(text, sourceName = "") {
+    let value = String(text || "");
+    const name = String(sourceName || "");
+    const htmlIndex = value.search(/<\s*(?:!doctype\s+html|html|head|body|table)\b/i);
+    if (htmlIndex > 0 && (/\.(?:xls|html?|mht|mhtml)$/i.test(name) || /mso-|urn:schemas-microsoft-com:office|Excel\.Sheet|Workbook|Worksheet/i.test(value.slice(0, htmlIndex + 1200)))) {
+      value = value.slice(htmlIndex);
+    }
+    return value
+      .replace(/<\?xml[^>]*>/gi, "")
+      .replace(/<!--\s*\[if[\s\S]*?<!\[endif\]\s*-->/gi, "")
+      .replace(/&nbsp;/gi, " ");
   }
 
   function decodeMhtmlText(value) {
@@ -5025,13 +5040,59 @@
     const doc = new DOMParser().parseFromString(text, "text/html");
     const rows = [];
     for (const table of doc.querySelectorAll("table")) {
-      const tableRows = [...table.querySelectorAll("tr")]
-        .map((tr) => [...tr.querySelectorAll("th,td")].map((cell) => normalizeText(cell.textContent)))
-        .filter((row) => row.some(Boolean));
+      const tableRows = htmlTableToRows(table);
       rows.push(...parseListScheduleTable(tableRows));
       rows.push(...parseMatrixScheduleTable(tableRows));
     }
     return dedupeRows(rows);
+  }
+
+  function htmlTableToRows(table) {
+    const spanMap = new Map();
+    return [...table.querySelectorAll("tr")]
+      .map((tr) => {
+        const row = [];
+        let column = 0;
+        const consumeSpan = () => {
+          while (spanMap.has(column)) {
+            const span = spanMap.get(column);
+            row[column] = span.text;
+            span.rowsLeft -= 1;
+            if (span.rowsLeft <= 0) spanMap.delete(column);
+            column += 1;
+          }
+        };
+        for (const cell of tr.querySelectorAll("th,td")) {
+          consumeSpan();
+          const text = htmlCellText(cell);
+          const colspan = Math.max(1, parseSpan(cell.getAttribute("colspan")));
+          const rowspan = Math.max(1, parseSpan(cell.getAttribute("rowspan")));
+          for (let offset = 0; offset < colspan; offset += 1) {
+            row[column + offset] = text;
+            if (rowspan > 1) spanMap.set(column + offset, { text, rowsLeft: rowspan - 1 });
+          }
+          column += colspan;
+        }
+        consumeSpan();
+        return row.map(normalizeText);
+      })
+      .filter((row) => row.some(Boolean));
+  }
+
+  function htmlCellText(cell) {
+    const clone = cell.cloneNode(true);
+    clone.querySelectorAll("br").forEach((br) => br.replaceWith("；"));
+    clone.querySelectorAll("style,script,xml").forEach((node) => node.remove());
+    return normalizeText([
+      clone.textContent,
+      cell.getAttribute("x:str"),
+      cell.getAttribute("title")
+    ].filter(Boolean).join(" "));
+  }
+
+  function parseSpan(value) {
+    const number = Number.parseInt(value || "1", 10);
+    return Number.isFinite(number) && number > 0 ? Math.min(number, 32) : 1;
   }
 
   function parseListScheduleTable(tableRows) {
