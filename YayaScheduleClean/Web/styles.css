@@ -4473,6 +4473,7 @@ body[data-theme] {
   --module-exam-color: var(--exam-color);
   --module-special-color: var(--orange);
   --module-course-action: var(--tpl-action-today, var(--tpl-primary-action));
+  --module-exam-action: var(--tpl-action-panel, var(--tpl-primary-action));
   --module-schedule-action: var(--tpl-action-panel, var(--tpl-primary-action));
   --module-recurring-action: var(--tpl-action-add, var(--tpl-primary-action));
   --module-special-action: var(--tpl-action-hint, var(--tpl-primary-action));
@@ -4505,6 +4506,11 @@ body[data-theme] .day-list .empty-state::before {
 body[data-theme] #courseOverview {
   --module-color: var(--module-course-color);
   --module-action: var(--module-course-action);
+}
+
+body[data-theme] #examOverview {
+  --module-color: var(--module-exam-color);
+  --module-action: var(--module-exam-action);
 }
 
 body[data-theme] #scheduleOverview {

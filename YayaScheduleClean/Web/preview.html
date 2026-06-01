@@ -530,10 +530,10 @@
       function renderStaticLayers() {
         const fallback = [
           { name: "原始数据导入层", owns: ["教务页面", "文件文本", "备份 JSON"], files: ["app.js"], dependsOn: [] },
-          { name: "领域模型层", owns: ["课程", "日程", "DDL", "考试", "变更"], files: ["app.js"], dependsOn: ["source"] },
-          { name: "本地状态缓存层", owns: ["localStorage", "日期索引", "DDL 索引"], files: ["app.js", "sw.js"], dependsOn: ["domain"] },
-          { name: "功能命令层", owns: ["打开", "保存", "完成", "删除", "导入"], files: ["app.js", "ui-modules.js"], dependsOn: ["domain", "cache"] },
-          { name: "UI 组件层", owns: ["状态条", "DDL 条", "今日面板", "概览卡"], files: ["app.js", "styles.css"], dependsOn: ["cache", "commands"] },
+          { name: "领域模型层", owns: ["课程", "考试学期分类", "日程", "DDL", "变更"], files: ["app.js"], dependsOn: ["source"] },
+          { name: "本地状态缓存层", owns: ["localStorage", "日期索引", "考试学期分桶", "DDL 索引"], files: ["app.js", "sw.js"], dependsOn: ["domain"] },
+          { name: "功能命令层", owns: ["打开", "保存", "完成", "删除", "导入", "考试概览切换"], files: ["app.js", "ui-modules.js"], dependsOn: ["domain", "cache"] },
+          { name: "UI 组件层", owns: ["状态条", "DDL 条", "今日面板", "课程/考试/日程概览卡"], files: ["app.js", "styles.css"], dependsOn: ["cache", "commands"] },
           { name: "交互控制层", owns: ["浮窗", "抽屉", "关闭", "滚动隔离"], files: ["app.js", "styles.css", "ui-modules.js"], dependsOn: ["components"] },
           { name: "视觉主题层", owns: ["颜色变量", "模板-主题桥接", "状态色", "圆角阴影"], files: ["app.js", "styles.css", "theme-modules.js"], dependsOn: ["components"] },
           { name: "模板装配层", owns: ["模块顺序", "功能入口", "交互策略", "主题语义槽位"], files: ["ui-modules.js", "theme-modules.js", "app.js"], dependsOn: ["components", "commands", "interaction", "theme"] },
@@ -652,7 +652,7 @@
           ["预览资源桥", assets.some(([path]) => path === "theme-modules.js") && Boolean(win.YayaThemeModules), "theme-modules.js"],
           ["设置浮窗桥", !modalRoot?.dataset.modalKind || modalRoot.dataset.modalKind === "settings" || Boolean(doc?.querySelector('.modal-card.settings')), modalRoot?.dataset.modalKind || "standby"],
           ["平台降级", typeof win.YayaPlatform?.openAcademicPortal === "function" && typeof win.YayaPlatform?.scheduleDdlNotifications === "function", win.YayaPlatform?.isNative?.() ? "native" : "web"],
-          ["核心容器", ["statusBar", "ddlStrip", "dayPanel", "courseOverview", "scheduleOverview"].every((id) => doc?.getElementById(id)), "DOM"],
+          ["核心容器", ["statusBar", "ddlStrip", "dayPanel", "courseOverview", "examOverview", "scheduleOverview"].every((id) => doc?.getElementById(id)), "DOM"],
           ["视觉锚点", Boolean(doc?.querySelector(".ddl-strip") && doc?.querySelector(".day-panel") && win.getComputedStyle(doc.documentElement).getPropertyValue("--glass-blur")), "glass"],
           ["交互锚点", Boolean(doc?.querySelector(".modal-root") && doc?.querySelector("[data-action='open-ddl']") && doc?.querySelector("[data-action='open-specials']")), "modal/swipe/action"],
           ["说明入口", Boolean(doc?.querySelector('[data-action="open-guide"]') || doc?.querySelector('[data-action="open-settings"]') || doc?.querySelector("#settingsButton")), "settings/S3/B1"],

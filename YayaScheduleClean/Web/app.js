@@ -29,6 +29,7 @@
   const PORTAL_OPEN_COOLDOWN_MS = 1400;
   const SCHEDULE_OVERVIEW_PAGES = ["active", "ended"];
   const SPECIAL_OVERVIEW_PAGES = ["active", "ended"];
+  const UNASSIGNED_EXAM_TERM_ID = "__exam_unassigned";
 
   const PERIOD_TIMES = {
     1: ["08:00", "08:45"],
@@ -257,6 +258,8 @@
   let lastScheduleOverviewBuckets = null;
   let lastSpecialOverviewBucketsSignature = "";
   let lastSpecialOverviewBuckets = null;
+  let lastExamOverviewBucketsSignature = "";
+  let lastExamOverviewBuckets = null;
   let lastCompletedIdSignature = "";
   let lastCompletedIdSet = null;
   let lastNativeReminderPayloadSignature = "";
@@ -310,6 +313,7 @@
       currentWeek: weekForDate(state.focusDate),
       focusDate: state.focusDate,
       courses: courseCount,
+      examOverviewPage: normalizeExamOverviewPage(state.examOverviewPage),
       customSchedules: state.customSchedules.length,
       recurringSchedules: state.recurringSchedules.length,
       exams: state.examSchedules.length,
@@ -343,13 +347,16 @@
       inputUiThemeSync: ui.inputUi?.themeSync !== false,
       autoLockCurrentWeek: true,
       autoLockCurrentTerm: "open-courses",
+      examOverviewTermPages: examOverviewTermPages().length,
       termImportSelector: true,
       ddlView: state.ddlView === "completed" ? "completed" : "active",
+      examOverviewPage: normalizeExamOverviewPage(state.examOverviewPage),
       specialOverviewPage: normalizeSpecialOverviewPage(state.specialOverviewPage),
       rendered: {
         status: Boolean(els.statusBar),
         ddl: Boolean(els.ddlStrip),
         day: Boolean(els.dayPanel),
+        exam: Boolean(els.examOverview),
         overview: Boolean(els.dashboardGrid)
       }
     });
@@ -416,6 +423,7 @@
       state.modal || "",
       state.ddlView || "",
       state.courseOverviewPage || "",
+      state.examOverviewPage || "",
       state.scheduleOverviewPage || "",
       state.specialOverviewPage || "",
       state.theme || "",
@@ -457,6 +465,7 @@
       dateLookupMode: "date",
       ddlView: "active",
       courseOverviewPage: "",
+      examOverviewPage: "",
       scheduleOverviewPage: "active",
       specialOverviewPage: "active",
       uiTemplate: "classicOriginal",
@@ -554,6 +563,7 @@
       "ddlStrip",
       "dayPanel",
       "courseOverview",
+      "examOverview",
       "scheduleOverview",
       "specialOverview",
       "fileInput",
@@ -597,6 +607,7 @@
     state.scheduleOverviewPage = normalizeScheduleOverviewPage(state.scheduleOverviewPage);
     state.specialOverviewPage = normalizeSpecialOverviewPage(state.specialOverviewPage);
     state.courseOverviewPage = String(state.courseOverviewPage || "");
+    state.examOverviewPage = String(state.examOverviewPage || "");
     state.ddlDoneFilterQuery = normalizeText(state.ddlDoneFilterQuery);
     state.ddlDoneFilterStart = validDateInputValue(state.ddlDoneFilterStart);
     state.ddlDoneFilterStartTime = validTimeInputValue(state.ddlDoneFilterStartTime);
@@ -609,6 +620,7 @@
     const currentDateChanged = syncFocusToToday("startup");
     if (currentDateChanged || restoredFocusDate !== state.focusDate) persist({ immediate: true });
     state.courseOverviewPage = normalizeCourseOverviewPage(state.courseOverviewPage);
+    state.examOverviewPage = normalizeExamOverviewPage(state.examOverviewPage);
     window.YayaLayers?.registerRuntime?.("cache", {
       restored: true,
       terms: state.terms.length,
@@ -754,6 +766,7 @@
       dateLookupMode: state.dateLookupMode,
       ddlView: state.ddlView,
       courseOverviewPage: state.courseOverviewPage,
+      examOverviewPage: state.examOverviewPage,
       scheduleOverviewPage: state.scheduleOverviewPage,
       specialOverviewPage: state.specialOverviewPage,
       uiTemplate: state.uiTemplate,
@@ -978,12 +991,14 @@
     appCache = cache;
     const overviewScheduleCounts = scheduleOverviewBuckets();
     const overviewSpecialCounts = specialOverviewBuckets();
+    const overviewExamCounts = examOverviewBuckets();
     window.YayaLayers?.registerRuntime?.("cache", {
       builtAt: cache.builtAt,
       courseCount: cache.courseCount,
       activeDdls: cache.activeDdls.length,
       activeSchedules: overviewScheduleCounts.active.length,
       endedSchedules: overviewScheduleCounts.ended.length,
+      examsByTerm: Object.values(overviewExamCounts.byTerm).reduce((total, items) => total + items.length, 0),
       activeSpecials: overviewSpecialCounts.active.length,
       endedSpecials: overviewSpecialCounts.ended.length
     });
@@ -1025,6 +1040,7 @@
       renderOverviews();
     } else {
       clearCachedHtml(els.courseOverview);
+      clearCachedHtml(els.examOverview);
       clearCachedHtml(els.scheduleOverview);
       clearCachedHtml(els.specialOverview);
     }
@@ -1359,6 +1375,12 @@
         <button type="button" class="overview-count" data-action="open-courses">${appCache.courseCount}门</button>
       </div>
     `, `course-overview:${appCache.courseCount}`);
+    setCachedHtml(els.examOverview, `
+      <div class="panel-head">
+        <h2>考试概览</h2>
+        <button type="button" class="overview-count" data-action="open-exams">${state.examSchedules.length}场</button>
+      </div>
+    `, `exam-overview:${state.examSchedules.length}:${state.terms.length}:${state.terms.map((term) => `${term.id}:${term.termStart}`).join("|")}`);
     const scheduleBuckets = scheduleOverviewBuckets();
     const scheduleActiveCount = scheduleBuckets.active.length;
     setCachedHtml(els.scheduleOverview, `
@@ -1414,6 +1436,7 @@
       appCache.builtAt,
       state.ddlView,
       state.courseOverviewPage,
+      state.examOverviewPage,
       state.scheduleOverviewPage,
       state.specialOverviewPage,
       state.ddlDoneFilterQuery,
@@ -1461,6 +1484,7 @@
     if (name === "icon") return renderIconModal();
     if (name === "guide") return renderGuideModal();
     if (name === "courses") return renderCoursesModal();
+    if (name === "exams") return renderExamsModal();
     if (name === "schedules") return renderSchedulesModal();
     if (name === "ddl") return renderDdlModal();
     if (name === "ddl-form") return renderDdlForm();
@@ -2040,6 +2064,27 @@
     return page;
   }
 
+  function examOverviewTermPages() {
+    if (state.terms.length) return state.terms.map((term) => term.id);
+    return state.examSchedules.length ? [UNASSIGNED_EXAM_TERM_ID] : [];
+  }
+
+  function currentExamOverviewPage() {
+    return currentCourseTerm()?.id || state.terms[0]?.id || (state.examSchedules.length ? UNASSIGNED_EXAM_TERM_ID : "");
+  }
+
+  function normalizeExamOverviewPage(page) {
+    const ids = new Set(examOverviewTermPages());
+    if (ids.has(page)) return page;
+    return currentExamOverviewPage();
+  }
+
+  function activeExamOverviewPage() {
+    const page = normalizeExamOverviewPage(state.examOverviewPage);
+    if (state.examOverviewPage !== page) state.examOverviewPage = page;
+    return page;
+  }
+
   function normalizeScheduleOverviewPage(page) {
     if (SCHEDULE_OVERVIEW_PAGES.includes(page)) return page;
     if (["recurring-ended", "ended", "completed", "done", "history"].includes(page)) return "ended";
@@ -2125,6 +2170,31 @@
     }).join("");
   }
 
+  function examOverviewTabTerms() {
+    if (state.terms.length) return state.terms;
+    return state.examSchedules.length ? [{
+      id: UNASSIGNED_EXAM_TERM_ID,
+      label: "未匹配学期",
+      termStart: ""
+    }] : [];
+  }
+
+  function renderExamOverviewTabs(terms, activeId, currentTermId, buckets) {
+    return terms.map((term) => {
+      const active = term.id === activeId;
+      const isCurrent = term.id === currentTermId;
+      const label = term.label || "学期";
+      const count = buckets.byTerm[term.id]?.length || 0;
+      return `
+        <button type="button" class="modal-page-chip course-term-tab exam-term-tab ${active ? "active" : ""}" data-action="set-exam-overview-page" data-term-id="${escapeAttr(term.id)}" role="tab" aria-selected="${active ? "true" : "false"}" aria-label="${escapeAttr(label)}，${count}场考试" title="${escapeAttr(label)}" ${isCurrent ? `data-current-term-chip="true"` : ""}>
+          <strong>${renderCourseTermLabel(label)}</strong>
+          <span>${count}场</span>
+          ${isCurrent ? `<small>当前</small>` : ""}
+        </button>
+      `;
+    }).join("");
+  }
+
   function renderScheduleOverviewTabs(activePage, buckets) {
     const pages = [
       ["active", "进行中", buckets.active.length],
@@ -2186,6 +2256,45 @@
       </div>
     `;
     return `${modalHead("课程概览", "close-modal", "", tabs)}${body}`;
+  }
+
+  function renderExamsModal() {
+    const buckets = examOverviewBuckets();
+    const terms = examOverviewTabTerms();
+    const currentTermId = currentCourseTerm()?.id || "";
+    const activeTermId = activeExamOverviewPage();
+    const activeTerm = terms.find((term) => term.id === activeTermId);
+    if (!activeTerm) return `${modalHead("考试概览")}<div class="empty-state">还没有导入考试</div>`;
+    const tabs = renderExamOverviewTabs(terms, activeTermId, currentTermId, buckets);
+    const exams = buckets.byTerm[activeTermId] || [];
+    const body = `
+      <div class="modal-page-stage exam-overview-page"${modalPageMotionAttr("exams", activeTermId)}>
+        <section class="modal-section course-term-section ${activeTerm.id === currentTermId ? "is-current" : ""}" data-exam-term-id="${escapeAttr(activeTerm.id)}">
+          <div class="course-term-head">
+            <h3 title="${escapeAttr(activeTerm.label || "考试")}">${renderCourseTermLabel(activeTerm.label || "考试", "course-term-title-label")}</h3>
+            ${activeTerm.id === currentTermId ? `<span class="course-term-current">当前学期</span>` : ""}
+          </div>
+          <div class="ddl-page-list">
+            ${exams.length ? exams.map(renderExamOverviewCard).join("") : `<div class="empty-state">当前学期暂无考试</div>`}
+          </div>
+        </section>
+      </div>
+    `;
+    return `${modalHead("考试概览", "close-modal", "", tabs)}${body}`;
+  }
+
+  function renderExamOverviewCard(exam) {
+    const week = examWeekLabel(exam);
+    return `
+      <article class="list-card exam-card" data-action="open-detail" data-detail-type="exam" data-detail-id="${escapeAttr(exam.id)}">
+        <div>
+          <div class="badges overview-card-tags"><span>考试</span>${week ? `<span>${escapeHtml(week)}</span>` : ""}</div>
+          <strong>${escapeHtml(exam.title)}</strong>
+          <span>${escapeHtml(exam.date)} · ${escapeHtml(timeRange(exam))}</span>
+          <small>${escapeHtml(exam.place || "地点未填")}</small>
+        </div>
+      </article>
+    `;
   }
 
   function renderSchedulesModal() {
@@ -3273,6 +3382,17 @@
       applyViewStateChange(action, state.courseOverviewPage !== nextPage, () => {
         setOverviewPageMotion("courses", state.courseOverviewPage, nextPage, state.terms.map((term) => term.id));
         state.courseOverviewPage = nextPage;
+      });
+    }
+    if (action === "open-exams") {
+      state.examOverviewPage = normalizeExamOverviewPage(state.examOverviewPage || currentExamOverviewPage());
+      openModal("exams");
+    }
+    if (action === "set-exam-overview-page") {
+      const nextPage = normalizeExamOverviewPage(target.dataset.termId || "");
+      applyViewStateChange(action, state.examOverviewPage !== nextPage, () => {
+        setOverviewPageMotion("exams", state.examOverviewPage, nextPage, examOverviewTermPages());
+        state.examOverviewPage = nextPage;
       });
     }
     if (action === "open-schedules") {
@@ -5609,6 +5729,10 @@
     return overviewBucketsSignature("special");
   }
 
+  function examOverviewBucketsSignature() {
+    return overviewBucketsSignature("exam", state.terms.map((term) => `${term.id}:${term.termStart}`).join("|"));
+  }
+
   function scheduleOverviewBuckets() {
     const signature = scheduleOverviewBucketsSignature();
     if (lastScheduleOverviewBucketsSignature === signature && lastScheduleOverviewBuckets) {
@@ -5662,6 +5786,46 @@
     lastSpecialOverviewBucketsSignature = signature;
     lastSpecialOverviewBuckets = groups;
     return groups;
+  }
+
+  function examOverviewBuckets() {
+    const signature = examOverviewBucketsSignature();
+    if (lastExamOverviewBucketsSignature === signature && lastExamOverviewBuckets) {
+      return lastExamOverviewBuckets;
+    }
+    const byTerm = {};
+    for (const term of state.terms) byTerm[term.id] = [];
+    if (!state.terms.length && state.examSchedules.length) byTerm[UNASSIGNED_EXAM_TERM_ID] = [];
+    for (const exam of state.examSchedules) {
+      const term = examTermForDate(exam.date);
+      const termId = term?.id || UNASSIGNED_EXAM_TERM_ID;
+      if (!byTerm[termId]) byTerm[termId] = [];
+      byTerm[termId].push(exam);
+    }
+    Object.values(byTerm).forEach((items) => {
+      items.sort((a, b) => `${a.date || ""} ${a.startTime || "00:00"}`.localeCompare(`${b.date || ""} ${b.startTime || "00:00"}`)
+        || COLLATOR.compare(a.title || "", b.title || ""));
+    });
+    const result = { byTerm };
+    lastExamOverviewBucketsSignature = signature;
+    lastExamOverviewBuckets = result;
+    return result;
+  }
+
+  function examTermForDate(date) {
+    if (!validDate(date) || !state.terms.length) return null;
+    return state.terms
+      .slice()
+      .sort((a, b) => b.termStart.localeCompare(a.termStart))
+      .find((term) => date >= term.termStart) || state.terms[0];
+  }
+
+  function examWeekLabel(exam) {
+    const term = examTermForDate(exam?.date);
+    if (!term || !validDate(exam?.date) || !validDate(term.termStart)) return "";
+    const diff = Math.floor((toDate(exam.date) - toDate(term.termStart)) / 86400000);
+    if (!Number.isFinite(diff)) return "";
+    return `第${Math.max(1, Math.floor(diff / 7) + 1)}周`;
   }
 
   function isSpecialChangeEnded(item) {

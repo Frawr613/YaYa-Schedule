@@ -21,6 +21,7 @@
     newRecurring: { label: "常驻", action: "new-recurring", layer: "commands", targetLayer: "domain" },
     openSchedules: { label: "日程", action: "open-schedules", layer: "commands", targetLayer: "components" },
     openCourses: { label: "课程", action: "open-courses", layer: "commands", targetLayer: "components" },
+    openExams: { label: "考试", action: "open-exams", layer: "commands", targetLayer: "components" },
     openSpecials: { label: "变更", action: "open-specials", layer: "commands", targetLayer: "components" },
     newSpecial: { label: "新变更", action: "new-special", layer: "commands", targetLayer: "domain" },
     settings: { label: "设置", action: "open-settings", layer: "commands", targetLayer: "components" }
