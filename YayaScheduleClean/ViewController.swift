@@ -2047,10 +2047,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             var text = norm(raw);
             if (!text) return 0;
             var score = 0;
-            var courseHits = text.match(/课表|课程名称|课程|上课|任课|教师|地点|学分|节次|周次|星期|教学班|周[一二三四五六日天]|第\s*\d+\s*节|\[\d{1,2}(?:-\d{1,2})?\]/g) || [];
+            var courseHits = text.match(/课表|课程名称|课程|上课|任课|教师|地点|学分|节次|周次|星期|教学班|周[一二三四五六日天]|第\\s*\\d+\\s*节|\\[\\d{1,2}(?:-\\d{1,2})?\\]/g) || [];
             var examHits = text.match(/考试|考场|考试时间|考试地点|监考|座位|考试日期|科目|闭卷|开卷|机考/g) || [];
             score += (kind === 'exam' ? examHits : courseHits).length * 8;
-            score += (/20\d{2}|\d{1,2}\s*月\s*\d{1,2}\s*日|\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(text) ? 10 : 0);
+            score += (/20\\d{2}|\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日|\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}/.test(text) ? 10 : 0);
             score += (/星期|周[一二三四五六日天]|Mon|Tue|Wed|Thu|Fri|Sat|Sun/i.test(text) ? 10 : 0);
             score += (/<table|<tbody|<tr|<td|role=.?(table|grid)/i.test(raw) ? 22 : 0);
             score += (text.length > 500 ? 6 : 0);
