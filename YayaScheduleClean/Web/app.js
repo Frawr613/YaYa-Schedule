@@ -4845,12 +4845,16 @@
   }
 
   function base64ToArrayBuffer(value) {
+    return base64ToBytes(value).buffer;
+  }
+
+  function base64ToBytes(value) {
     const binary = atob(value);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i += 1) {
       bytes[i] = binary.charCodeAt(i);
     }
-    return bytes.buffer;
+    return bytes;
   }
 
   function applyAcademicImport(payload) {
@@ -4979,16 +4983,20 @@
       : bytes[0] === 0xfe && bytes[1] === 0xff
         ? ["utf-16be", "utf-8", "gb18030", "gbk"]
         : ["gb18030", "gbk", "utf-8", "utf-16le"];
+    return decodeBytesWithBestEncoding(bytes, labels);
+  }
+
+  function decodeBytesWithBestEncoding(bytes, labels = []) {
+    const candidates = [...new Set(labels.map(normalizeCharsetLabel).filter(Boolean))];
+    ["gb18030", "gbk", "utf-8", "utf-16le"].forEach((label) => {
+      if (!candidates.includes(label)) candidates.push(label);
+    });
     let best = "";
     let score = -Infinity;
-    for (const label of labels) {
+    for (const label of candidates) {
       try {
-        const text = new TextDecoder(label).decode(buffer);
-        const chinese = (text.match(/[\u4e00-\u9fff]/g) || []).length;
-        const keywords = (text.match(/课程|课表|周次|星期|节次|上课|任课|教师|地点|<html|<table|Workbook|Worksheet/gi) || []).length;
-        const bad = (text.match(/\ufffd/g) || []).length;
-        const controls = (text.match(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g) || []).length;
-        const current = keywords * 80 + chinese * 2 - bad * 14 - controls * 8;
+        const text = new TextDecoder(label).decode(bytes);
+        const current = scoreDecodedImportText(text);
         if (current > score) {
           score = current;
           best = text;
@@ -4996,6 +5004,15 @@
       } catch (error) {}
     }
     return best;
+  }
+
+  function scoreDecodedImportText(text) {
+    const value = String(text || "");
+    const chinese = (value.match(/[\u4e00-\u9fff]/g) || []).length;
+    const keywords = (value.match(/课程|课表|周次|星期|节次|上课|任课|教师|地点|<html|<table|Workbook|Worksheet/gi) || []).length;
+    const bad = (value.match(/\ufffd/g) || []).length;
+    const controls = (value.match(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g) || []).length;
+    return keywords * 80 + chinese * 2 - bad * 14 - controls * 8;
   }
 
   function normalizeImportFileText(text, sourceName = "") {
@@ -5023,16 +5040,54 @@
     const parts = String(value || "").split(/\r?\n--[^\n\r]+/g);
     const htmlPart = parts.find((part) => /Content-Type:\s*text\/html/i.test(part)) || "";
     if (!htmlPart) return "";
+    const charset = mhtmlCharset(htmlPart);
     const body = htmlPart.replace(/^[\s\S]*?\r?\n\r?\n/, "");
     if (/Content-Transfer-Encoding:\s*base64/i.test(htmlPart)) {
-      try { return decodeURIComponent(escape(atob(body.replace(/\s+/g, "")))); } catch (error) {}
+      try {
+        return decodeBytesWithBestEncoding(base64ToBytes(body.replace(/\s+/g, "")), [charset, "utf-8", "gb18030", "gbk"]);
+      } catch (error) {}
     }
     if (/Content-Transfer-Encoding:\s*quoted-printable/i.test(htmlPart)) {
-      return body
-        .replace(/=\r?\n/g, "")
-        .replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+      return decodeBytesWithBestEncoding(quotedPrintableToBytes(body), [charset, "gb18030", "gbk", "utf-8"]);
     }
     return body;
+  }
+
+  function mhtmlCharset(part) {
+    const match = String(part || "").match(/charset\s*=\s*["']?([^"';\s\r\n]+)/i);
+    return normalizeCharsetLabel(match?.[1] || "");
+  }
+
+  function normalizeCharsetLabel(label) {
+    const value = String(label || "").trim().toLowerCase().replace(/^["']|["']$/g, "");
+    if (!value) return "";
+    if (/^(gb2312|gb_2312-80|gb18030|cp936|windows-936)$/i.test(value)) return "gb18030";
+    if (/^(gbk|x-gbk)$/i.test(value)) return "gbk";
+    if (/^(utf8|utf-8)$/i.test(value)) return "utf-8";
+    if (/^(unicode|utf-16|utf16|utf-16le)$/i.test(value)) return "utf-16le";
+    if (/^(utf-16be|utf16be)$/i.test(value)) return "utf-16be";
+    return value;
+  }
+
+  function quotedPrintableToBytes(value) {
+    const input = String(value || "").replace(/=\r?\n/g, "");
+    const bytes = [];
+    for (let index = 0; index < input.length; index += 1) {
+      const char = input[index];
+      const hex = input.slice(index + 1, index + 3);
+      if (char === "=" && /^[0-9a-f]{2}$/i.test(hex)) {
+        bytes.push(parseInt(hex, 16));
+        index += 2;
+        continue;
+      }
+      const code = input.charCodeAt(index);
+      if (code <= 0xff) {
+        bytes.push(code);
+      } else if (typeof TextEncoder !== "undefined") {
+        bytes.push(...new TextEncoder().encode(char));
+      }
+    }
+    return new Uint8Array(bytes);
   }
 
   function parseHtmlSchedule(text) {
