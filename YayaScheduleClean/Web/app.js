@@ -2315,17 +2315,38 @@
   }
 
   function renderExamOverviewCard(exam) {
-    const week = examWeekLabel(exam);
     return `
       <article class="list-card exam-card" data-action="open-detail" data-detail-type="exam" data-detail-id="${escapeAttr(exam.id)}">
         <div>
-          <div class="badges overview-card-tags"><span>考试</span>${week ? `<span>${escapeHtml(week)}</span>` : ""}</div>
           <strong>${escapeHtml(exam.title)}</strong>
-          <span>${escapeHtml(exam.date)} · ${escapeHtml(timeRange(exam))}</span>
-          <small>${escapeHtml(exam.place || "地点未填")}</small>
+          <span>${escapeHtml(examDisplayTime(exam))}</span>
+          <small>${escapeHtml(displayExamPlace(exam))}</small>
         </div>
       </article>
     `;
+  }
+
+  function displayCourseScheduleText(value) {
+    return stripCourseEnrollmentCount(value);
+  }
+
+  function displayCoursePlace(value) {
+    return stripCourseEnrollmentCount(value);
+  }
+
+  function stripCourseEnrollmentCount(value) {
+    return normalizeText(value)
+      .replace(/([\u4e00-\u9fffA-Za-z0-9#\-]+)\s*[（(]\s*\d{1,4}\s*[）)]/g, "$1")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
+
+  function examDisplayTime(exam) {
+    return [exam.date, timeRange(exam)].filter(Boolean).join(" · ");
+  }
+
+  function displayExamPlace(exam) {
+    return normalizeText(exam?.place) || "地点未填";
   }
 
   function renderSchedulesModal() {
@@ -3254,7 +3275,8 @@
       }
       const group = groups.get(key);
       group.courses.push(course);
-      if (course.scheduleText && !group.lines.includes(course.scheduleText)) group.lines.push(course.scheduleText);
+      const line = displayCourseScheduleText(course.scheduleText);
+      if (line && !group.lines.includes(line)) group.lines.push(line);
     }
     return [...groups.values()].sort((a, b) => COLLATOR.compare(a.name, b.name));
   }
@@ -5445,7 +5467,7 @@
       const dayIndex = DAY_NAME.get(day);
       const start = Number(startText);
       const end = Number(endText || startText);
-      const place = normalizeText(placeText);
+      const place = displayCoursePlace(placeText);
       if (!weeks.length || dayIndex === undefined || !start || !end) return;
       for (const week of weeks) {
         const date = dateForWeekDay(course.termStart, week, dayIndex);
@@ -5951,8 +5973,8 @@
       noteKey: "",
       title: item.title,
       timeText: timeRange(item),
-      typeLabel: "考试",
-      meta: item.place || "地点未填",
+      typeLabel: "",
+      meta: displayExamPlace(item),
       startMinute: clockToMinutes(item.startTime)
     };
   }
@@ -6180,7 +6202,7 @@
       return {
         title: course.name,
         noteKey: noteKeyForCourse(course.courseKey),
-        meta: [course.termLabel, course.scheduleText, course.teacher || "教师未填"].filter(Boolean)
+        meta: [course.termLabel, displayCourseScheduleText(course.scheduleText), course.teacher || "教师未填"].filter(Boolean)
       };
     }
     if (type === "recurring") {
@@ -6213,7 +6235,7 @@
     if (type === "exam") {
       const item = state.examSchedules.find((exam) => exam.id === id);
       if (!item) return null;
-      return { title: item.title, noteKey: `exam:${item.id}`, meta: [item.date, timeRange(item), item.place].filter(Boolean) };
+      return { title: item.title, noteKey: `exam:${item.id}`, meta: [examDisplayTime(item), displayExamPlace(item)].filter(Boolean) };
     }
     return null;
   }
