@@ -283,6 +283,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return
         }
         if isTrustedAcademicURL(url) {
+            hidePortalTermOverlay()
             guard shouldInjectAcademicHelpers(for: url) else { return }
             lastPortalActionStatus = ""
             injectAcademicZoomPolicy()
@@ -675,6 +676,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         guard now - lastPortalOpenAt >= portalOpenCooldown else { return }
         lastPortalOpenAt = now
         portalSessionActive = true
+        hidePortalTermOverlay()
         applyWebInteractionMode(academic: true)
         webView.load(URLRequest(url: portalURL))
     }
@@ -2616,7 +2618,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             chip.type = 'button';
             chip.textContent = '返回鸦鸦';
             chip.setAttribute('aria-label', '返回鸦鸦日程');
-            chip.style.cssText = 'position:fixed;right:10px;top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;min-width:86px;height:38px;border:1px solid rgba(255,255,255,.72);border-radius:19px;padding:0 13px;font-size:13px;font-weight:900;color:' + ink + ';background:linear-gradient(145deg,rgba(255,255,255,.92),' + rgba(panel,.84) + ');box-shadow:0 10px 22px ' + rgba(accent,.16) + ',inset 0 1px 0 rgba(255,255,255,.72);-webkit-backdrop-filter:blur(14px) saturate(1.24);backdrop-filter:blur(14px) saturate(1.24);touch-action:manipulation';
+            chip.style.cssText = 'position:fixed;right:10px;top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;min-width:86px;height:38px;border:1px solid rgba(255,255,255,.72);border-radius:19px;padding:0 13px;font-size:13px;font-weight:900;color:' + ink + ';background:linear-gradient(145deg,rgba(255,255,255,.92),' + rgba(panel,.84) + ');box-shadow:0 10px 22px ' + rgba(accent,.16) + ',inset 0 1px 0 rgba(255,255,255,.72);-webkit-backdrop-filter:blur(14px) saturate(1.24);backdrop-filter:blur(14px) saturate(1.24);touch-action:manipulation;pointer-events:auto';
             chip.onclick = function(event) {
               event.preventDefault();
               event.stopPropagation();
@@ -2638,7 +2640,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             var card = portalColor('card', '#ffffff');
             var radius = Math.max(20, Math.min(36, portalNumber('radius', 22) + 4));
             var control = mixHex(panel, accent, 0.08);
-            box.style.cssText = 'position:fixed;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);z-index:2147483646;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:minmax(48px,1fr) minmax(48px,1fr) auto auto;gap:10px;width:min(320px,calc(100vw - 20px));min-width:188px;min-height:164px;max-width:calc(100vw - 20px);max-height:calc(100vh - 20px);overflow:hidden;padding:11px 12px 8px;border:1px solid rgba(255,255,255,.72);border-radius:' + radius + 'px;background:linear-gradient(145deg,' + rgba(card,.94) + ',' + rgba(control,.82) + ');box-shadow:0 18px 46px ' + rgba(accent,.24) + ',inset 0 1px 0 rgba(255,255,255,.86);-webkit-backdrop-filter:blur(18px) saturate(1.35);backdrop-filter:blur(18px) saturate(1.35);font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;color:' + ink + ';user-select:none;-webkit-user-select:none;touch-action:manipulation';
+            box.style.cssText = 'position:fixed;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);z-index:2147483646;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:minmax(48px,1fr) minmax(48px,1fr) auto auto;gap:10px;width:min(320px,calc(100vw - 20px));min-width:188px;min-height:164px;max-width:calc(100vw - 20px);max-height:calc(100vh - 20px);overflow:hidden;padding:11px 12px 8px;border:1px solid rgba(255,255,255,.72);border-radius:' + radius + 'px;background:linear-gradient(145deg,' + rgba(card,.94) + ',' + rgba(control,.82) + ');box-shadow:0 18px 46px ' + rgba(accent,.24) + ',inset 0 1px 0 rgba(255,255,255,.86);-webkit-backdrop-filter:blur(18px) saturate(1.35);backdrop-filter:blur(18px) saturate(1.35);font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;color:' + ink + ';user-select:none;-webkit-user-select:none;touch-action:manipulation;pointer-events:auto';
             function button(text, tone, fn) {
               var node = document.createElement('button');
               node.type = 'button';
@@ -2648,7 +2650,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 : tone === 'exam' ? 'linear-gradient(135deg,' + mixHex(accent, warm, .28) + ',' + mixHex(warm, '#7c3aed', .32) + ')' : 'linear-gradient(135deg,' + accent + ',' + warm + ')';
               var toneColor = tone === 'home' ? ink : '#fff';
               var toneBorder = tone === 'home' ? rgba(accent,.18) : 'rgba(255,255,255,.64)';
-              node.style.cssText = 'height:100%;min-height:0;border:1px solid ' + toneBorder + ';border-radius:' + Math.max(16, radius - 7) + 'px;padding:0 14px;font-size:14px;font-weight:900;line-height:1.12;color:' + toneColor + ';background:' + skin + ';box-shadow:0 10px 22px ' + rgba(accent,.20) + ',inset 0 1px 0 rgba(255,255,255,.42);touch-action:manipulation;white-space:normal';
+              node.style.cssText = 'height:100%;min-height:0;border:1px solid ' + toneBorder + ';border-radius:' + Math.max(16, radius - 7) + 'px;padding:0 14px;font-size:14px;font-weight:900;line-height:1.12;color:' + toneColor + ';background:' + skin + ';box-shadow:0 10px 22px ' + rgba(accent,.20) + ',inset 0 1px 0 rgba(255,255,255,.42);touch-action:manipulation;pointer-events:auto;white-space:normal';
               if (tone === 'home') node.style.gridColumn = '1/-1';
               node.onclick = function(event) { event.preventDefault(); event.stopPropagation(); fn(node); };
               box.appendChild(node);
@@ -2669,7 +2671,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             var grip = document.createElement('div');
             grip.dataset.resize = 'true';
             grip.textContent = '◢';
-            grip.style.cssText = 'grid-column:1/-1;justify-self:end;width:30px;height:24px;display:grid;place-items:center;color:' + rgba(accent,.62) + ';font-size:18px;font-weight:900;line-height:1;cursor:nwse-resize;touch-action:none';
+            grip.style.cssText = 'grid-column:1/-1;justify-self:end;width:30px;height:24px;display:grid;place-items:center;color:' + rgba(accent,.62) + ';font-size:18px;font-weight:900;line-height:1;cursor:nwse-resize;touch-action:none;pointer-events:auto';
             box.appendChild(grip);
             function clamp(left, top) {
               var margin = 10, r = box.getBoundingClientRect();
@@ -2694,31 +2696,53 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               place(r.left, r.top);
             }
             var drag = null;
+            var dragTimer = 0;
+            function clearDrag() {
+              if (!drag) return;
+              try { box.releasePointerCapture(drag.id); } catch (error) {}
+              drag = null;
+              if (dragTimer) {
+                clearTimeout(dragTimer);
+                dragTimer = 0;
+              }
+            }
+            function armDragTimeout() {
+              if (dragTimer) clearTimeout(dragTimer);
+              dragTimer = setTimeout(clearDrag, 12000);
+            }
             box.addEventListener('pointerdown', function(event) {
               if (event.target && event.target.closest && event.target.closest('button,input,select,textarea,a')) return;
               var r = box.getBoundingClientRect();
               var isResize = event.target && event.target.closest && event.target.closest('[data-resize]');
               drag = { id: event.pointerId, mode: isResize ? 'resize' : 'drag', x: event.clientX, y: event.clientY, left: r.left, top: r.top, width: r.width, height: r.height };
               try { box.setPointerCapture(event.pointerId); } catch (error) {}
+              armDragTimeout();
               event.preventDefault();
               event.stopPropagation();
             }, true);
             window.addEventListener('pointermove', function(event) {
               if (!drag) return;
+              if (event.pointerId != null && drag.id != null && event.pointerId !== drag.id) return;
               if (drag.mode === 'resize') {
                 resize(drag.width + event.clientX - drag.x, drag.height + event.clientY - drag.y);
               } else {
                 place(drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y);
               }
+              armDragTimeout();
               event.preventDefault();
+              event.stopPropagation();
             }, true);
             function end(event) {
-              if (!drag) return;
-              try { box.releasePointerCapture(drag.id); } catch (error) {}
-              drag = null;
+              clearDrag();
             }
             window.addEventListener('pointerup', end, true);
             window.addEventListener('pointercancel', end, true);
+            window.addEventListener('blur', clearDrag, true);
+            window.addEventListener('pagehide', clearDrag, true);
+            document.addEventListener('visibilitychange', function() {
+              if (document.hidden) clearDrag();
+            }, true);
+            box.addEventListener('lostpointercapture', clearDrag, true);
             window.addEventListener('resize', function() {
               var r = box.getBoundingClientRect();
               place(r.left, r.top);
