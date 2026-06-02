@@ -5465,13 +5465,13 @@
         if (headerIndex < 0) continue;
         const headers = rows[headerIndex];
         const find = (words) => headers.findIndex((header) => words.some((word) => header.includes(word)));
-        const nameIndex = find(["课程名称", "课程", "科目", "考试名称", "名称"]);
+        const nameIndex = find(["课程名称", "课程名", "考试科目", "课程", "科目", "考试名称", "名称"]);
         const dateIndex = find(["考试日期", "日期"]);
         const timeIndex = find(["考试时间", "时间"]);
         const placeIndex = find(["考试地点", "地点", "考场", "教室"]);
         for (const row of rows.slice(headerIndex + 1)) {
-          const title = row[nameIndex] || "";
-          const combined = `${row[dateIndex] || ""} ${row[timeIndex] || ""} ${row.join(" ")}`;
+          const title = examTitleFromCells(row, headers, nameIndex);
+          const combined = `${cellAt(row, dateIndex)} ${cellAt(row, timeIndex)} ${row.join(" ")}`;
           const date = parseDateValue(combined);
           if (!title || !date) continue;
           const parsedTime = parseTimeRange(combined);
@@ -5479,7 +5479,7 @@
             id: newId("exam"),
             date,
             title,
-            place: row[placeIndex] || "",
+            place: cellAt(row, placeIndex),
             startTime: parsedTime.startTime,
             endTime: parsedTime.endTime
           }));
@@ -5492,10 +5492,11 @@
         const date = parseDateValue(line);
         if (!date) return;
         const parsedTime = parseTimeRange(line);
+        const title = examTitleFromPlainText(lines, index);
         exams.push(normalizeExamSchedule({
           id: newId("exam"),
           date,
-          title: lines[index - 1] || "考试",
+          title,
           place: lines[index + 1] || "",
           startTime: parsedTime.startTime,
           endTime: parsedTime.endTime
@@ -5503,6 +5504,80 @@
       });
     }
     return exams.filter(Boolean);
+  }
+
+  function cellAt(row, index) {
+    return index >= 0 ? normalizeText(row[index]) : "";
+  }
+
+  function examTitleFromRecord(item) {
+    const candidates = [
+      item?.title,
+      item?.subject,
+      item?.courseName,
+      item?.course,
+      item?.name,
+      item?.examName,
+      item?.examSubject,
+      item?.kcmc,
+      item?.KCMC,
+      item?.["课程名称"],
+      item?.["课程名"],
+      item?.["考试科目"],
+      item?.["考试名称"],
+      item?.["科目"],
+      item?.["课程"],
+      item?.["名称"]
+    ];
+    return candidates.map(cleanExamTitle).find(Boolean) || "";
+  }
+
+  function examTitleFromCells(row, headers = [], nameIndex = -1) {
+    const direct = cleanExamTitle(cellAt(row, nameIndex));
+    if (direct) return direct;
+    const headerWords = ["课程名称", "课程名", "考试科目", "考试名称", "科目", "课程", "名称"];
+    const headerIndex = headers.findIndex((header) => headerWords.some((word) => normalizeText(header).includes(word)));
+    const byHeader = cleanExamTitle(cellAt(row, headerIndex));
+    if (byHeader) return byHeader;
+    return row.map(cleanExamTitle).find((value) => value && !looksLikeExamMeta(value)) || "";
+  }
+
+  function examTitleFromPlainText(lines, index) {
+    const candidates = [
+      lines[index - 1],
+      lines[index - 2],
+      lines[index],
+      lines[index + 1]
+    ];
+    return candidates.map(cleanExamTitle).find((value) => value && !looksLikeExamMeta(value)) || "考试";
+  }
+
+  function cleanExamTitle(value) {
+    const text = normalizeText(value)
+      .replace(/^(?:考试)?(?:课程名称|课程名|课程|科目|考试科目|考试名称|名称)\s*[:：]\s*/i, "")
+      .replace(/\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?/g, " ")
+      .replace(/\d{1,2}[-/.月]\d{1,2}日/g, " ")
+      .replace(/\d{1,2}[:：]\d{2}(?:\s*[-~～—–－至到]\s*\d{1,2}[:：]\d{2})?/g, " ")
+      .replace(/(?:考试)?(?:日期|时间|地点|考场|教室|校区|座位号|学号|姓名|序号|备注|说明|周次|星期)\s*[:：]\s*[^，,;；]*/g, " ")
+      .replace(/^\d+\s*[、.．]\s*/, "");
+    const normalized = normalizeText(text);
+    if (!normalized || looksLikeExamMeta(normalized)) return "";
+    return normalized;
+  }
+
+  function looksLikeExamMeta(value) {
+    const text = normalizeText(value);
+    if (!text) return true;
+    const withoutDateTime = normalizeText(text
+      .replace(/\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?/g, " ")
+      .replace(/\d{1,2}[-/.月]\d{1,2}日/g, " ")
+      .replace(/\d{1,2}[:：]\d{2}(?:\s*[-~～—–－至到]\s*\d{1,2}[:：]\d{2})?/g, " "));
+    if (validDate(parseDateValue(text)) && !withoutDateTime) return true;
+    if (/^(?:考试)?(?:日期|时间|地点|考场|教室|校区|座位号|学号|姓名|序号|备注|说明|周次|星期)(?:\s*[:：].*)?$/.test(text)) return true;
+    if (/^(?:第?\d{1,2}\s*(?:周|节)|周[一二三四五六日天])$/.test(text)) return true;
+    if (/^\d{1,2}[:：]\d{2}(?:\s*[-~～—–－至到]\s*\d{1,2}[:：]\d{2})?$/.test(text)) return true;
+    if (/^(?:\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}[-/.月]\d{1,2}日?)$/.test(text)) return true;
+    return false;
   }
 
   function buildTermInfo(firstYear, secondYear, termText) {
@@ -6964,11 +7039,13 @@
   }
 
   function normalizeExamSchedule(item) {
-    if (!item || !validDate(item.date) || !normalizeText(item.title)) return null;
+    const title = examTitleFromRecord(item);
+    if (!item || !validDate(item.date) || !title) return null;
     return {
       id: String(item.id || newId("exam")),
       date: item.date,
-      title: normalizeText(item.title),
+      title,
+      subject: title,
       place: normalizeText(item.place),
       startTime: normalizeTime(item.startTime || "00:00"),
       endTime: normalizeTime(item.endTime || item.startTime || "00:00")
