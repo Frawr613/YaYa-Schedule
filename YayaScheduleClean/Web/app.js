@@ -1143,7 +1143,9 @@
       state.dateLookupMode,
       state.modal || "",
       state.courseOverviewPage || "",
+      state.examOverviewPage || "",
       currentCourseTerm()?.id || "",
+      currentExamOverviewPage() || "",
       state.activeTermId || "",
       state.termStart || ""
     ].join("|");
@@ -1153,12 +1155,19 @@
     autoLockFrame = window.requestAnimationFrame(() => {
       autoLockFrame = 0;
       lockDateLookupToCurrentWeek();
+      lockExamOverviewToVisibleTerm();
     });
   }
 
   function scheduleCourseOverviewOpenLock() {
     window.requestAnimationFrame(() => {
       lockCourseOverviewToCurrentTerm();
+    });
+  }
+
+  function scheduleExamOverviewOpenLock() {
+    window.requestAnimationFrame(() => {
+      lockExamOverviewToVisibleTerm();
     });
   }
 
@@ -1175,15 +1184,33 @@
   }
 
   function lockCourseOverviewToCurrentTerm() {
-    document.querySelectorAll(".course-term-tab[data-current-term-chip='true']").forEach((chip) => {
-      const rail = chip.closest(".modal-page-chips");
-      keepActiveChipVisible(rail, ".course-term-tab[data-current-term-chip='true']");
+    lockOverviewTermTabs(".course-term-tab:not(.exam-term-tab)");
+  }
+
+  function lockExamOverviewToVisibleTerm() {
+    lockOverviewTermTabs(".exam-term-tab");
+  }
+
+  function lockOverviewTermTabs(tabSelector) {
+    document.querySelectorAll(".modal-page-chips").forEach((rail) => {
+      if (!rail.querySelector(tabSelector)) return;
+      keepPreferredChipVisible(rail, [
+        `${tabSelector}.active`,
+        `${tabSelector}[data-current-term-chip='true']`
+      ]);
     });
+  }
+
+  function keepPreferredChipVisible(rail, selectors) {
+    for (const selector of selectors) {
+      if (keepActiveChipVisible(rail, selector)) return true;
+    }
+    return false;
   }
 
   function keepActiveChipVisible(rail, selector) {
     const chip = rail?.querySelector?.(selector);
-    if (!rail || !chip) return;
+    if (!rail || !chip) return false;
     const railRect = rail.getBoundingClientRect();
     const chipRect = chip.getBoundingClientRect();
     const padding = 10;
@@ -1194,6 +1221,7 @@
       delta = chipRect.right - railRect.right + padding;
     }
     if (delta) rail.scrollBy({ left: delta, behavior: "auto" });
+    return true;
   }
 
   function renderStatus() {
@@ -3388,8 +3416,13 @@
       });
     }
     if (action === "open-exams") {
-      state.examOverviewPage = normalizeExamOverviewPage(state.examOverviewPage || currentExamOverviewPage());
+      const currentPage = currentExamOverviewPage();
+      if (state.examOverviewPage !== currentPage) {
+        state.examOverviewPage = currentPage;
+        persist({ immediate: true });
+      }
       openModal("exams");
+      scheduleExamOverviewOpenLock();
     }
     if (action === "set-exam-overview-page") {
       const nextPage = normalizeExamOverviewPage(target.dataset.termId || "");
@@ -3397,6 +3430,7 @@
         setOverviewPageMotion("exams", state.examOverviewPage, nextPage, examOverviewTermPages());
         state.examOverviewPage = nextPage;
       });
+      scheduleExamOverviewOpenLock();
     }
     if (action === "open-schedules") {
       state.scheduleOverviewPage = normalizeScheduleOverviewPage(state.scheduleOverviewPage);
