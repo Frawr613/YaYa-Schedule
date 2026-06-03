@@ -36,7 +36,7 @@
     needsAction: false
   });
 
-  const capabilities = ["savePortalAccount", "setLauncherIcon", "configurePortalUi", "openAcademicPortal", "openFileImport", "takeImportedPage", "getReminderPermissionStatus", "requestReminderPermissions", "requestNotificationPermission", "requestBackgroundRunPermission", "scheduleReminderNotifications", "scheduleDdlNotifications"];
+  const capabilities = ["savePortalAccount", "setLauncherIcon", "configurePortalUi", "openAcademicPortal", "startAcademicImport", "openFileImport", "takeImportedPage", "getReminderPermissionStatus", "requestReminderPermissions", "requestNotificationPermission", "requestBackgroundRunPermission", "scheduleReminderNotifications", "scheduleDdlNotifications"];
 
   const platformApi = {
     layer: "platform",
@@ -64,6 +64,12 @@
       if (now - lastPortalBridgeOpenAt < PORTAL_OPEN_COOLDOWN_MS) return true;
       lastPortalBridgeOpenAt = now;
       nativeCall("openAcademicPortal", [], false);
+      return true;
+    },
+    startAcademicImport(options) {
+      if (!hasNativeMethod("startAcademicImport")) return false;
+      const payload = typeof options === "string" ? options : JSON.stringify(options || {});
+      nativeCall("startAcademicImport", [payload], false);
       return true;
     },
     openFileImport() {

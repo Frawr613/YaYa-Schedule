@@ -531,6 +531,7 @@
     scheduleNativeImportPull();
     window.addEventListener("yaya-native-import-ready", scheduleNativeImportPull);
     window.addEventListener("yaya-native-file-import-ready", handleNativeFileImportReady);
+    window.addEventListener("yaya-portal-import-status", handlePortalImportStatus);
     if (window.__yayaPendingFileImport) {
       window.setTimeout(() => handleNativeFileImportReady({ detail: window.__yayaPendingFileImport }), 80);
     }
@@ -1526,6 +1527,7 @@
     if (name === "detail") return renderDetailModal();
     if (name === "note-view") return renderNoteViewModal();
     if (name === "note-form") return renderNoteEditModal();
+    if (name === "academic-import") return renderAcademicImportModal();
     if (name === "term-import") return renderTermImportModal();
     return "";
   }
@@ -2840,6 +2842,39 @@
     `;
   }
 
+  function renderAcademicImportModal() {
+    const startValue = state.termStart || DEFAULT_TERM_START;
+    const termSelection = termSelectionFromDate(startValue);
+    return `
+      ${modalHead("教务导入", "open-settings")}
+      <form id="academicImportForm" class="form-stack term-import-panel academic-import-panel">
+        <section class="term-auto-card">
+          <div>
+            <span>后台导入</span>
+            <strong>先选学期，再自动检索课表</strong>
+          </div>
+          <small>账号登录正常时，鸦鸦会在后台进入教务系统、选择对应学期并检索导出；失败时再进入网页手动接管。</small>
+        </section>
+        <label class="form-field">
+          <span>导入类型</span>
+          ${internalOptionSelect("academicImportKind", "course", [{ label: "导入类型", options: [["course", "课表"], ["exam", "考试"]] }], { title: "选择导入类型", required: true })}
+        </label>
+        <section class="term-start-field term-internal-date-field">
+          <span>开学日期</span>
+          ${internalDateSelect("termStart", startValue, { title: "选择开学日期", required: true })}
+        </section>
+        ${renderTermSelectFields(termSelection)}
+        <p class="form-note term-import-note">
+          课表导入会使用上方学年与学期自动检索对应课表。考试导入不需要开学日期，会自动读取考试安排。
+        </p>
+        <div class="prompt-actions term-import-actions">
+          <button type="button" class="prompt-cancel" data-action="open-portal-manual">网页手动接管</button>
+          <button type="submit" class="prompt-confirm primary">开始后台导入</button>
+        </div>
+      </form>
+    `;
+  }
+
   function renderTermSelectFields(selection = {}) {
     const yearValue = normalizeAcademicYearValue(selection.yearValue);
     const kind = normalizeTermKind(selection.kind) || "autumn";
@@ -3388,6 +3423,7 @@
     if (action === "open-icon") openModal("icon");
     if (action === "open-guide") openModal("guide");
     if (action === "open-portal") openAcademicPortal(event);
+    if (action === "open-portal-manual") openAcademicPortalManual(event);
     if (action === "request-reminder-permission") requestReminderPermission();
     if (action === "choose-file") {
       if (!openNativeFileImport()) els.fileInput.click();
@@ -3558,8 +3594,9 @@
         || (event.target.name === "reminders" && event.target.checked);
       if (asksNotification) requestReminderPermission({ interactive: false, silent: true });
     }
-    if (event.target.closest?.("#termImportForm") && (event.target.name === "termYear" || event.target.name === "termKind")) {
-      syncTermStartFromSelection(event.target.closest("#termImportForm"));
+    const termSelectionForm = event.target.closest?.("#termImportForm, #academicImportForm");
+    if (termSelectionForm && (event.target.name === "termYear" || event.target.name === "termKind")) {
+      syncTermStartFromSelection(termSelectionForm);
     }
     if (event.target.closest?.("#recurringForm") && ["weeks", "dayIndex", "startDate", "endDate"].includes(event.target.name)) {
       syncRecurringWeekLink(event.target, event.target.name);
@@ -4517,6 +4554,7 @@
     if (form.id === "noteForm") saveNote(form);
     if (form.id === "noteEditForm") saveEditedNote(form);
     if (form.id === "termImportForm") confirmTermImport(form);
+    if (form.id === "academicImportForm") startAcademicImport(form);
   }
 
   function openModal(name, data = {}) {
@@ -4805,6 +4843,12 @@
   function openAcademicPortal(event) {
     event?.preventDefault?.();
     event?.stopPropagation?.();
+    openModal("academic-import");
+  }
+
+  function openAcademicPortalManual(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
     const now = Date.now();
     if (now - lastPortalOpenAt < PORTAL_OPEN_COOLDOWN_MS) return;
     lastPortalOpenAt = now;
@@ -4822,6 +4866,38 @@
     }
     state.notice = "当前是网页预览环境，无法自动抓取门户；请在手机 App 内使用教务导入，或先用文件导入";
     renderStatus();
+  }
+
+  function startAcademicImport(form) {
+    const data = new FormData(form);
+    const kind = normalizeAcademicImportKind(data.get("academicImportKind")) || "course";
+    const yearValue = normalizeAcademicYearValue(data.get("termYear"));
+    const termKind = normalizeTermKind(data.get("termKind")) || "autumn";
+    const firstYear = Number(yearValue.slice(0, 4));
+    const termStart = validDate(data.get("termStart"))
+      ? String(data.get("termStart"))
+      : suggestedTermStart(firstYear, firstYear + 1, termKind);
+    const payload = {
+      kind,
+      termLabel: buildTermLabelFromSelection(yearValue, termKind),
+      termStart,
+      termYear: yearValue,
+      termKind,
+      background: true
+    };
+    syncPortalImportUiBridge();
+    if (window.YayaPlatform?.startAcademicImport?.(payload)) {
+      state.notice = kind === "exam"
+        ? "正在后台导入考试安排，完成后会自动写入"
+        : `正在后台导入 ${payload.termLabel} 课表，完成后会自动写入`;
+      closeModal();
+      renderStatus();
+      scheduleNativeImportPull();
+      return;
+    }
+    state.notice = "当前环境无法后台导入，已切换为网页手动接管";
+    renderStatus();
+    openAcademicPortalManual();
   }
 
   function pullNativeImport() {
@@ -4850,13 +4926,21 @@
     if (!hasNativeImportBridge()) return;
     pullNativeImport();
     clearNativeImportPullTimers();
-    nativeImportPullTimers = [180, 640].map((delay) => {
+    nativeImportPullTimers = [180, 640, 1400, 2800, 5200, 9000, 14000, 21000].map((delay) => {
       const timer = window.setTimeout(() => {
         nativeImportPullTimers = nativeImportPullTimers.filter((item) => item !== timer);
         pullNativeImport();
       }, delay);
       return timer;
     });
+  }
+
+  function handlePortalImportStatus(event) {
+    const message = normalizeText(event?.detail?.message || "");
+    if (!message) return;
+    state.notice = message;
+    renderStatus();
+    if (/已抓取|已暂存|完成|写入|导入/.test(message)) scheduleNativeImportPull();
   }
 
   function openNativeFileImport() {
@@ -4929,16 +5013,20 @@
       commit(`已导入考试安排：${exams.length} 项`);
       return;
     }
-    const combinedText = `${text}\n${htmlToPlainText(html)}`;
-    let rows = parseHtmlSchedule(html);
+    const sourceName = payload.title || "教务系统同步";
+    const normalizedImport = normalizeImportFileText(`${html}\n${text}`, sourceName);
+    const combinedText = `${htmlToPlainText(normalizedImport)}\n${text}\n${htmlToPlainText(html)}`;
+    let rows = parseHtmlSchedule(normalizedImport);
+    if (!rows.length) rows = parseHtmlSchedule(html);
+    if (!rows.length) rows = parseHtmlSchedule(text);
     if (!rows.length) rows = parseDelimitedSchedule(combinedText);
     if (!rows.length) rows = parseLooseScheduleText(combinedText);
     if (!rows.length) {
-      state.notice = "未识别到课程，请确认已打开“我的课表”并检索完成";
+      const lengthHint = `文本 ${String(text || "").length} / HTML ${String(html || "").length}`;
+      state.notice = `未识别到课程，请确认已打开“我的课表”并检索完成（已抓取 ${lengthHint}）`;
       renderAll();
       return;
     }
-    const sourceName = payload.title || "教务系统同步";
     if (payload.confirmedTerm) {
       const payloadLabel = normalizeText(payload.termLabel);
       const placeholderLabel = payloadLabel === "新课表" || payloadLabel === "未识别学期";

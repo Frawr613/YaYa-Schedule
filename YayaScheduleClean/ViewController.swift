@@ -128,7 +128,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private weak var portalTermOverlay: UIView?
     private var academicDownloadDestinations: [ObjectIdentifier: URL] = [:]
     private var academicFrameSnapshots: [AcademicFrameSnapshot] = []
+    private var academicWorkerWebView: WKWebView?
     private var pendingAcademicAutoImportKind = ""
+    private var pendingAcademicTermLabel = ""
+    private var pendingAcademicTermStart = ""
 
     override func loadView() {
         let configuration = WKWebViewConfiguration()
@@ -150,6 +153,37 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         configureWebViewScrollBehavior()
         view = webView
+    }
+
+    private func makeAcademicWorkerConfiguration() -> WKWebViewConfiguration {
+        let configuration = WKWebViewConfiguration()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
+        configuration.websiteDataStore = .default()
+        configuration.userContentController.addUserScript(Self.academicFrameCaptureScript())
+        configuration.userContentController.add(WeakScriptMessageDelegate(self), name: "yayaBridge")
+        return configuration
+    }
+
+    private func ensureAcademicWorkerWebView() -> WKWebView {
+        if let worker = academicWorkerWebView {
+            return worker
+        }
+        let worker = WKWebView(
+            frame: CGRect(x: max(0, view.bounds.width - 2), y: max(0, view.bounds.height - 2), width: 1, height: 1),
+            configuration: makeAcademicWorkerConfiguration()
+        )
+        worker.navigationDelegate = self
+        worker.uiDelegate = self
+        worker.autoresizingMask = [.flexibleLeftMargin, .flexibleTopMargin]
+        worker.isOpaque = false
+        worker.backgroundColor = .clear
+        worker.alpha = 0.01
+        worker.isUserInteractionEnabled = false
+        worker.scrollView.isScrollEnabled = false
+        view.addSubview(worker)
+        academicWorkerWebView = worker
+        return worker
     }
 
     deinit {
@@ -282,11 +316,19 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           } catch (error) {}
         })();
         """
-        webView.evaluateJavaScript(script)
+        (targetWebView ?? webView).evaluateJavaScript(script)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard let url = webView.url else { return }
+        if webView === academicWorkerWebView {
+            guard isTrustedAcademicURL(url) else { return }
+            injectPortalNavigationHelper(into: webView)
+            injectPortalAccountHelper(into: webView)
+            injectAcademicImportControlsV2(into: webView)
+            resumePendingAcademicAutoImport(in: webView)
+            return
+        }
         applyWebInteractionMode(for: url)
         if isLocalAppURL(url) {
             pushKeyboardInset(lastKeyboardInset < 0 ? 0 : lastKeyboardInset)
@@ -303,7 +345,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             injectPortalNavigationHelper()
             injectPortalAccountHelper()
             injectAcademicImportControlsV2()
-            resumePendingAcademicAutoImport()
+            resumePendingAcademicAutoImport(in: webView)
         }
     }
 
@@ -325,6 +367,20 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     ) {
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
+            return
+        }
+        if webView === academicWorkerWebView {
+            if #available(iOS 14.5, *),
+               navigationAction.shouldPerformDownload,
+               (isTrustedAcademicURL(url) || portalSessionActive) {
+                decisionHandler(.download)
+                return
+            }
+            if isLocalAppURL(url) || isTrustedAcademicURL(url) || portalSessionActive {
+                decisionHandler(.allow)
+            } else {
+                decisionHandler(.cancel)
+            }
             return
         }
         if #available(iOS 14.5, *),
@@ -395,15 +451,20 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        handleNavigationFailure(error)
+        handleNavigationFailure(error, from: webView)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        handleNavigationFailure(error)
+        handleNavigationFailure(error, from: webView)
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         lastAcademicInjectionKey = ""
+        if webView === academicWorkerWebView {
+            setPortalActionStatus("后台教务网页已恢复，正在继续导入")
+            webView.reload()
+            return
+        }
         if portalSessionActive || isTrustedAcademicURL(webView.url) {
             setPortalActionStatus("网页已恢复，请继续操作")
             webView.reload()
@@ -412,10 +473,14 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         }
     }
 
-    private func handleNavigationFailure(_ error: Error) {
+    private func handleNavigationFailure(_ error: Error, from failingWebView: WKWebView) {
         let nsError = error as NSError
         guard nsError.domain != NSURLErrorDomain || nsError.code != NSURLErrorCancelled else { return }
-        guard portalSessionActive || isTrustedAcademicURL(webView.url) else { return }
+        if failingWebView === academicWorkerWebView {
+            setPortalActionStatus("后台教务网页加载失败，请切换为网页手动接管")
+            return
+        }
+        guard portalSessionActive || isTrustedAcademicURL(failingWebView.url) else { return }
         setPortalActionStatus("网页加载失败，请检查网络后重试")
     }
 
@@ -508,6 +573,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         let key = ObjectIdentifier(download)
         guard let url = academicDownloadDestinations.removeValue(forKey: key) else { return }
         if enqueueNativeFileImport(url: url, preferDeferred: true) {
+            if isLocalAppURL(webView.url) {
+                deliverPendingFileImportIfNeeded()
+            }
             setPortalActionStatus("课表文件已导出并暂存：\(url.lastPathComponent)，点返回鸦鸦后自动解析")
         } else {
             setPortalActionStatus("课表文件已导出：\(url.lastPathComponent)，如未能自动解析请用文件导入")
@@ -642,6 +710,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             configurePortalUi(stringValue(body["payload"]))
         case "openAcademicPortal":
             openAcademicPortal()
+        case "startAcademicImport":
+            startAcademicImport(body)
         case "openFileImport":
             openNativeFileImport()
         case "returnHome":
@@ -657,6 +727,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             captureAcademicPage(body)
         case "confirmAcademicTerm":
             confirmAcademicTerm(body)
+        case "portalImportStatus":
+            setPortalActionStatus(stringValue(body["message"]))
         default:
             break
         }
@@ -699,6 +771,39 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         hidePortalTermOverlay()
         applyWebInteractionMode(academic: true)
         webView.load(URLRequest(url: portalURL))
+    }
+
+    private func startAcademicImport(_ body: [String: Any]) {
+        let payload = stringValue(body["payload"])
+        guard let data = payload.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let options = object as? [String: Any] else {
+            setPortalActionStatus("后台导入参数异常，请重新选择学期")
+            return
+        }
+        let kind = normalizedAcademicImportKind(stringValue(options["kind"]))
+        guard kind == "course" || kind == "exam" else {
+            setPortalActionStatus("后台导入类型异常，请重新选择")
+            return
+        }
+        pendingAcademicAutoImportKind = kind
+        pendingAcademicTermLabel = stringValue(options["termLabel"])
+        pendingAcademicTermStart = stringValue(options["termStart"])
+        academicFrameSnapshots.removeAll()
+        let worker = ensureAcademicWorkerWebView()
+        let targetURL = academicImportURL(kind: kind)
+        let status = kind == "exam"
+            ? "正在后台打开考试安排"
+            : "正在后台打开 \(pendingAcademicTermLabel.isEmpty ? "所选学期" : pendingAcademicTermLabel) 课表"
+        setPortalActionStatus(status)
+        worker.load(URLRequest(url: targetURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 45))
+    }
+
+    private func academicImportURL(kind: String) -> URL {
+        if kind == "exam" {
+            return URL(string: "http://zyfw.bnu.edu.cn/student/ksap.ksapb.html?menucode=JW130603")!
+        }
+        return URL(string: "http://zyfw.bnu.edu.cn/student/xkjg.wdkb.jsp?menucode=JW130418")!
     }
 
     private func openNativeFileImport() {
@@ -954,7 +1059,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         webView.evaluateJavaScript(script)
     }
 
-    private func injectPortalNavigationHelper() {
+    private func injectPortalNavigationHelper(into targetWebView: WKWebView? = nil) {
         let script = """
         (function() {
           if (window.__yayaPortalNavigationHelper) return;
@@ -1046,6 +1151,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         let status = boolValue(body["confirmedTerm"])
             ? "已暂存第 \(count) 次导入，可继续导入其他学期或返回鸦鸦"
             : "已抓取第 \(count) 次导入，点返回鸦鸦完成导入"
+        if isLocalAppURL(webView.url) {
+            deliverPendingImportIfNeeded()
+        }
         setPortalActionStatus(status)
     }
 
@@ -1111,20 +1219,32 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         let kind = normalizedAcademicImportKind(stringValue(body["kind"]))
         guard kind == "course" || kind == "exam" else { return }
         pendingAcademicAutoImportKind = kind
+        let termLabel = stringValue(body["termLabel"])
+        let termStart = stringValue(body["termStart"])
+        if !termLabel.isEmpty { pendingAcademicTermLabel = termLabel }
+        if !termStart.isEmpty { pendingAcademicTermStart = termStart }
     }
 
-    private func resumePendingAcademicAutoImport() {
+    private func resumePendingAcademicAutoImport(in targetWebView: WKWebView? = nil) {
         let kind = pendingAcademicAutoImportKind
         guard kind == "course" || kind == "exam" else { return }
         pendingAcademicAutoImportKind = ""
         setPortalActionStatus("正在继续自动导入")
+        let options: [String: Any] = [
+            "termLabel": pendingAcademicTermLabel,
+            "termStart": pendingAcademicTermStart
+        ]
+        let optionsData = try? JSONSerialization.data(withJSONObject: options)
+        let optionsJson = optionsData.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         let script = """
         (function() {
           var kind = \(Self.javaScriptStringLiteral(kind));
+          var options = \(optionsJson);
+          try { window.__yayaCourseImportOptions = options; } catch (error) {}
           function run() {
             try {
               if (window.__yayaRunAcademicImportForNative) {
-                window.__yayaRunAcademicImportForNative(kind);
+                window.__yayaRunAcademicImportForNative(kind, options);
                 return true;
               }
             } catch (error) {}
@@ -1132,7 +1252,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           }
           try {
             if (window.__yayaRunAcademicImportForNative) {
-              window.__yayaRunAcademicImportForNative(kind);
+              window.__yayaRunAcademicImportForNative(kind, options);
               return true;
             }
           } catch (error) {}
@@ -1140,7 +1260,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           return false;
         })();
         """
-        webView.evaluateJavaScript(script)
+        (targetWebView ?? webView).evaluateJavaScript(script)
     }
 
     private func configurePortalUi(_ payload: String) {
@@ -1689,11 +1809,25 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private func setPortalActionStatus(_ text: String) {
         guard text != lastPortalActionStatus else { return }
         lastPortalActionStatus = text
+        pushPortalImportStatus(text)
         DispatchQueue.main.async { [weak self] in
             let script = """
             window.__yayaIosAcademicStatus = \(Self.javaScriptStringLiteral(text));
             var node = document.querySelector('[data-yaya-ios-academic-status]');
             if (node) node.textContent = window.__yayaIosAcademicStatus;
+            """
+            self?.webView.evaluateJavaScript(script)
+        }
+    }
+
+    private func pushPortalImportStatus(_ text: String) {
+        let message = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return }
+        DispatchQueue.main.async { [weak self] in
+            let script = """
+            try {
+              window.dispatchEvent(new CustomEvent('yaya-portal-import-status', { detail: { message: \(Self.javaScriptStringLiteral(message)) } }));
+            } catch (error) {}
             """
             self?.webView.evaluateJavaScript(script)
         }
@@ -1752,7 +1886,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         webView.evaluateJavaScript(script)
     }
 
-    private func injectPortalAccountHelper() {
+    private func injectPortalAccountHelper(into targetWebView: WKWebView? = nil) {
         let username = UserDefaults.standard.string(forKey: accountUsernameKey) ?? ""
         let password = UserDefaults.standard.string(forKey: accountPasswordKey) ?? ""
         guard !username.isEmpty, !password.isEmpty else { return }
@@ -1976,10 +2110,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           observe();
         })();
         """
-        webView.evaluateJavaScript(script)
+        (targetWebView ?? webView).evaluateJavaScript(script)
     }
 
-    private func injectAcademicImportControlsV2() {
+    private func injectAcademicImportControlsV2(into targetWebView: WKWebView? = nil) {
         let portalUiLiteral = Self.javaScriptStringLiteral(portalUiJSON())
         let script = """
         (function() {
@@ -2464,6 +2598,76 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           function targetPath(kind) {
             return kind === 'exam' ? '/student/ksap.ksapb.html?menucode=JW130603' : '/student/xkjg.wdkb.jsp?menucode=JW130418';
           }
+          function courseImportOptions(extra) {
+            var base = {};
+            try { base = window.__yayaCourseImportOptions || {}; } catch (error) {}
+            if (extra && typeof extra === 'object') {
+              Object.keys(extra).forEach(function(key) { base[key] = extra[key]; });
+            }
+            return {
+              label: norm(base.termLabel || base.label || ''),
+              start: norm(base.termStart || base.start || '')
+            };
+          }
+          function termPartsFromOptions(options) {
+            var label = norm(options && options.label);
+            var match = label.match(/(20\\d{2})\\s*[-—–~至]\\s*(20\\d{2})/);
+            var first = match ? match[1] : '';
+            var kind = '';
+            if (/夏|暑|第三|第\\s*[三3]|三\\s*学期/.test(label)) kind = 'summer';
+            else if (/春|下|第二|第\\s*[二2]|二\\s*学期/.test(label)) kind = 'spring';
+            else if (/秋|上|第一|第\\s*[一1]|一\\s*学期/.test(label)) kind = 'autumn';
+            var code = kind === 'summer' ? '16' : (kind === 'spring' ? '12' : '3');
+            return { first: first, kind: kind || 'autumn', code: code, label: label };
+          }
+          function setControlValue(el, values) {
+            if (!el) return false;
+            values = values.filter(Boolean).map(function(value) { return norm(value); });
+            if (!values.length) return false;
+            try {
+              if (el.tagName && el.tagName.toLowerCase() === 'select') {
+                var options = Array.prototype.slice.call(el.options || []);
+                var wanted = null;
+                options.forEach(function(option) {
+                  var fields = [norm(option.value || ''), norm(option.textContent || '')].filter(Boolean);
+                  if (!wanted && values.some(function(value) {
+                    return fields.some(function(field) {
+                      if (field === value) return true;
+                      if (value.length <= 1 || field.length <= 1) return false;
+                      return field.indexOf(value) >= 0 || value.indexOf(field) >= 0;
+                    });
+                  })) wanted = option;
+                });
+                if (wanted) el.value = wanted.value;
+                else el.value = values[0];
+              } else {
+                el.value = values[0];
+              }
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+              return true;
+            } catch (error) {
+              return false;
+            }
+          }
+          function setCourseTermSelection(options) {
+            var parts = termPartsFromOptions(options || courseImportOptions());
+            if (!parts.first) return false;
+            var yearValues = [parts.first, parts.first + '-' + (Number(parts.first) + 1), parts.first + '学年'];
+            var ordinal = parts.kind === 'autumn' ? '1' : (parts.kind === 'spring' ? '2' : '3');
+            var termValues = [parts.code, ordinal, '0' + ordinal, parts.kind, parts.kind === 'autumn' ? '第一学期' : (parts.kind === 'spring' ? '第二学期' : '第三学期'), parts.kind === 'autumn' ? '上学期' : (parts.kind === 'spring' ? '下学期' : '夏季学期')];
+            var changed = false;
+            allDocs().forEach(function(doc) {
+              try {
+                Array.prototype.slice.call(doc.querySelectorAll('select,input[type=text],input:not([type]),[role=combobox]')).forEach(function(el) {
+                  var meta = norm([el.name, el.id, el.className, el.title, el.getAttribute && el.getAttribute('aria-label'), el.getAttribute && el.getAttribute('placeholder')].join(' '));
+                  if (/xnm|xndm|xn|academicYear|学年|年度/i.test(meta)) changed = setControlValue(el, yearValues) || changed;
+                  if (/xqm|xqdm|xq|semester|term|学期/i.test(meta)) changed = setControlValue(el, termValues) || changed;
+                });
+              } catch (error) {}
+            });
+            return changed;
+          }
           function deskFrame() {
             try {
               return document.querySelector('iframe#frmDesk,frame#frmDesk,iframe[name=frmDesk],frame[name=frmDesk]');
@@ -2479,7 +2683,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 for (var i = 0; i < nodes.length; i += 1) {
                   var el = nodes[i];
                   var text = norm((el.value || '') + ' ' + (el.textContent || '') + ' ' + (el.title || '') + ' ' + ((el.getAttribute && el.getAttribute('aria-label')) || ''));
-                  if (!/检索|查询|搜索|考试安排表|我的课表/.test(text)) continue;
+                  if (/导出|下载|保存|删除|取消|返回|退出|登录|打印/.test(text)) continue;
+                  if (!/检索|查询|搜索/.test(text)) continue;
+                  if (kind === 'course' && /考试|考场/.test(text)) continue;
+                  if (kind === 'exam' && /课表|课程/.test(text) && !/考试/.test(text)) continue;
                   if (!usable(el)) continue;
                   clickNext(targetOf(el));
                   return true;
@@ -2496,13 +2703,22 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return false;
           }
           async function prepareAcademicImport(kind) {
-            if (loginBlocked()) return '检测到登录页，请重新填写账号与密码并登录后再导入';
+            var options = courseImportOptions();
+            if (loginBlocked()) {
+              setStatus('检测到登录页，正在尝试自动填入账户');
+              await sleep(1600);
+              if (loginBlocked()) {
+                post('queueAcademicAutoImport', { kind: kind, termLabel: options.label || '', termStart: options.start || '' });
+                return '检测到登录页，请重新填写账号与密码并登录后再导入';
+              }
+            }
+            var forcedCourse = kind !== 'exam' && !!(options.label && options.start);
             if (portalOnly()) {
-              post('queueAcademicAutoImport', { kind: kind });
+              post('queueAcademicAutoImport', { kind: kind, termLabel: options.label || '', termStart: options.start || '' });
               try { location.href = 'http://zyfw.bnu.edu.cn' + targetPath(kind); } catch (error) {}
               return '正在进入教务系统，登录正常会继续自动导入';
             }
-            if (hasUsefulPayload(collectStructured(kind), kind)) return true;
+            if (!forcedCourse && hasUsefulPayload(collectStructured(kind), kind)) return true;
             var frame = deskFrame();
             if (frame && /zyfw\\.bnu\\.edu\\.cn/i.test(location.host)) {
               var target = targetPath(kind);
@@ -2513,9 +2729,15 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
                 await sleep(1400);
               }
             }
-            if (hasUsefulPayload(collectStructured(kind), kind)) return true;
-            if (clickSearch(kind)) {
-              setStatus(kind === 'exam' ? '正在检索考试安排' : '正在检索课表');
+            if (kind !== 'exam' && forcedCourse) {
+              setStatus('正在写入所选学期并检索课表');
+              setCourseTermSelection(options);
+              await sleep(240);
+            }
+            if (!forcedCourse && hasUsefulPayload(collectStructured(kind), kind)) return true;
+            if (forcedCourse || clickSearch(kind)) {
+              if (forcedCourse) clickSearch(kind);
+              setStatus(kind === 'exam' ? '正在检索考试安排' : '正在按所选学期检索课表');
               await waitUseful(kind);
             }
             return true;
@@ -2540,7 +2762,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               }
               var data = collectStructured(kind);
               if (finishAcademicImport(kind, data)) {
-                setStatus(kind === 'exam' ? '已从页面结构抓取考试' : '已从页面结构抓取课表，请确认学期');
+                setStatus(kind === 'exam' ? '已从页面结构抓取考试' : (courseImportOptions().label ? '已按所选学期抓取课表' : '已从页面结构抓取课表，请确认学期'));
                 return;
               }
               setStatus(kind === 'exam' ? '正在读取教务请求中的考试数据' : '正在读取教务请求中的课表数据');
@@ -2782,8 +3004,24 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             window.__yayaIosAcademicStatus = text;
             var node = document.querySelector('[data-yaya-ios-academic-status]');
             if (node) node.textContent = text;
+            post('portalImportStatus', { message: text });
           }
           function confirmTerm(data) {
+            var options = courseImportOptions();
+            if (options.label && options.start) {
+              return post('captureAcademicPage', {
+                kind: 'course',
+                title: (document.title || '') + ' 共' + (data && data.pages || 1) + '页',
+                url: location.href,
+                text: data.text,
+                html: data.html,
+                termLabel: options.label,
+                termStart: options.start,
+                termDetected: false,
+                confirmedTerm: true,
+                pages: data && data.pages || 1
+              });
+            }
             return post('confirmAcademicTerm', {
               kind: 'course',
               title: (document.title || '') + ' 共' + (data && data.pages || 1) + '页',
@@ -2862,7 +3100,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               runAcademicImport('exam', node);
             });
             button('返回鸦鸦', 'home', function() { post('returnHome'); });
-            window.__yayaRunAcademicImportForNative = function(kind) {
+            window.__yayaRunAcademicImportForNative = function(kind, options) {
+              try { if (options) window.__yayaCourseImportOptions = courseImportOptions(options); } catch (error) {}
               return runAcademicImport(kind === 'exam' ? 'exam' : 'course');
             };
             try {
@@ -2979,7 +3218,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           watchLoginTransition();
         })();
         """
-        webView.evaluateJavaScript(script)
+        (targetWebView ?? webView).evaluateJavaScript(script)
     }
 
     private func isLocalAppURL(_ url: URL?) -> Bool {
@@ -3723,6 +3962,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             },
             openAcademicPortal: function() {
               return post("openAcademicPortal");
+            },
+            startAcademicImport: function(payload) {
+              var value = typeof payload === "string" ? payload : JSON.stringify(payload || {});
+              return post("startAcademicImport", { payload: value });
             },
             openFileImport: function() {
               return post("openFileImport");
