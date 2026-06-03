@@ -23,6 +23,16 @@ private struct ReminderNotificationPlan {
     let fireDate: Date
 }
 
+private struct AcademicFrameSnapshot {
+    let url: String
+    let title: String
+    let text: String
+    let html: String
+    let courseScore: Int
+    let examScore: Int
+    let capturedAt: TimeInterval
+}
+
 private final class ReminderNotificationIdCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var ids: [String] = []
@@ -117,6 +127,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     private var lastKeyboardInset: CGFloat = -1
     private weak var portalTermOverlay: UIView?
     private var academicDownloadDestinations: [ObjectIdentifier: URL] = [:]
+    private var academicFrameSnapshots: [AcademicFrameSnapshot] = []
+    private var pendingAcademicAutoImportKind = ""
 
     override func loadView() {
         let configuration = WKWebViewConfiguration()
@@ -124,6 +136,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         configuration.websiteDataStore = .default()
         configuration.userContentController.addUserScript(Self.iosInteractionGuardScript())
+        configuration.userContentController.addUserScript(Self.academicFrameCaptureScript())
         configuration.userContentController.addUserScript(Self.yayaNativeBridgeScript())
         configuration.userContentController.add(WeakScriptMessageDelegate(self), name: "yayaBridge")
 
@@ -290,6 +303,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             injectPortalNavigationHelper()
             injectPortalAccountHelper()
             injectAcademicImportControlsV2()
+            resumePendingAcademicAutoImport()
         }
     }
 
@@ -633,6 +647,12 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         case "returnHome":
             portalSessionActive = false
             loadLocalApp()
+        case "queueAcademicAutoImport":
+            queueAcademicAutoImport(body)
+        case "academicFrameSnapshot":
+            storeAcademicFrameSnapshot(body)
+        case "requestAcademicFrameImport":
+            importFromAcademicFrameCache(body)
         case "captureAcademicPage":
             captureAcademicPage(body)
         case "confirmAcademicTerm":
@@ -1027,6 +1047,100 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             ? "已暂存第 \(count) 次导入，可继续导入其他学期或返回鸦鸦"
             : "已抓取第 \(count) 次导入，点返回鸦鸦完成导入"
         setPortalActionStatus(status)
+    }
+
+    private func storeAcademicFrameSnapshot(_ body: [String: Any]) {
+        let url = stringValue(body["url"])
+        guard isTrustedAcademicURL(URL(string: url)) else { return }
+        let courseScore = Int(numberValue(body["courseScore"]))
+        let examScore = Int(numberValue(body["examScore"]))
+        guard max(courseScore, examScore) >= 42 else { return }
+        let snapshot = AcademicFrameSnapshot(
+            url: url,
+            title: stringValue(body["title"]),
+            text: limitedImportText(stringValue(body["text"])),
+            html: limitedImportText(stringValue(body["html"])),
+            courseScore: courseScore,
+            examScore: examScore,
+            capturedAt: Date().timeIntervalSince1970
+        )
+        academicFrameSnapshots.removeAll { existing in
+            existing.url == snapshot.url && existing.title == snapshot.title
+        }
+        academicFrameSnapshots.append(snapshot)
+        if academicFrameSnapshots.count > 24 {
+            academicFrameSnapshots.removeFirst(academicFrameSnapshots.count - 24)
+        }
+    }
+
+    private func importFromAcademicFrameCache(_ body: [String: Any]) {
+        let kind = normalizedAcademicImportKind(stringValue(body["kind"]))
+        let now = Date().timeIntervalSince1970
+        let best = academicFrameSnapshots
+            .filter { now - $0.capturedAt < 300 }
+            .sorted { first, second in
+                kind == "exam" ? first.examScore > second.examScore : first.courseScore > second.courseScore
+            }
+            .first { snapshot in
+                kind == "exam" ? snapshot.examScore >= 42 : snapshot.courseScore >= 46
+            }
+        guard let snapshot = best else {
+            setPortalActionStatus(kind == "exam" ? "未发现可用考试缓存，请手动进入考试安排页后重试" : "未发现可用课表缓存，请手动进入我的课表后重试")
+            return
+        }
+        let payload: [String: Any] = [
+            "kind": kind,
+            "title": "\(snapshot.title) frame缓存",
+            "url": snapshot.url,
+            "text": snapshot.text,
+            "html": snapshot.html,
+            "pages": 1,
+            "termDetected": false,
+            "termLabel": "",
+            "termStart": "",
+            "confirmedTerm": false
+        ]
+        if kind == "exam" {
+            captureAcademicPage(payload)
+        } else {
+            confirmAcademicTerm(payload)
+        }
+    }
+
+    private func queueAcademicAutoImport(_ body: [String: Any]) {
+        let kind = normalizedAcademicImportKind(stringValue(body["kind"]))
+        guard kind == "course" || kind == "exam" else { return }
+        pendingAcademicAutoImportKind = kind
+    }
+
+    private func resumePendingAcademicAutoImport() {
+        let kind = pendingAcademicAutoImportKind
+        guard kind == "course" || kind == "exam" else { return }
+        pendingAcademicAutoImportKind = ""
+        setPortalActionStatus("正在继续自动导入")
+        let script = """
+        (function() {
+          var kind = \(Self.javaScriptStringLiteral(kind));
+          function run() {
+            try {
+              if (window.__yayaRunAcademicImportForNative) {
+                window.__yayaRunAcademicImportForNative(kind);
+                return true;
+              }
+            } catch (error) {}
+            return false;
+          }
+          try {
+            if (window.__yayaRunAcademicImportForNative) {
+              window.__yayaRunAcademicImportForNative(kind);
+              return true;
+            }
+          } catch (error) {}
+          setTimeout(run, 700);
+          return false;
+        })();
+        """
+        webView.evaluateJavaScript(script)
     }
 
     private func configurePortalUi(_ payload: String) {
@@ -2055,7 +2169,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             if (!text) return 0;
             var score = 0;
             var courseHits = text.match(/课表|课程名称|课程|上课|任课|教师|地点|学分|节次|周次|星期|教学班|周[一二三四五六日天]|第\\s*\\d+\\s*节|\\[\\d{1,2}(?:-\\d{1,2})?\\]/g) || [];
-            var examHits = text.match(/考试|考场|考试时间|考试地点|监考|座位|考试日期|科目|闭卷|开卷|机考/g) || [];
+            var examHits = text.match(/考试|考场|考试时间|考试地点|考试轮次|考核方式|监考|座位|考试日期|科目|闭卷|开卷|机考|tableId|DataTable|keywords/g) || [];
             score += (kind === 'exam' ? examHits : courseHits).length * 8;
             score += (/20\\d{2}|\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日|\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}/.test(text) ? 10 : 0);
             score += (/星期|周[一二三四五六日天]|Mon|Tue|Wed|Thu|Fri|Sat|Sun/i.test(text) ? 10 : 0);
@@ -2081,8 +2195,9 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             var items = [];
             var selected = '';
             var selectors = [
-              'table', '[role=table]', '[role=grid]', '.ant-table', '.ant-table-content', '.el-table', '.layui-table', '.ui-jqgrid', '.datagrid', '.bootstrap-table', '.x-grid',
-              '[class*=kcb]', '[id*=kcb]', '[class*=timetable]', '[class*=schedule]', '[class*=course]', '[id*=course]', '[class*=exam]', '[id*=exam]'
+              'table', '#keywords', '.table_outer', '.datalist', '.framework', '.content', '#thePageArea', '#theSearchArea',
+              '[role=table]', '[role=grid]', '.ant-table', '.ant-table-content', '.el-table', '.layui-table', '.ui-jqgrid', '.datagrid', '.bootstrap-table', '.x-grid',
+              '[class*=kcb]', '[id*=kcb]', '[class*=timetable]', '[class*=schedule]', '[class*=course]', '[id*=course]', '[class*=exam]', '[id*=exam]', '[class*=ksap]', '[id*=ksap]'
             ].join(',');
             allDocs().forEach(function(doc, docIndex) {
               try { selected += '\n' + selectedTerms(doc) + '\n' + courseTitleTerms(doc); } catch (error) {}
@@ -2113,8 +2228,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             var text = String(url || '').toLowerCase();
             if (!/^https?:/.test(text)) return false;
             if (/\\.(?:png|jpe?g|gif|webp|svg|css|woff2?|ttf|ico)(?:\\?|#|$)/i.test(text)) return false;
-            if (kind === 'exam') return /exam|ks|kaoshi|kssj|kcap|考试|考场|cjcx|xsdks/i.test(text);
-            return /kcb|kb|xskb|xskbcx|course|lesson|schedule|timetable|jskb|xsxk|xk|课表|课程/i.test(text);
+            if (kind === 'exam') return /exam|ks|kaoshi|kssj|kcap|ksap|datatable|tableid|keywords|考试|考场|cjcx|xsdks/i.test(text);
+            return /kcb|kb|xskb|xskbcx|ckdgxsxdkchj|course|lesson|schedule|timetable|jskb|xsxk|xkjg|xk|课表|课程/i.test(text);
           }
           async function fetchTextWithTimeout(url, timeoutMs) {
             var controller = null;
@@ -2278,8 +2393,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           function hasUsefulPayload(data, kind) {
             var text = norm([(data && data.text) || '', (data && data.html) || ''].join(' '));
             if (!text || text.length < 18) return false;
-            if (kind === 'exam') return /考试|考场|考试时间|考试地点|监考|座位/.test(text) && /20\\d{2}|\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日|\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}/.test(text);
-            return /课表|课程|课程名称|上课|任课|教师|学分|节次|周次|星期|教学班|周[一二三四五六日天]|\\[\\d{1,2}(?:-\\d{1,2})?\\]/.test(text);
+            if (kind === 'exam') return /考试|考场|考试时间|考试地点|考试轮次|考核方式|监考|座位|tableId|DataTable|keywords/.test(text) && /20\\d{2}|\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日|\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}/.test(text);
+            return /课表|课程|课程名称|\\[课程号\\]课程名|上课|上课时间、地点|任课|教师|学分|节次|周次|星期|教学班|周[一二三四五六日天]|\\[\\d{1,2}(?:-\\d{1,2})?\\]/.test(text);
           }
           function escapeHtml(value) {
             return String(value || '').replace(/[&<>"']/g, function(ch) {
@@ -2330,6 +2445,81 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             clickNext(best.node);
             return best.text.slice(0, 80);
           }
+          function academicPageText() {
+            var docs = allDocs();
+            var out = norm(location.href + ' ' + document.title);
+            docs.forEach(function(doc) {
+              if (out.length < 24000) out += ' ' + docText(doc);
+            });
+            return out;
+          }
+          function loginBlocked() {
+            var text = academicPageText();
+            return /cas\\.bnu\\.edu\\.cn|统一身份认证|扫码登录|手机验证码登录/.test(text) && /用户名|密码|登录/.test(text);
+          }
+          function portalOnly() {
+            var text = academicPageText();
+            return /one\\.bnu\\.edu\\.cn|数字京师|办事大厅|信息门户/.test(text) && !/zyfw\\.bnu\\.edu\\.cn|教务管理系统/.test(text);
+          }
+          function targetPath(kind) {
+            return kind === 'exam' ? '/student/ksap.ksapb.html?menucode=JW130603' : '/student/xkjg.wdkb.jsp?menucode=JW130418';
+          }
+          function deskFrame() {
+            try {
+              return document.querySelector('iframe#frmDesk,frame#frmDesk,iframe[name=frmDesk],frame[name=frmDesk]');
+            } catch (error) {
+              return null;
+            }
+          }
+          function clickSearch(kind) {
+            var docs = allDocs();
+            for (var d = 0; d < docs.length; d += 1) {
+              try {
+                var nodes = docs[d].querySelectorAll('button,input[type=button],input[type=submit],a,.btn,.button');
+                for (var i = 0; i < nodes.length; i += 1) {
+                  var el = nodes[i];
+                  var text = norm((el.value || '') + ' ' + (el.textContent || '') + ' ' + (el.title || '') + ' ' + ((el.getAttribute && el.getAttribute('aria-label')) || ''));
+                  if (!/检索|查询|搜索|考试安排表|我的课表/.test(text)) continue;
+                  if (!usable(el)) continue;
+                  clickNext(targetOf(el));
+                  return true;
+                }
+              } catch (error) {}
+            }
+            return false;
+          }
+          async function waitUseful(kind) {
+            for (var i = 0; i < 24; i += 1) {
+              await sleep(300);
+              if (hasUsefulPayload(collectStructured(kind), kind)) return true;
+            }
+            return false;
+          }
+          async function prepareAcademicImport(kind) {
+            if (loginBlocked()) return '检测到登录页，请重新填写账号与密码并登录后再导入';
+            if (portalOnly()) {
+              post('queueAcademicAutoImport', { kind: kind });
+              try { location.href = 'http://zyfw.bnu.edu.cn' + targetPath(kind); } catch (error) {}
+              return '正在进入教务系统，登录正常会继续自动导入';
+            }
+            if (hasUsefulPayload(collectStructured(kind), kind)) return true;
+            var frame = deskFrame();
+            if (frame && /zyfw\\.bnu\\.edu\\.cn/i.test(location.host)) {
+              var target = targetPath(kind);
+              var src = String(frame.getAttribute('src') || frame.src || '');
+              if (src.indexOf(target) < 0) {
+                frame.src = target;
+                setStatus(kind === 'exam' ? '正在打开考试安排' : '正在打开我的课表');
+                await sleep(1400);
+              }
+            }
+            if (hasUsefulPayload(collectStructured(kind), kind)) return true;
+            if (clickSearch(kind)) {
+              setStatus(kind === 'exam' ? '正在检索考试安排' : '正在检索课表');
+              await waitUseful(kind);
+            }
+            return true;
+          }
           function finishAcademicImport(kind, data) {
             if (!hasUsefulPayload(data, kind)) return false;
             if (kind === 'exam') {
@@ -2343,6 +2533,11 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             if (node) node.textContent = kind === 'exam' ? '采集考试中...' : '采集课表中...';
             setStatus(kind === 'exam' ? '正在读取考试页面结构' : '正在读取课表页面结构');
             try {
+              var ready = await prepareAcademicImport(kind);
+              if (ready !== true) {
+                setStatus(ready || (kind === 'exam' ? '请进入考试安排页后再导入' : '请进入我的课表页后再导入'));
+                return;
+              }
               var data = collectStructured(kind);
               if (finishAcademicImport(kind, data)) {
                 setStatus(kind === 'exam' ? '已从页面结构抓取考试' : '已从页面结构抓取课表，请确认学期');
@@ -2369,6 +2564,10 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               data = collect(kind);
               if (finishAcademicImport(kind, data)) {
                 setStatus(kind === 'exam' ? '已从页面文本抓取考试' : '已从页面文本抓取课表，请确认学期');
+                return;
+              }
+              if (post('requestAcademicFrameImport', { kind: kind })) {
+                setStatus(kind === 'exam' ? '正在尝试读取考试 frame 缓存；若失败请手动进入考试安排页后重试' : '正在尝试读取课表 frame 缓存；若失败请手动进入“网上选课-我的课表”后重试');
                 return;
               }
               setStatus(kind === 'exam' ? '未抓取到考试，请进入考试安排页或使用网页导出后重试' : '未抓取到课表，请进入“网上选课-我的课表”检索，或使用网页导出后重试');
@@ -2663,6 +2862,16 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               runAcademicImport('exam', node);
             });
             button('返回鸦鸦', 'home', function() { post('returnHome'); });
+            window.__yayaRunAcademicImportForNative = function(kind) {
+              return runAcademicImport(kind === 'exam' ? 'exam' : 'course');
+            };
+            try {
+              var pendingImport = sessionStorage.getItem('__yayaPendingAcademicImport');
+              if (pendingImport && !loginBlocked()) {
+                sessionStorage.removeItem('__yayaPendingAcademicImport');
+                setTimeout(function() { runAcademicImport(pendingImport); }, 650);
+              }
+            } catch (error) {}
             var status = document.createElement('div');
             status.setAttribute('data-yaya-ios-academic-status', 'true');
             status.textContent = window.__yayaIosAcademicStatus || '登录后可导入课表或考试';
@@ -3411,6 +3620,69 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           install(document);
           setTimeout(function() { install(document); }, 120);
           setTimeout(function() { install(document); }, 720);
+        })();
+        """
+        return WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: false)
+    }
+
+    private static func academicFrameCaptureScript() -> WKUserScript {
+        let source = """
+        (function() {
+          try {
+            if (window.__yayaAcademicFrameCaptureReady) return;
+            window.__yayaAcademicFrameCaptureReady = true;
+            function norm(value) {
+              return String(value || '').replace(/\\s+/g, ' ').trim();
+            }
+            function trustedHost() {
+              var host = String(location.hostname || '').toLowerCase();
+              return /(^|\\.)bnu\\.edu\\.cn$/.test(host);
+            }
+            function score(kind, value) {
+              var raw = String(value || '');
+              var text = norm(raw);
+              if (!text) return 0;
+              var courseHits = text.match(/课表|课程名称|\\[课程号\\]课程名|上课时间、地点|课程|上课|任课|教师|地点|学分|节次|周次|星期|教学班|周[一二三四五六日天]|第\\s*\\d+\\s*节|\\[\\d{1,2}(?:-\\d{1,2})?\\]/g) || [];
+              var examHits = text.match(/考试|考场|考试时间|考试地点|考试轮次|考核方式|监考|座位|考试日期|科目|闭卷|开卷|机考|tableId|DataTable|keywords/g) || [];
+              var result = (kind === 'exam' ? examHits : courseHits).length * 8;
+              if (/20\\d{2}|\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日|\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}/.test(text)) result += 10;
+              if (/星期|周[一二三四五六日天]/.test(text)) result += 10;
+              if (/<table|<tbody|<tr|<td|role=.?(table|grid)/i.test(raw)) result += 22;
+              if (text.length > 500) result += 6;
+              if (/登录|密码|验证码|统一身份认证/.test(text) && result < 54) result -= 28;
+              return result;
+            }
+            function postSnapshot() {
+              if (!trustedHost() || !document.body) return;
+              var html = '';
+              try {
+                html = document.body.innerHTML || document.documentElement.outerHTML || '';
+              } catch (error) {}
+              var text = '';
+              try {
+                text = document.body.innerText || document.documentElement.innerText || '';
+              } catch (error) {}
+              var combined = text + ' ' + html.slice(0, 70000);
+              var courseScore = score('course', combined);
+              var examScore = score('exam', combined);
+              if (Math.max(courseScore, examScore) < 42) return;
+              var signature = location.href + '|' + document.title + '|' + courseScore + '|' + examScore + '|' + norm(text).slice(0, 120);
+              if (signature === window.__yayaAcademicFrameSnapshotSignature) return;
+              window.__yayaAcademicFrameSnapshotSignature = signature;
+              window.webkit.messageHandlers.yayaBridge.postMessage({
+                type: 'academicFrameSnapshot',
+                url: String(location.href || ''),
+                title: String(document.title || ''),
+                text: String(text || '').slice(0, 120000),
+                html: String(html || '').slice(0, 260000),
+                courseScore: courseScore,
+                examScore: examScore
+              });
+            }
+            postSnapshot();
+            setTimeout(postSnapshot, 700);
+            setTimeout(postSnapshot, 1800);
+          } catch (error) {}
         })();
         """
         return WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: false)

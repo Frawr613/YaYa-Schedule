@@ -5148,6 +5148,8 @@
 
   function parseHtmlSchedule(text) {
     if (!text) return [];
+    const capturedRows = parseCapturedScheduleRows(text);
+    if (capturedRows.length) return dedupeRows(capturedRows);
     const doc = new DOMParser().parseFromString(text, "text/html");
     const rows = [];
     for (const table of doc.querySelectorAll("table")) {
@@ -5156,6 +5158,54 @@
       rows.push(...parseMatrixScheduleTable(tableRows));
     }
     return dedupeRows(rows);
+  }
+
+  function parseCapturedScheduleRows(text) {
+    const documents = academicCaptureDocuments(text);
+    if (!documents.length) return [];
+    const rows = [];
+    for (const doc of documents) {
+      for (const table of doc.tables || []) {
+        const tableRows = capturedTableRows(table);
+        if (!tableRows.length) continue;
+        rows.push(...parseListScheduleTable(tableRows));
+        rows.push(...parseMatrixScheduleTable(tableRows));
+      }
+    }
+    return dedupeRows(rows);
+  }
+
+  function academicCaptureDocuments(text) {
+    const payload = parseAcademicCapturePayload(text);
+    if (!payload) return [];
+    const docs = [];
+    const visit = (item) => {
+      if (!item || typeof item !== "object") return;
+      if (Array.isArray(item.tables) || item.html || item.visibleText || item.bodyTextSample) docs.push(item);
+      if (item.document) visit(item.document);
+      if (Array.isArray(item.frames)) item.frames.forEach(visit);
+    };
+    visit(payload.document || payload);
+    return docs;
+  }
+
+  function parseAcademicCapturePayload(text) {
+    const value = String(text || "").trim();
+    if (!value || value[0] !== "{") return null;
+    try {
+      const payload = JSON.parse(value);
+      const schema = String(payload?.schema || "");
+      if (/yaya-academic/i.test(schema)) return payload;
+      if (Array.isArray(payload?.frames) || payload?.document?.tables) return payload;
+    } catch (error) {}
+    return null;
+  }
+
+  function capturedTableRows(table) {
+    const matrix = Array.isArray(table?.matrix) ? table.matrix : [];
+    return matrix
+      .map((row) => (Array.isArray(row) ? row : []).map((cell) => normalizeText(typeof cell === "string" ? cell : cell?.text)))
+      .filter((row) => row.some(Boolean));
   }
 
   function htmlTableToRows(table) {
@@ -5364,15 +5414,19 @@
   }
 
   function detectCourseColumns(headers) {
-    const find = (words, fallback) => {
-      const index = headers.findIndex((header) => words.some((word) => header.includes(word)));
+    const find = (words, fallback, reject = []) => {
+      const index = headers.findIndex((header) => {
+        const text = normalizeText(header);
+        return words.some((word) => text.includes(word)) && !reject.some((word) => text.includes(word));
+      });
       return index >= 0 ? index : fallback;
     };
+    const scheduleIndex = find(["上课时间、地点", "上课时间地点", "上课时间", "时间、地点", "时间地点"], -1);
     return {
       name: find(["课程名称", "课程名", "课程", "科目"], 0),
       teacher: find(["任课教师", "教师"], 4),
       credit: find(["学分"], 2),
-      schedule: find(["上课时间", "时间、地点", "时间地点", "地点", "上课"], 5)
+      schedule: scheduleIndex >= 0 ? scheduleIndex : find(["地点", "教室", "上课"], 5, ["上课班号", "班号"])
     };
   }
 
@@ -5511,35 +5565,15 @@
 
   function parseExamSchedulesFromHtml(htmlText, plainText) {
     const exams = [];
+    exams.push(...parseCapturedExamSchedules(htmlText));
+    if (plainText && plainText !== htmlText) exams.push(...parseCapturedExamSchedules(plainText));
     if (/<table\b/i.test(htmlText || "")) {
       const doc = new DOMParser().parseFromString(htmlText, "text/html");
       for (const table of doc.querySelectorAll("table")) {
         const rows = [...table.querySelectorAll("tr")]
           .map((tr) => [...tr.querySelectorAll("td,th")].map((cell) => normalizeText(cell.textContent)))
           .filter((row) => row.some(Boolean));
-        const headerIndex = rows.findIndex((row) => /考试|课程|科目/.test(row.join(" ")) && /日期|时间|考场|地点/.test(row.join(" ")));
-        if (headerIndex < 0) continue;
-        const headers = rows[headerIndex];
-        const find = (words) => headers.findIndex((header) => words.some((word) => header.includes(word)));
-        const nameIndex = find(["课程名称", "课程名", "考试科目", "课程", "科目", "考试名称", "名称"]);
-        const dateIndex = find(["考试日期", "日期"]);
-        const timeIndex = find(["考试时间", "时间"]);
-        const placeIndex = find(["考试地点", "地点", "考场", "教室"]);
-        for (const row of rows.slice(headerIndex + 1)) {
-          const title = examTitleFromCells(row, headers, nameIndex);
-          const combined = `${cellAt(row, dateIndex)} ${cellAt(row, timeIndex)} ${row.join(" ")}`;
-          const date = parseDateValue(combined);
-          if (!title || !date) continue;
-          const parsedTime = parseTimeRange(combined);
-          exams.push(normalizeExamSchedule({
-            id: newId("exam"),
-            date,
-            title,
-            place: cellAt(row, placeIndex),
-            startTime: parsedTime.startTime,
-            endTime: parsedTime.endTime
-          }));
-        }
+        exams.push(...parseExamRowsFromTableRows(rows));
       }
     }
     if (!exams.length && plainText) {
@@ -5559,7 +5593,66 @@
         }));
       });
     }
-    return exams.filter(Boolean);
+    return dedupeExamSchedules(exams.filter(Boolean));
+  }
+
+  function parseCapturedExamSchedules(text) {
+    const documents = academicCaptureDocuments(text);
+    if (!documents.length) return [];
+    const exams = [];
+    for (const doc of documents) {
+      for (const table of doc.tables || []) {
+        const tableRows = capturedTableRows(table);
+        if (!tableRows.length) continue;
+        exams.push(...parseExamRowsFromTableRows(tableRows));
+      }
+    }
+    return exams;
+  }
+
+  function parseExamRowsFromTableRows(rows) {
+    const headerIndex = rows.findIndex((row) => /考试|课程|科目/.test(row.join(" ")) && /日期|时间|考场|地点/.test(row.join(" ")));
+    if (headerIndex < 0) return [];
+    const headers = rows[headerIndex];
+    const find = (words, reject = []) => headers.findIndex((header) => {
+      const text = normalizeText(header);
+      return words.some((word) => text.includes(word)) && !reject.some((word) => text.includes(word));
+    });
+    const nameIndex = find(["课程名称", "课程名", "考试科目", "科目", "课程"], ["考试轮次", "轮次", "类别"]);
+    const roundIndex = find(["考试轮次名称", "考试轮次", "轮次"]);
+    const dateIndex = find(["考试日期", "日期"]);
+    const timeIndex = find(["考试时间", "时间"]);
+    const placeIndex = find(["考试地点", "地点", "考场", "教室"]);
+    const result = [];
+    for (const row of rows.slice(headerIndex + 1)) {
+      if (!row.some(Boolean) || row.length < 3) continue;
+      const title = examTitleFromCells(row, headers, nameIndex);
+      const combined = `${cellAt(row, dateIndex)} ${cellAt(row, timeIndex)} ${row.join(" ")}`;
+      const date = parseDateValue(combined);
+      if (!title || !date) continue;
+      const parsedTime = parseTimeRange(combined);
+      const normalized = normalizeExamSchedule({
+        id: newId("exam"),
+        date,
+        title,
+        place: cellAt(row, placeIndex),
+        startTime: parsedTime.startTime,
+        endTime: parsedTime.endTime,
+        round: cellAt(row, roundIndex)
+      });
+      if (normalized) result.push(normalized);
+    }
+    return result;
+  }
+
+  function dedupeExamSchedules(exams) {
+    const seen = new Set();
+    return exams.filter((exam) => {
+      const key = [exam.title, exam.date, exam.startTime, exam.endTime, exam.place].join("|");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
 
   function cellAt(row, index) {
@@ -5591,8 +5684,11 @@
   function examTitleFromCells(row, headers = [], nameIndex = -1) {
     const direct = cleanExamTitle(cellAt(row, nameIndex));
     if (direct) return direct;
-    const headerWords = ["课程名称", "课程名", "考试科目", "考试名称", "科目", "课程", "名称"];
-    const headerIndex = headers.findIndex((header) => headerWords.some((word) => normalizeText(header).includes(word)));
+    const headerWords = ["课程名称", "课程名", "考试科目", "考试名称", "科目", "课程"];
+    const headerIndex = headers.findIndex((header) => {
+      const text = normalizeText(header);
+      return headerWords.some((word) => text.includes(word)) && !/考试轮次|轮次|类别/.test(text);
+    });
     const byHeader = cleanExamTitle(cellAt(row, headerIndex));
     if (byHeader) return byHeader;
     return row.map(cleanExamTitle).find((value) => value && !looksLikeExamMeta(value)) || "";
@@ -5611,6 +5707,7 @@
   function cleanExamTitle(value) {
     const text = normalizeText(value)
       .replace(/^(?:考试)?(?:课程名称|课程名|课程|科目|考试科目|考试名称|名称)\s*[:：]\s*/i, "")
+      .replace(/^\[[A-Za-z0-9._-]{3,}\]\s*/, "")
       .replace(/\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?/g, " ")
       .replace(/\d{1,2}[-/.月]\d{1,2}日/g, " ")
       .replace(/\d{1,2}[:：]\d{2}(?:\s*[-~～—–－至到]\s*\d{1,2}[:：]\d{2})?/g, " ")
@@ -5630,6 +5727,7 @@
       .replace(/\d{1,2}[:：]\d{2}(?:\s*[-~～—–－至到]\s*\d{1,2}[:：]\d{2})?/g, " "));
     if (validDate(parseDateValue(text)) && !withoutDateTime) return true;
     if (/^(?:考试)?(?:日期|时间|地点|考场|教室|校区|座位号|学号|姓名|序号|备注|说明|周次|星期)(?:\s*[:：].*)?$/.test(text)) return true;
+    if (/^(?:随堂考试|期中考试|期末考试|补考|缓考|重修考试|考查|闭卷|开卷|机考)$/.test(text)) return true;
     if (/^(?:第?\d{1,2}\s*(?:周|节)|周[一二三四五六日天])$/.test(text)) return true;
     if (/^\d{1,2}[:：]\d{2}(?:\s*[-~～—–－至到]\s*\d{1,2}[:：]\d{2})?$/.test(text)) return true;
     if (/^(?:\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}[-/.月]\d{1,2}日?)$/.test(text)) return true;
@@ -5964,7 +6062,8 @@
 
   function examToDisplay(item) {
     return {
-      ...item,
+      id: item.id,
+      date: item.date,
       type: "exam",
       kind: "exam",
       detailType: "exam",
@@ -5972,6 +6071,9 @@
       targetKey: "",
       noteKey: "",
       title: item.title,
+      place: displayExamPlace(item),
+      startTime: item.startTime,
+      endTime: item.endTime,
       timeText: timeRange(item),
       typeLabel: "",
       meta: displayExamPlace(item),
@@ -7207,6 +7309,8 @@
     const text = normalizeText(value);
     let match = text.match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
     if (match) return `${match[1]}-${pad(match[2])}-${pad(match[3])}`;
+    match = text.match(/\b(20\d{2})(\d{2})(\d{2})\b/);
+    if (match) return `${match[1]}-${match[2]}-${match[3]}`;
     match = text.match(/(\d{1,2})月(\d{1,2})日/);
     if (!match) return "";
     const start = toDate(state.termStart || DEFAULT_TERM_START);
@@ -7216,7 +7320,7 @@
   }
 
   function parseTimeRange(value) {
-    const text = normalizeText(value).replace(/[~～—–－至到]/g, "-");
+    const text = normalizeText(value).replace(/：/g, ":").replace(/[~～—–－至到]/g, "-");
     const match = text.match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
     if (!match) return { startTime: "00:00", endTime: "00:00" };
     return {
