@@ -316,7 +316,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           } catch (error) {}
         })();
         """
-        (targetWebView ?? webView).evaluateJavaScript(script)
+        webView.evaluateJavaScript(script)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -1124,7 +1124,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
           setTimeout(forceSelf, 2400);
         })();
         """
-        webView.evaluateJavaScript(script)
+        (targetWebView ?? webView).evaluateJavaScript(script)
     }
 
     private func captureAcademicPage(_ body: [String: Any]) {
