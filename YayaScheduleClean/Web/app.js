@@ -213,12 +213,6 @@
   let scrollRenderPending = false;
   let scrollRenderPendingForce = false;
   let renderBusyTimer = 0;
-  let persistIdleHandle = 0;
-  let persistIdleActive = false;
-  let cachePersistTimer = 0;
-  let cachePersistIdleHandle = 0;
-  let cachePersistIdleActive = false;
-  let lastCachePersistSignature = "";
   let lastCommandAction = "";
   let lastCommandAt = 0;
   let lastPortalOpenAt = 0;
@@ -342,9 +336,7 @@
       dayItemsCache: dayItemsCache.size,
       localStorage: STORAGE_KEY,
       nativeReminderPayload: nativeReminderPayloadCount(),
-      serviceWorker: "serviceWorker" in navigator,
-      idlePersistQueued: Boolean(persistTimer || persistIdleHandle),
-      idleCacheQueued: Boolean(cachePersistTimer || cachePersistIdleHandle)
+      serviceWorker: "serviceWorker" in navigator
     });
     window.YayaLayers.registerRuntime("commands", {
       delegated: true,
@@ -570,7 +562,6 @@
           foregroundResumeTimer = 0;
         }
         flushPersist();
-        flushCachePersist();
       }
     });
     window.setInterval(refreshDateIfNeeded, 10 * 60 * 1000);
@@ -666,7 +657,6 @@
   function handlePageHide() {
     clearNativeImportPullTimers();
     flushPersist();
-    flushCachePersist();
   }
 
   function normalizeStoredState(raw) {
@@ -746,10 +736,10 @@
 
   function persist(options = {}) {
     const payload = JSON.stringify(serializableState());
-    const hasQueuedPersist = persistTimer || persistIdleHandle;
-    if (!options.immediate && hasQueuedPersist && payload === lastPersistQueuedPayload) return;
-    cancelScheduledPersist();
+    if (!options.immediate && persistTimer && payload === lastPersistQueuedPayload) return;
+    if (persistTimer) window.clearTimeout(persistTimer);
     if (!options.immediate && payload === lastPersistedPayload) {
+      persistTimer = 0;
       lastPersistQueuedPayload = "";
       return;
     }
@@ -758,16 +748,16 @@
       return;
     }
     lastPersistQueuedPayload = payload;
-    const delay = Number.isFinite(Number(options.delayMs)) ? Number(options.delayMs) : 180;
     persistTimer = window.setTimeout(() => {
       persistTimer = 0;
-      schedulePersistIdleWrite(lastPersistQueuedPayload || payload);
-    }, delay);
+      writePersistPayload(lastPersistQueuedPayload || payload);
+    }, 120);
   }
 
   function flushPersist() {
-    if (!persistTimer && !persistIdleHandle && !lastPersistQueuedPayload) return;
-    cancelScheduledPersist();
+    if (!persistTimer) return;
+    window.clearTimeout(persistTimer);
+    persistTimer = 0;
     writePersistPayload(lastPersistQueuedPayload || JSON.stringify(serializableState()));
   }
 
@@ -775,35 +765,6 @@
     localStorage.setItem(STORAGE_KEY, payload);
     lastPersistedPayload = payload;
     lastPersistQueuedPayload = "";
-  }
-
-  function cancelScheduledPersist() {
-    if (persistTimer) {
-      window.clearTimeout(persistTimer);
-      persistTimer = 0;
-    }
-    if (persistIdleHandle) {
-      if (persistIdleActive && window.cancelIdleCallback) window.cancelIdleCallback(persistIdleHandle);
-      else window.clearTimeout(persistIdleHandle);
-      persistIdleHandle = 0;
-      persistIdleActive = false;
-    }
-  }
-
-  function schedulePersistIdleWrite(payload) {
-    if (!payload) return;
-    const write = () => {
-      persistIdleHandle = 0;
-      persistIdleActive = false;
-      writePersistPayload(lastPersistQueuedPayload || payload);
-    };
-    if ("requestIdleCallback" in window) {
-      persistIdleActive = true;
-      persistIdleHandle = window.requestIdleCallback(write, { timeout: 900 });
-      return;
-    }
-    persistIdleActive = false;
-    persistIdleHandle = window.setTimeout(write, 90);
   }
 
   function serializableState() {
@@ -1078,58 +1039,11 @@
       endedSpecials: overviewSpecialCounts.ended.length
     });
     if (save) {
-      scheduleCachePersist(cache);
-    }
-  }
-
-  function scheduleCachePersist(cache) {
-    const signature = cache?.signature || "";
-    if (!signature) return;
-    if (signature === lastCachePersistSignature && (cachePersistTimer || cachePersistIdleHandle)) return;
-    cancelScheduledCachePersist();
-    lastCachePersistSignature = signature;
-    const write = () => {
-      cachePersistTimer = 0;
-      cachePersistIdleHandle = 0;
-      cachePersistIdleActive = false;
       try {
-        const payload = appCache.signature === signature ? appCache : cache;
-        localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+        localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
       } catch (error) {
         localStorage.removeItem(CACHE_KEY);
       }
-    };
-    cachePersistTimer = window.setTimeout(() => {
-      cachePersistTimer = 0;
-      if ("requestIdleCallback" in window) {
-        cachePersistIdleActive = true;
-        cachePersistIdleHandle = window.requestIdleCallback(write, { timeout: 1200 });
-      } else {
-        cachePersistIdleHandle = window.setTimeout(write, 120);
-      }
-    }, 200);
-  }
-
-  function cancelScheduledCachePersist() {
-    if (cachePersistTimer) {
-      window.clearTimeout(cachePersistTimer);
-      cachePersistTimer = 0;
-    }
-    if (cachePersistIdleHandle) {
-      if (cachePersistIdleActive && window.cancelIdleCallback) window.cancelIdleCallback(cachePersistIdleHandle);
-      else window.clearTimeout(cachePersistIdleHandle);
-      cachePersistIdleHandle = 0;
-      cachePersistIdleActive = false;
-    }
-  }
-
-  function flushCachePersist() {
-    if (!cachePersistTimer && !cachePersistIdleHandle) return;
-    cancelScheduledCachePersist();
-    try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify(appCache));
-    } catch (error) {
-      localStorage.removeItem(CACHE_KEY);
     }
   }
 
