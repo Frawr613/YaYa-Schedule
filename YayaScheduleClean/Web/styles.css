@@ -446,29 +446,15 @@ body.is-interaction-locked .app-shell {
   display: none !important;
 }
 
-body.is-rendering :where(.day-panel, .template-action-dock, .dashboard-panel, .modal-card, .picker-card, .day-item, .list-card, .course-card, .ddl-card),
-body.is-render-busy :where(.day-panel, .template-action-dock, .dashboard-panel, .modal-card, .picker-card, .day-item, .list-card, .course-card, .ddl-card) {
+body.is-rendering :where(.day-panel, .template-action-dock, .dashboard-panel, .modal-card, .day-item),
+body.is-render-busy :where(.day-panel, .template-action-dock, .dashboard-panel, .modal-card, .day-item) {
   transition: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 
-body.is-user-scrolling :where(.day-panel, .template-action-dock, .dashboard-panel, .day-item, .list-card, .course-card) {
+body.is-user-scrolling :where(.day-panel, .template-action-dock, .dashboard-panel, .day-item) {
   transition: none;
-}
-
-body.is-ui-transitioning :where(.day-panel, .template-action-dock, .dashboard-panel, .modal-card, .picker-card, .day-item, .list-card, .course-card, .ddl-card) {
-  transition-duration: 110ms !important;
-  will-change: transform, opacity;
-}
-
-body.is-ui-transitioning :where(.day-panel, .dashboard-panel, .modal-card, .picker-card, .day-item, .list-card, .course-card, .ddl-card) {
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.48)) saturate(1.04) !important;
-  backdrop-filter: blur(calc(var(--glass-blur) * 0.48)) saturate(1.04) !important;
-}
-
-:where(.day-panel, .template-action-dock, .dashboard-panel, .modal-card, .picker-card, .day-item, .list-card, .course-card, .ddl-card, .swipe-shell) {
-  contain: layout paint;
 }
 
 body[data-density="compact"] .app-shell {
@@ -507,12 +493,6 @@ button {
 
 button:active {
   transform: translateY(1px);
-}
-
-:where(button, [data-action], [data-internal-select-open], [data-date-input], [data-time-input], .date-week-chip, .date-day-chip, .recurring-week-chip, .term-chip, .modal-page-chip, .ddl-view-tab, .reminder-chip, .picker-option, .option-picker-item, .choice-card, .icon-choice-card, .custom-theme-entry, .swipe-shell).is-pressing {
-  transform: translateY(1px) scale(0.986);
-  filter: brightness(1.035);
-  transition-duration: 90ms !important;
 }
 
 button.primary,

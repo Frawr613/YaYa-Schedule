@@ -213,9 +213,6 @@
   let scrollRenderPending = false;
   let scrollRenderPendingForce = false;
   let renderBusyTimer = 0;
-  let uiLatencyTimer = 0;
-  let activePressFeedbackElement = null;
-  let pressFeedbackTimer = 0;
   let persistIdleHandle = 0;
   let persistIdleActive = false;
   let cachePersistTimer = 0;
@@ -400,9 +397,7 @@
       builtInInputPatch: INPUT_UI_PATCH_VERSION,
       optionPickerLayer: Boolean(optionPickerSource),
       portalTermOverlay: true,
-      locked: document.body?.classList?.contains("is-interaction-locked") || false,
-      instantPressFeedback: true,
-      uiLatencyWindow: document.body?.classList?.contains("is-ui-transitioning") || false
+      locked: document.body?.classList?.contains("is-interaction-locked") || false
     });
     window.YayaLayers.registerRuntime("theme", {
       theme: normalizeThemeId(state.theme),
@@ -1195,7 +1190,6 @@
       return;
     }
     document.body.classList.add("is-rendering");
-    beginUiLatencyWindow(options.immediate ? 120 : 200);
     renderAllFrame = window.requestAnimationFrame(() => {
       renderAllFrame = 0;
       renderAllCoalesced = 0;
@@ -1261,61 +1255,6 @@
       document.body.classList.remove("is-render-busy");
       renderBusyTimer = 0;
     }, duration);
-  }
-
-  function beginUiLatencyWindow(duration = 180) {
-    document.body.classList.add("is-ui-transitioning");
-    window.clearTimeout(uiLatencyTimer);
-    uiLatencyTimer = window.setTimeout(() => {
-      document.body.classList.remove("is-ui-transitioning");
-      uiLatencyTimer = 0;
-    }, Math.max(90, duration));
-  }
-
-  function pressFeedbackTarget(event) {
-    if (event.pointerType === "mouse" && event.button !== 0) return null;
-    if (isEditableTextTarget(event.target)) return null;
-    const target = event.target?.closest?.([
-      "button",
-      "[data-action]",
-      "[data-internal-select-open]",
-      "[data-date-input]",
-      "[data-time-input]",
-      ".date-week-chip",
-      ".date-day-chip",
-      ".recurring-week-chip",
-      ".term-chip",
-      ".modal-page-chip",
-      ".ddl-view-tab",
-      ".reminder-chip",
-      ".picker-option",
-      ".option-picker-item",
-      ".choice-card",
-      ".icon-choice-card",
-      ".custom-theme-entry",
-      ".swipe-shell"
-    ].join(","));
-    if (!target || target.closest?.("[disabled],[aria-disabled='true']")) return null;
-    if (target.matches?.(".modal-backdrop,.picker-backdrop")) return null;
-    return target;
-  }
-
-  function handleInstantPressFeedback(event) {
-    const target = pressFeedbackTarget(event);
-    if (!target) return;
-    beginUiLatencyWindow(170);
-    if (activePressFeedbackElement && activePressFeedbackElement !== target) clearActivePressFeedback();
-    activePressFeedbackElement = target;
-    activePressFeedbackElement.classList.add("is-pressing");
-    window.clearTimeout(pressFeedbackTimer);
-    pressFeedbackTimer = window.setTimeout(clearActivePressFeedback, 180);
-  }
-
-  function clearActivePressFeedback() {
-    if (activePressFeedbackElement) activePressFeedbackElement.classList.remove("is-pressing");
-    activePressFeedbackElement = null;
-    window.clearTimeout(pressFeedbackTimer);
-    pressFeedbackTimer = 0;
   }
 
   function scheduleAutoLockUi(options = {}) {
@@ -3630,9 +3569,6 @@
     document.addEventListener("wheel", guardFloatingLayerEvent, { passive: false, capture: true });
     document.addEventListener("touchmove", guardFloatingLayerEvent, { passive: false, capture: true });
     document.addEventListener("scroll", guardFloatingLayerEvent, true);
-    document.addEventListener("pointerdown", handleInstantPressFeedback, { passive: true, capture: true });
-    document.addEventListener("pointerup", clearActivePressFeedback, true);
-    document.addEventListener("pointercancel", clearActivePressFeedback, true);
     document.addEventListener("selectstart", preventForegroundTextSelection, true);
     document.addEventListener("contextmenu", preventForegroundTextSelection, true);
     document.addEventListener("dragstart", preventForegroundTextSelection, true);
@@ -3706,7 +3642,6 @@
       event.preventDefault();
       return;
     }
-    beginUiLatencyWindow(200);
     if (!target.closest(".swipe-shell")) closeSwipeShells();
     const action = target.dataset.action;
     lastCommandAction = action;
@@ -4908,7 +4843,6 @@
     state.modal = name;
     state.modalData = nextData;
     state.modalLayer = nextFloatingLayer();
-    beginUiLatencyWindow(260);
     renderModal();
     return true;
   }
@@ -4921,7 +4855,6 @@
     state.modal = "";
     state.modalData = {};
     state.modalLayer = 0;
-    beginUiLatencyWindow(180);
     renderModal();
     return true;
   }
