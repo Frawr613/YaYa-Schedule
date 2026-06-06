@@ -2969,6 +2969,17 @@ body[data-template="compact"] .dashboard-panel {
     var(--input-ui-bg, var(--glass-control-bg));
 }
 
+.academic-course-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.academic-import-panel[data-import-kind="exam"] .academic-course-fields,
+.academic-import-panel[data-import-kind="exam"] [data-course-import-note],
+.academic-import-panel[data-import-kind="course"] [data-exam-import-note] {
+  display: none;
+}
+
 .term-start-field {
   display: grid;
   gap: 8px;
@@ -3965,6 +3976,52 @@ body[data-input-ui="compactInput"] .internal-date[data-input-ui] .internal-date-
   color: #fff;
 }
 
+.task-overview-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.task-column {
+  min-width: 0;
+}
+
+.task-column-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.task-column-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.task-column-head span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--accent) 10%, rgba(255, 255, 255, 0.34));
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.task-column-list {
+  display: grid;
+  gap: 10px;
+}
+
+.task-card.completed {
+  opacity: 0.76;
+}
+
 .ddl-completed-filter {
   display: grid;
   gap: 10px;
@@ -4207,6 +4264,9 @@ body[data-input-ui="compactInput"] .internal-date[data-input-ui] .internal-date-
   gap: 6px;
   padding: 6px;
   background: color-mix(in srgb, var(--accent) 9%, rgba(255, 255, 255, 0.84));
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.16s ease;
 }
 
 .swipe-actions button {
@@ -4216,7 +4276,8 @@ body[data-input-ui="compactInput"] .internal-date[data-input-ui] .internal-date-
 }
 
 .swipe-actions [data-action^="edit"],
-.swipe-actions [data-action="complete-ddl"] {
+.swipe-actions [data-action="complete-ddl"],
+.swipe-actions [data-action="complete-task"] {
   background: var(--swipe-edit-bg);
   color: #fff;
   border-color: transparent;
@@ -4236,9 +4297,20 @@ body[data-input-ui="compactInput"] .internal-date[data-input-ui] .internal-date-
 
 .swipe-shell.is-open .swipe-content {
   transform: translateX(-124px);
+  pointer-events: none;
+}
+
+.swipe-shell.is-open .swipe-actions {
+  z-index: 2;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .swipe-shell[data-swipe-type="ddl"].is-open .swipe-content {
+  transform: translateX(-190px);
+}
+
+.swipe-shell[data-swipe-type="task"].is-open .swipe-content {
   transform: translateX(-190px);
 }
 
@@ -4721,6 +4793,31 @@ body[data-theme] .ddl-mini span {
 @media (max-width: 520px) {
   .app-shell {
     padding-inline: 10px;
+  }
+
+  .task-overview-board {
+    gap: 8px;
+  }
+
+  .task-column-head {
+    align-items: flex-start;
+    gap: 5px;
+    margin-bottom: 8px;
+  }
+
+  .task-column-head h3 {
+    font-size: 13px;
+  }
+
+  .task-column-head span {
+    min-width: 24px;
+    min-height: 21px;
+    padding-inline: 6px;
+    font-size: 11px;
+  }
+
+  .task-column-list {
+    gap: 8px;
   }
 
   .topbar {

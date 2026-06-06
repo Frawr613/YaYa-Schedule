@@ -36,7 +36,7 @@
     needsAction: false
   });
 
-  const capabilities = ["savePortalAccount", "setLauncherIcon", "configurePortalUi", "openAcademicPortal", "startAcademicImport", "openFileImport", "takeImportedPage", "getReminderPermissionStatus", "requestReminderPermissions", "requestNotificationPermission", "requestBackgroundRunPermission", "scheduleReminderNotifications", "scheduleDdlNotifications"];
+  const capabilities = ["savePortalAccount", "setLauncherIcon", "configurePortalUi", "openAcademicPortal", "openFileImport", "takeImportedPage", "showToast", "getReminderPermissionStatus", "requestReminderPermissions", "requestNotificationPermission", "requestBackgroundRunPermission", "scheduleReminderNotifications", "scheduleDdlNotifications"];
 
   const platformApi = {
     layer: "platform",
@@ -66,12 +66,6 @@
       nativeCall("openAcademicPortal", [], false);
       return true;
     },
-    startAcademicImport(options) {
-      if (!hasNativeMethod("startAcademicImport")) return false;
-      const payload = typeof options === "string" ? options : JSON.stringify(options || {});
-      nativeCall("startAcademicImport", [payload], false);
-      return true;
-    },
     openFileImport() {
       if (!hasNativeMethod("openFileImport")) return false;
       nativeCall("openFileImport", [], false);
@@ -79,6 +73,11 @@
     },
     takeImportedPage() {
       return nativeCall("takeImportedPage", [], "");
+    },
+    showToast(message) {
+      if (!hasNativeMethod("showToast")) return false;
+      nativeCall("showToast", [String(message || "")], false);
+      return true;
     },
     requestNotificationPermission() {
       return nativeCall("requestNotificationPermission", [], false);

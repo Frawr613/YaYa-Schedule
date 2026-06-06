@@ -12,7 +12,8 @@
   const GUIDE_ACK_KEY = "yaya-schedule-guide-ack-v2";
   const CURRENT_SCHEMA_VERSION = 3;
   const CACHE_RUNTIME_VERSION = "20260528-cache-v113";
-  const DEFAULT_TERM_START = "2026-02-23";
+  const DEFAULT_TERM_START = "2026-03-02";
+  const LEGACY_SPRING_TERM_START = "2026-02-23";
   const MAX_WEEK = 28;
   const COLLATOR = new Intl.Collator("zh-Hans-CN");
   const FLOATING_LAYER_BASE = 10000;
@@ -28,8 +29,10 @@
   const INPUT_UI_PATCH_VERSION = "20260522-template-input-ui-v1";
   const PORTAL_OPEN_COOLDOWN_MS = 1400;
   const SCHEDULE_OVERVIEW_PAGES = ["active", "ended"];
+  const TASK_OVERVIEW_PAGES = ["active", "completed"];
   const SPECIAL_OVERVIEW_PAGES = ["active", "ended"];
   const UNASSIGNED_EXAM_TERM_ID = "__exam_unassigned";
+  const TASK_REMINDER_FALLBACK_TIME = "09:00";
 
   const PERIOD_TIMES = {
     1: ["08:00", "08:45"],
@@ -256,6 +259,8 @@
   let lastArchitectureRuntimeSignature = "";
   let lastScheduleOverviewBucketsSignature = "";
   let lastScheduleOverviewBuckets = null;
+  let lastTaskOverviewBucketsSignature = "";
+  let lastTaskOverviewBuckets = null;
   let lastSpecialOverviewBucketsSignature = "";
   let lastSpecialOverviewBuckets = null;
   let lastExamOverviewBucketsSignature = "";
@@ -317,9 +322,11 @@
       customSchedules: state.customSchedules.length,
       recurringSchedules: state.recurringSchedules.length,
       exams: state.examSchedules.length,
+      tasks: state.tasks.length,
       specialChanges: state.specialChanges.length,
       ddls: state.ddls.length,
       completedDdls: state.completedDdls.length,
+      activeTasks: taskOverviewBuckets().active.length,
       ddlView: state.ddlView === "completed" ? "completed" : "active",
       specialOverviewPage: normalizeSpecialOverviewPage(state.specialOverviewPage),
       notes: noteCount
@@ -351,12 +358,14 @@
       termImportSelector: true,
       ddlView: state.ddlView === "completed" ? "completed" : "active",
       examOverviewPage: normalizeExamOverviewPage(state.examOverviewPage),
+      taskOverview: Boolean(els.taskOverview),
       specialOverviewPage: normalizeSpecialOverviewPage(state.specialOverviewPage),
       rendered: {
         status: Boolean(els.statusBar),
         ddl: Boolean(els.ddlStrip),
         day: Boolean(els.dayPanel),
         exam: Boolean(els.examOverview),
+        task: Boolean(els.taskOverview),
         overview: Boolean(els.dashboardGrid)
       }
     });
@@ -425,12 +434,14 @@
       state.courseOverviewPage || "",
       state.examOverviewPage || "",
       state.scheduleOverviewPage || "",
+      state.taskOverviewPage || "",
       state.specialOverviewPage || "",
       state.theme || "",
       state.uiTemplate || "",
       state.terms.length,
       state.ddls.length,
       state.completedDdls.length,
+      state.tasks.length,
       state.customSchedules.length,
       state.recurringSchedules.length,
       state.examSchedules.length,
@@ -458,6 +469,7 @@
       customSchedules: [],
       recurringSchedules: [],
       examSchedules: [],
+      tasks: [],
       specialChanges: [],
       ddls: [],
       completedDdls: [],
@@ -467,6 +479,7 @@
       courseOverviewPage: "",
       examOverviewPage: "",
       scheduleOverviewPage: "active",
+      taskOverviewPage: "active",
       specialOverviewPage: "active",
       uiTemplate: "classicOriginal",
       theme: "coolGlass",
@@ -496,6 +509,7 @@
       courseByKey: {},
       recurringById: {},
       customById: {},
+      taskById: {},
       courseEventsByDate: {},
       recurringByDate: {},
       customByDate: {},
@@ -569,6 +583,7 @@
       "courseOverview",
       "examOverview",
       "scheduleOverview",
+      "taskOverview",
       "specialOverview",
       "fileInput",
       "modalRoot"
@@ -590,6 +605,9 @@
   function restore() {
     const stored = readJson(STORAGE_KEY);
     const old = stored ? null : readJson(OLD_STORAGE_KEY);
+    const rawForMigration = stored || old || {};
+    const legacySpringStartStored = rawForMigration.termStart === LEGACY_SPRING_TERM_START
+      || (Array.isArray(rawForMigration.terms) && rawForMigration.terms.some((term) => term?.termStart === LEGACY_SPRING_TERM_START));
     const next = stored ? normalizeStoredState(stored) : migrateOldState(old);
     const storedVersion = Number(next.version || 0);
     state = { ...defaultState(), ...next };
@@ -606,9 +624,11 @@
     if (state.theme === "classicCustom" && !Object.keys(state.themeVars || {}).length) state.theme = "coolGlass";
     state.themeVars = state.theme === "classicCustom" ? sanitizeThemeVars(state.themeVars) : {};
     state.appIcon = normalizeIconId(state.appIcon);
+    if (state.termStart === LEGACY_SPRING_TERM_START) state.termStart = DEFAULT_TERM_START;
     state.dateLookupMode = state.dateLookupMode === "week" ? "week" : "date";
     state.ddlView = state.ddlView === "completed" ? "completed" : "active";
     state.scheduleOverviewPage = normalizeScheduleOverviewPage(state.scheduleOverviewPage);
+    state.taskOverviewPage = normalizeTaskOverviewPage(state.taskOverviewPage);
     state.specialOverviewPage = normalizeSpecialOverviewPage(state.specialOverviewPage);
     state.courseOverviewPage = String(state.courseOverviewPage || "");
     state.examOverviewPage = String(state.examOverviewPage || "");
@@ -622,7 +642,7 @@
     const restoredFocusDate = state.focusDate;
     if (!validDate(state.focusDate)) state.focusDate = todayString();
     const currentDateChanged = syncFocusToToday("startup");
-    if (currentDateChanged || restoredFocusDate !== state.focusDate) persist({ immediate: true });
+    if (legacySpringStartStored || currentDateChanged || restoredFocusDate !== state.focusDate) persist({ immediate: true });
     state.courseOverviewPage = normalizeCourseOverviewPage(state.courseOverviewPage);
     state.examOverviewPage = normalizeExamOverviewPage(state.examOverviewPage);
     window.YayaLayers?.registerRuntime?.("cache", {
@@ -644,10 +664,11 @@
     const migrated = splitStoredNotesAndSpecials(raw);
     return {
       ...raw,
-      terms: Array.isArray(raw.terms) ? raw.terms : [],
+      terms: Array.isArray(raw.terms) ? raw.terms.map(migrateStoredTermStart) : [],
       customSchedules: Array.isArray(raw.customSchedules) ? raw.customSchedules.map(normalizeCustomSchedule) : [],
       recurringSchedules: Array.isArray(raw.recurringSchedules) ? raw.recurringSchedules.map(normalizeRecurringSchedule) : [],
       examSchedules: Array.isArray(raw.examSchedules) ? raw.examSchedules.map(normalizeExamSchedule).filter(Boolean) : [],
+      tasks: Array.isArray(raw.tasks) ? raw.tasks.map(normalizeTask).filter(Boolean) : [],
       specialChanges: migrated.specialChanges,
       ddls: Array.isArray(raw.ddls) ? raw.ddls.map(normalizeDdl).filter(Boolean) : [],
       completedDdls: Array.isArray(raw.completedDdls) ? raw.completedDdls.map(normalizeCompletedDdl).filter(Boolean) : [],
@@ -701,6 +722,7 @@
       customSchedules: old.customSchedules || [],
       recurringSchedules: old.recurringSchedules || [],
       examSchedules: old.examSchedules || [],
+      tasks: old.tasks || [],
       specialChanges: old.specialChanges || [],
       ddls: old.ddls || [],
       completedDdls: old.completedDdls || [],
@@ -763,6 +785,7 @@
       customSchedules: state.customSchedules,
       recurringSchedules: state.recurringSchedules,
       examSchedules: state.examSchedules,
+      tasks: state.tasks,
       specialChanges: state.specialChanges,
       ddls: state.ddls,
       completedDdls: state.completedDdls,
@@ -772,6 +795,7 @@
       courseOverviewPage: state.courseOverviewPage,
       examOverviewPage: state.examOverviewPage,
       scheduleOverviewPage: state.scheduleOverviewPage,
+      taskOverviewPage: state.taskOverviewPage,
       specialOverviewPage: state.specialOverviewPage,
       uiTemplate: state.uiTemplate,
       theme: state.theme,
@@ -904,6 +928,7 @@
       custom: state.customSchedules,
       recurring: state.recurringSchedules,
       exams: state.examSchedules,
+      tasks: state.tasks,
       special: state.specialChanges,
       ddls: state.ddls,
       done: state.completedDdls
@@ -957,6 +982,10 @@
       pushDateItem(cache.customByDate, item.date, customToDisplay(item));
     }
 
+    for (const item of state.tasks) {
+      cache.taskById[item.id] = item;
+    }
+
     for (const item of state.recurringSchedules) {
       cache.recurringById[item.id] = item;
       for (const occurrence of expandRecurring(item)) {
@@ -994,6 +1023,7 @@
 
     appCache = cache;
     const overviewScheduleCounts = scheduleOverviewBuckets();
+    const overviewTaskCounts = taskOverviewBuckets();
     const overviewSpecialCounts = specialOverviewBuckets();
     const overviewExamCounts = examOverviewBuckets();
     window.YayaLayers?.registerRuntime?.("cache", {
@@ -1002,6 +1032,8 @@
       activeDdls: cache.activeDdls.length,
       activeSchedules: overviewScheduleCounts.active.length,
       endedSchedules: overviewScheduleCounts.ended.length,
+      activeTasks: overviewTaskCounts.active.length,
+      completedTasks: overviewTaskCounts.completed.length,
       examsByTerm: Object.values(overviewExamCounts.byTerm).reduce((total, items) => total + items.length, 0),
       activeSpecials: overviewSpecialCounts.active.length,
       endedSpecials: overviewSpecialCounts.ended.length
@@ -1046,6 +1078,7 @@
       clearCachedHtml(els.courseOverview);
       clearCachedHtml(els.examOverview);
       clearCachedHtml(els.scheduleOverview);
+      clearCachedHtml(els.taskOverview);
       clearCachedHtml(els.specialOverview);
     }
     renderModal();
@@ -1424,6 +1457,17 @@
         </div>
       </div>
     `, `schedule-overview:${state.customSchedules.length}:${state.recurringSchedules.length}:${scheduleActiveCount}`);
+    const taskBuckets = taskOverviewBuckets();
+    const taskActiveCount = taskBuckets.active.length;
+    setCachedHtml(els.taskOverview, `
+      <div class="panel-head">
+        <h2>任务概览</h2>
+        <div class="overview-actions">
+          <button type="button" class="overview-count" data-action="open-tasks">${taskActiveCount}项</button>
+          <button type="button" class="overview-add" data-action="new-task">新建</button>
+        </div>
+      </div>
+    `, `task-overview:${state.tasks.length}:${taskActiveCount}`);
     const specialBuckets = specialOverviewBuckets();
     const specialActiveCount = specialBuckets.active.length;
     setCachedHtml(els.specialOverview, `
@@ -1470,12 +1514,16 @@
       state.courseOverviewPage,
       state.examOverviewPage,
       state.scheduleOverviewPage,
+      state.taskOverviewPage,
       state.specialOverviewPage,
       state.ddlDoneFilterQuery,
       state.ddlDoneFilterStart,
       state.ddlDoneFilterStartTime,
       state.ddlDoneFilterEnd,
       state.ddlDoneFilterEndTime,
+      state.tasks.length,
+      taskOverviewBuckets().active.length,
+      taskOverviewBuckets().completed.length,
       state.modal === "courses" ? currentCourseTerm()?.id || "" : "",
       modalNeedsReminderPermissionSignature(state.modal) ? reminderPermissionSignature() : "",
       normalizeThemeId(state.theme),
@@ -1505,7 +1553,7 @@
   }
 
   function modalNeedsReminderPermissionSignature(name) {
-    return ["settings", "ddl-form", "schedule-form", "recurring-form"].includes(name);
+    return ["settings", "ddl-form", "schedule-form", "task-form", "recurring-form"].includes(name);
   }
 
   function modalContent(name) {
@@ -1518,8 +1566,10 @@
     if (name === "courses") return renderCoursesModal();
     if (name === "exams") return renderExamsModal();
     if (name === "schedules") return renderSchedulesModal();
+    if (name === "tasks") return renderTasksModal();
     if (name === "ddl") return renderDdlModal();
     if (name === "ddl-form") return renderDdlForm();
+    if (name === "task-form") return renderTaskForm();
     if (name === "schedule-form") return renderScheduleForm();
     if (name === "recurring-form") return renderRecurringForm();
     if (name === "specials") return renderSpecialsModal();
@@ -2008,7 +2058,7 @@
         <p>课表导入请在“网上选课 - 我的课表”界面先检索对应学期课表，再使用教务页内的“导入课表”；考试页使用“导入考试”。若电脑端页面缩放后不易显示完整，导入会优先读取页面表格结构和网页导出文件，不依赖当前可见区域。</p>
         <p>课表采集后，请在确认学期窗中用内置日期控件和学期控件手动选择开学日期、学年和学期。</p>
         <p>确认学期窗使用独立控件，不嵌入教务网页。确认后点“返回鸦鸦”写入本地课表库；同一学期会更新课表，不覆盖手动日程、DDL 和备注。</p>
-        <p>DDL 是独立任务；日程可以勾选“同步到 DDL”，完成 DDL 不会删除原日程。</p>
+        <p>DDL 是独立截止事项；任务概览用于记录可完成的普通任务，可选日期、时间和提醒。日程可以勾选“同步到 DDL”，完成 DDL 不会删除原日程。</p>
         <p>特殊变更只处理移动和取消。备注说明请从日程详情里的普通备注入口管理。</p>
         <p>主题编辑先保存再应用。保存新主题后请等待几秒，让本地缓存和页面渲染完成；列表和日期面板会优先读取本地缓存，减少实时渲染造成的卡顿。</p>
         <button type="button" class="primary" data-action="ack-guide">我知道了</button>
@@ -2130,6 +2180,18 @@
     return page;
   }
 
+  function normalizeTaskOverviewPage(page) {
+    if (TASK_OVERVIEW_PAGES.includes(page)) return page;
+    if (["completed", "done", "ended", "history"].includes(page)) return "completed";
+    return "active";
+  }
+
+  function activeTaskOverviewPage() {
+    const page = normalizeTaskOverviewPage(state.taskOverviewPage);
+    if (state.taskOverviewPage !== page) state.taskOverviewPage = page;
+    return page;
+  }
+
   function normalizeSpecialOverviewPage(page) {
     if (SPECIAL_OVERVIEW_PAGES.includes(page)) return page;
     if (["ended", "completed", "done", "history"].includes(page)) return "ended";
@@ -2244,6 +2306,22 @@
     }).join("");
   }
 
+  function renderTaskOverviewTabs(activePage, buckets) {
+    const pages = [
+      ["active", "进行中", buckets.active.length],
+      ["completed", "已完成", buckets.completed.length]
+    ];
+    return pages.map(([id, label, count]) => {
+      const active = id === activePage;
+      return `
+        <button type="button" class="modal-page-chip task-status-tab ${active ? "active" : ""}" data-action="set-task-overview-page" data-page="${escapeAttr(id)}" role="tab" aria-selected="${active ? "true" : "false"}">
+          <strong>${escapeHtml(label)}</strong>
+          <span>${count}项</span>
+        </button>
+      `;
+    }).join("");
+  }
+
   function renderSpecialOverviewTabs(activePage, buckets) {
     const pages = [
       ["active", "进行中", buckets.active.length],
@@ -2322,7 +2400,7 @@
         <div>
           <strong>${escapeHtml(exam.title)}</strong>
           <span>${escapeHtml(examDisplayTime(exam))}</span>
-          <small>${escapeHtml(displayExamPlace(exam))}</small>
+          <small>${escapeHtml(displayExamLocation(exam))}</small>
         </div>
       </article>
     `;
@@ -2349,6 +2427,22 @@
 
   function displayExamPlace(exam) {
     return normalizeText(exam?.place) || "地点未填";
+  }
+
+  function displayExamSeat(exam) {
+    return normalizeExamSeat(exam?.seat || exam?.seatNo || exam?.seatNumber || exam?.["座位"] || exam?.["座位号"] || exam?.["座次"]);
+  }
+
+  function displayExamLocation(exam) {
+    const place = displayExamPlace(exam);
+    const seat = displayExamSeat(exam);
+    return [place, seat ? formatExamSeat(seat) : ""].filter(Boolean).join(" · ");
+  }
+
+  function formatExamSeat(seat) {
+    const text = normalizeExamSeat(seat);
+    if (!text) return "";
+    return /座位|座次|座号|座席/.test(text) ? text : `座位 ${text}`;
   }
 
   function renderSchedulesModal() {
@@ -2398,6 +2492,47 @@
         ${sections[activePage] || sections.active}
       </div>
     `;
+  }
+
+  function renderTasksModal() {
+    const buckets = taskOverviewBuckets();
+    const activePage = activeTaskOverviewPage();
+    const renderList = (items, completed) => items.map((task) => renderTaskCard(task, completed)).join("");
+    const headActions = `<button type="button" class="modal-head-action" data-action="new-task">新建任务</button>`;
+    const tabs = renderTaskOverviewTabs(activePage, buckets);
+    const sections = {
+      active: `<section class="modal-section"><h3>进行中</h3>${renderList(buckets.active, false) || `<div class="empty-state">暂无进行中的任务</div>`}</section>`,
+      completed: `<section class="modal-section"><h3>已完成</h3>${renderList(buckets.completed, true) || `<div class="empty-state">暂无已完成的任务</div>`}</section>`
+    };
+    return `
+      ${modalHead("任务概览", "close-modal", headActions, tabs)}
+      <div class="modal-page-stage task-overview-page"${modalPageMotionAttr("tasks", activePage)}>
+        ${sections[activePage] || sections.active}
+      </div>
+    `;
+  }
+
+  function renderTaskCard(task, completed) {
+    const actions = completed ? `
+      <button type="button" data-action="edit-task" data-id="${escapeAttr(task.id)}">修改</button>
+      <button type="button" data-action="delete-task" data-id="${escapeAttr(task.id)}">删除</button>
+    ` : `
+      <button type="button" data-action="complete-task" data-id="${escapeAttr(task.id)}">完成</button>
+      <button type="button" data-action="edit-task" data-id="${escapeAttr(task.id)}">修改</button>
+      <button type="button" data-action="delete-task" data-id="${escapeAttr(task.id)}">删除</button>
+    `;
+    return renderSwipeShell("task", task.id, `
+      <article class="list-card task-card ${completed ? "completed" : "active"}">
+        <div>
+          <div class="badges overview-card-tags"><span>${completed ? "已完成" : "进行中"}</span></div>
+          <strong>${escapeHtml(task.title)}</strong>
+          <span>${escapeHtml(taskTimeLabel(task))}</span>
+          ${task.content ? `<small>${escapeHtml(task.content)}</small>` : ""}
+          ${completed && task.completedAt ? `<small>完成：${escapeHtml(formatCompletedDdlTime(task.completedAt))}</small>` : ""}
+          ${!completed ? `<small>通知：${escapeHtml(taskReminderSummary(task))}</small>` : ""}
+        </div>
+      </article>
+    `, actions);
   }
 
   function renderSpecialsModal() {
@@ -2548,6 +2683,40 @@
         <label><span>关联对象</span>${targetSelect("targetKey", data.targetKey || "")}</label>
         <label><span>主题</span><input name="topic" type="text" value="${escapeAttr(data.topic || "")}" maxlength="40" required /></label>
         <label><span>内容</span><textarea name="content" maxlength="500">${escapeHtml(data.content || "")}</textarea></label>
+        ${reminderFields(data.reminders, false, { enabled: data.reminderEnabled })}
+        <button type="submit" class="primary">保存</button>
+      </form>
+    `;
+  }
+
+  function renderTaskForm() {
+    const editing = state.modalData.id ? state.tasks.find((item) => item.id === state.modalData.id) : null;
+    const draft = modalFormDraft("taskForm");
+    const base = editing || {
+      title: "",
+      content: "",
+      date: "",
+      time: "",
+      reminders: []
+    };
+    const data = {
+      ...base,
+      title: draftField(draft, "title", base.title || ""),
+      content: draftField(draft, "content", base.content || ""),
+      date: draftField(draft, "date", base.date || ""),
+      time: draftField(draft, "time", base.time || ""),
+      reminders: draftValues(draft, "reminders", base.reminders || []),
+      reminderEnabled: draftChecked(draft, "reminderEnabled", Boolean(base.reminders?.length))
+    };
+    return `
+      ${modalHead(editing ? "修改任务" : "添加任务", "open-tasks")}
+      <form id="taskForm" class="form-stack task-form">
+        <label><span>任务</span><input name="title" type="text" value="${escapeAttr(data.title || "")}" maxlength="60" required /></label>
+        <label><span>内容</span><textarea name="content" maxlength="500">${escapeHtml(data.content || "")}</textarea></label>
+        <div class="form-grid">
+          ${renderDateField("date", "日期", data.date || "", { optional: true })}
+          ${renderTimeField("time", "时间", data.time || "", { optional: true, fallback: TASK_REMINDER_FALLBACK_TIME })}
+        </div>
         ${reminderFields(data.reminders, false, { enabled: data.reminderEnabled })}
         <button type="submit" class="primary">保存</button>
       </form>
@@ -2843,35 +3012,23 @@
   }
 
   function renderAcademicImportModal() {
-    const startValue = state.termStart || DEFAULT_TERM_START;
-    const termSelection = termSelectionFromDate(startValue);
     return `
       ${modalHead("教务导入", "open-settings")}
-      <form id="academicImportForm" class="form-stack term-import-panel academic-import-panel">
+      <section class="form-stack term-import-panel academic-import-panel">
         <section class="term-auto-card">
           <div>
-            <span>后台导入</span>
-            <strong>先选学期，再自动检索课表</strong>
+            <span>网页手动导入</span>
+            <strong>进入教务页面后采集当前页面</strong>
           </div>
-          <small>账号登录正常时，鸦鸦会在后台进入教务系统、选择对应学期并检索导出；失败时再进入网页手动接管。</small>
+          <small>登录后手动进入“我的课表”或“考试安排”，再使用网页浮窗里的导入按钮。</small>
         </section>
-        <label class="form-field">
-          <span>导入类型</span>
-          ${internalOptionSelect("academicImportKind", "course", [{ label: "导入类型", options: [["course", "课表"], ["exam", "考试"]] }], { title: "选择导入类型", required: true })}
-        </label>
-        <section class="term-start-field term-internal-date-field">
-          <span>开学日期</span>
-          ${internalDateSelect("termStart", startValue, { title: "选择开学日期", required: true })}
-        </section>
-        ${renderTermSelectFields(termSelection)}
         <p class="form-note term-import-note">
-          课表导入会使用上方学年与学期自动检索对应课表。考试导入不需要开学日期，会自动读取考试安排。
+          <span>课表导入：在教务网页里先检索目标学期课表，再点“导入课表”。考试导入：进入考试安排页后点“导入考试”。</span>
         </p>
         <div class="prompt-actions term-import-actions">
-          <button type="button" class="prompt-cancel" data-action="open-portal-manual">网页手动接管</button>
-          <button type="submit" class="prompt-confirm primary">开始后台导入</button>
+          <button type="button" class="prompt-confirm primary" data-action="open-portal-manual">打开教务网页</button>
         </div>
-      </form>
+      </section>
     `;
   }
 
@@ -3502,6 +3659,22 @@
         state.scheduleOverviewPage = nextPage;
       });
     }
+    if (action === "open-tasks") {
+      state.taskOverviewPage = normalizeTaskOverviewPage(state.taskOverviewPage);
+      openModal("tasks");
+    }
+    if (action === "set-task-overview-page") {
+      const nextPage = normalizeTaskOverviewPage(target.dataset.page || "");
+      closeSwipeShells();
+      applyViewStateChange(action, state.taskOverviewPage !== nextPage, () => {
+        setOverviewPageMotion("tasks", state.taskOverviewPage, nextPage, TASK_OVERVIEW_PAGES);
+        state.taskOverviewPage = nextPage;
+      });
+    }
+    if (action === "new-task") openModal("task-form");
+    if (action === "edit-task") openModal("task-form", { id: target.dataset.id });
+    if (action === "complete-task") completeTask(target.dataset.id);
+    if (action === "delete-task") deleteTask(target.dataset.id);
     if (action === "open-ddl") {
       if (target.dataset.ddlId) state.ddlView = "active";
       openModal("ddl", { id: target.dataset.ddlId || "" });
@@ -3597,6 +3770,9 @@
     const termSelectionForm = event.target.closest?.("#termImportForm, #academicImportForm");
     if (termSelectionForm && (event.target.name === "termYear" || event.target.name === "termKind")) {
       syncTermStartFromSelection(termSelectionForm);
+    }
+    if (termSelectionForm?.id === "academicImportForm" && event.target.name === "academicImportKind") {
+      syncAcademicImportMode(termSelectionForm);
     }
     if (event.target.closest?.("#recurringForm") && ["weeks", "dayIndex", "startDate", "endDate"].includes(event.target.name)) {
       syncRecurringWeekLink(event.target, event.target.name);
@@ -4548,6 +4724,7 @@
     if (form.id === "customThemeForm") saveCustomTheme(form);
     if (form.id === "iconForm") saveIcon(form);
     if (form.id === "ddlForm") saveDdl(form);
+    if (form.id === "taskForm") saveTask(form);
     if (form.id === "scheduleForm") saveSchedule(form);
     if (form.id === "recurringForm") saveRecurring(form);
     if (form.id === "specialForm") saveSpecial(form);
@@ -4555,6 +4732,20 @@
     if (form.id === "noteEditForm") saveEditedNote(form);
     if (form.id === "termImportForm") confirmTermImport(form);
     if (form.id === "academicImportForm") startAcademicImport(form);
+  }
+
+  function syncAcademicImportMode(form) {
+    if (!form) return;
+    const kind = normalizeAcademicImportKind(form.elements?.academicImportKind?.value) || "course";
+    const isExam = kind === "exam";
+    form.dataset.importKind = isExam ? "exam" : "course";
+    const courseFields = form.querySelector("[data-course-import-fields]");
+    if (courseFields) courseFields.hidden = isExam;
+    ["termStart", "termYear", "termKind"].forEach((name) => {
+      const control = form.elements?.[name];
+      if (!control) return;
+      control.disabled = isExam;
+    });
   }
 
   function openModal(name, data = {}) {
@@ -4661,6 +4852,29 @@
     clearModalFormDraft();
     commit("DDL 已保存");
     openModal("ddl");
+  }
+
+  function saveTask(form) {
+    const data = new FormData(form);
+    const editing = state.modalData.id ? state.tasks.find((item) => item.id === state.modalData.id) : null;
+    const task = normalizeTask({
+      id: editing?.id || newId("task"),
+      title: normalizeText(data.get("title")),
+      content: normalizeText(data.get("content")),
+      date: data.get("date"),
+      time: data.get("time"),
+      reminders: reminderValuesFromForm(data),
+      completedAt: editing?.completedAt || ""
+    });
+    if (!task) return;
+    if (editing) {
+      state.tasks = state.tasks.map((item) => item.id === editing.id ? task : item);
+    } else {
+      state.tasks.push(task);
+    }
+    clearModalFormDraft();
+    commit("任务已保存");
+    openModal("tasks");
   }
 
   function saveSchedule(form) {
@@ -4816,6 +5030,23 @@
     openModal("ddl");
   }
 
+  function completeTask(id) {
+    const task = state.tasks.find((item) => item.id === id);
+    if (!task) return;
+    closeSwipeShells();
+    state.tasks = state.tasks.map((item) => (
+      item.id === id ? { ...item, completedAt: item.completedAt || new Date().toISOString() } : item
+    ));
+    commit("任务已完成");
+    openModal("tasks");
+  }
+
+  function deleteTask(id) {
+    state.tasks = state.tasks.filter((item) => item.id !== id);
+    commit("任务已删除");
+    openModal("tasks");
+  }
+
   function deleteSchedule(id) {
     state.customSchedules = state.customSchedules.filter((item) => item.id !== id);
     state.completedDdls = state.completedDdls.filter((item) => item.sourceId !== id && item.id !== targetKeyForCustom(id));
@@ -4869,33 +5100,7 @@
   }
 
   function startAcademicImport(form) {
-    const data = new FormData(form);
-    const kind = normalizeAcademicImportKind(data.get("academicImportKind")) || "course";
-    const yearValue = normalizeAcademicYearValue(data.get("termYear"));
-    const termKind = normalizeTermKind(data.get("termKind")) || "autumn";
-    const firstYear = Number(yearValue.slice(0, 4));
-    const termStart = validDate(data.get("termStart"))
-      ? String(data.get("termStart"))
-      : suggestedTermStart(firstYear, firstYear + 1, termKind);
-    const payload = {
-      kind,
-      termLabel: buildTermLabelFromSelection(yearValue, termKind),
-      termStart,
-      termYear: yearValue,
-      termKind,
-      background: true
-    };
-    syncPortalImportUiBridge();
-    if (window.YayaPlatform?.startAcademicImport?.(payload)) {
-      state.notice = kind === "exam"
-        ? "正在后台导入考试安排，完成后会自动写入"
-        : `正在后台导入 ${payload.termLabel} 课表，完成后会自动写入`;
-      closeModal();
-      renderStatus();
-      scheduleNativeImportPull();
-      return;
-    }
-    state.notice = "当前环境无法后台导入，已切换为网页手动接管";
+    state.notice = "已切换为网页手动导入，请在教务网页中打开目标页面后采集";
     renderStatus();
     openAcademicPortalManual();
   }
@@ -4940,7 +5145,7 @@
     if (!message) return;
     state.notice = message;
     renderStatus();
-    if (/已抓取|已暂存|完成|写入|导入/.test(message)) scheduleNativeImportPull();
+    if (/已抓取|已暂存|完成|写入/.test(message)) scheduleNativeImportPull();
   }
 
   function openNativeFileImport() {
@@ -5010,7 +5215,9 @@
         return;
       }
       state.examSchedules = exams;
-      commit(`已导入考试安排：${exams.length} 项`);
+      const message = `考试导入成功：${exams.length} 项，可刷新查看`;
+      commit(message, { immediate: true });
+      showImportSuccessToast(message);
       return;
     }
     const sourceName = payload.title || "教务系统同步";
@@ -5051,6 +5258,10 @@
     const kind = String(value || "").toLowerCase();
     if (kind === "exam" || kind === "exams") return "exam";
     return "course";
+  }
+
+  function showImportSuccessToast(message) {
+    window.YayaPlatform?.showToast?.(message);
   }
 
   async function handleFile(file) {
@@ -5114,7 +5325,9 @@
     state.termStart = term.termStart;
     state.sourceName = sourceName;
     syncActiveTerm();
-    commit(`课表已导入：${term.courses.length} 门课程`, { immediate: true });
+    const message = `课表导入成功：${term.courses.length} 门课程，可刷新查看`;
+    commit(message, { immediate: true });
+    showImportSuccessToast(message);
   }
 
   function decodeFile(buffer) {
@@ -5518,6 +5731,14 @@
     };
   }
 
+  function migrateStoredTermStart(term) {
+    if (!term || typeof term !== "object") return term;
+    if (term.termStart !== LEGACY_SPRING_TERM_START) return term;
+    const label = String(term.label || term.sourceName || "");
+    if (label && !/春|spring|2025\s*[-—–~至]\s*2026/i.test(label)) return term;
+    return { ...term, termStart: DEFAULT_TERM_START };
+  }
+
   function dedupeRows(rows) {
     const seen = new Set();
     return rows.filter((row) => {
@@ -5671,11 +5892,13 @@
         if (!date) return;
         const parsedTime = parseTimeRange(line);
         const title = examTitleFromPlainText(lines, index);
+        const nearby = lines.slice(Math.max(0, index - 1), index + 4).join(" ");
         exams.push(normalizeExamSchedule({
           id: newId("exam"),
           date,
           title,
           place: lines[index + 1] || "",
+          seat: extractExamSeat(nearby),
           startTime: parsedTime.startTime,
           endTime: parsedTime.endTime
         }));
@@ -5699,7 +5922,7 @@
   }
 
   function parseExamRowsFromTableRows(rows) {
-    const headerIndex = rows.findIndex((row) => /考试|课程|科目/.test(row.join(" ")) && /日期|时间|考场|地点/.test(row.join(" ")));
+    const headerIndex = rows.findIndex((row) => /考试|课程|科目/.test(row.join(" ")) && /日期|时间|考场|地点|座位/.test(row.join(" ")));
     if (headerIndex < 0) return [];
     const headers = rows[headerIndex];
     const find = (words, reject = []) => headers.findIndex((header) => {
@@ -5710,7 +5933,8 @@
     const roundIndex = find(["考试轮次名称", "考试轮次", "轮次"]);
     const dateIndex = find(["考试日期", "日期"]);
     const timeIndex = find(["考试时间", "时间"]);
-    const placeIndex = find(["考试地点", "地点", "考场", "教室"]);
+    const placeIndex = find(["考试地点", "地点", "考场", "教室"], ["座位", "座次", "座号"]);
+    const seatIndex = find(["考试座位", "座位号", "座位", "座次", "座号", "座席"]);
     const result = [];
     for (const row of rows.slice(headerIndex + 1)) {
       if (!row.some(Boolean) || row.length < 3) continue;
@@ -5724,6 +5948,7 @@
         date,
         title,
         place: cellAt(row, placeIndex),
+        seat: cellAt(row, seatIndex) || extractExamSeat(row.join(" ")),
         startTime: parsedTime.startTime,
         endTime: parsedTime.endTime,
         round: cellAt(row, roundIndex)
@@ -5736,7 +5961,7 @@
   function dedupeExamSchedules(exams) {
     const seen = new Set();
     return exams.filter((exam) => {
-      const key = [exam.title, exam.date, exam.startTime, exam.endTime, exam.place].join("|");
+      const key = [exam.title, exam.date, exam.startTime, exam.endTime, exam.place, exam.seat].join("|");
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -5769,6 +5994,50 @@
     return candidates.map(cleanExamTitle).find(Boolean) || "";
   }
 
+  function examSeatFromRecord(item) {
+    const candidates = [
+      item?.seat,
+      item?.seatNo,
+      item?.seatNumber,
+      item?.seatNum,
+      item?.examSeat,
+      item?.zwh,
+      item?.ZWH,
+      item?.["考试座位"],
+      item?.["座位"],
+      item?.["座位号"],
+      item?.["座次"],
+      item?.["座号"],
+      item?.["座席"]
+    ];
+    return candidates.map(normalizeExamSeat).find(Boolean) || "";
+  }
+
+  function normalizeExamSeat(value) {
+    const text = normalizeText(value)
+      .replace(/^(?:考试)?(?:座位号|座位|座次|座号|座席)\s*[:：]?\s*/i, "")
+      .replace(/[，,;；]\s*(?:学号|姓名|备注|说明).*/g, "")
+      .trim();
+    if (!text || /^(?:无|暂无|未安排|未填|[-—])$/.test(text)) return "";
+    return text;
+  }
+
+  function extractExamSeat(value) {
+    const text = normalizeText(value);
+    const explicit = text.match(/(?:考试)?(?:座位号|座位|座次|座号|座席)\s*[:：]?\s*([A-Za-z0-9\u4e00-\u9fff#_\-]+(?:\s*[A-Za-z0-9#_\-]+)?)/);
+    if (explicit) return normalizeExamSeat(explicit[1]);
+    const english = text.match(/\bseat\s*[:：#]?\s*([A-Za-z0-9#_\-]+)/i);
+    return english ? normalizeExamSeat(english[1]) : "";
+  }
+
+  function cleanExamPlace(value) {
+    return normalizeText(value)
+      .replace(/(?:考试)?(?:座位号|座位|座次|座号|座席)\s*[:：]?\s*[A-Za-z0-9\u4e00-\u9fff#_\-]+(?:\s*[A-Za-z0-9#_\-]+)?/g, " ")
+      .replace(/\bseat\s*[:：#]?\s*[A-Za-z0-9#_\-]+/ig, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
+
   function examTitleFromCells(row, headers = [], nameIndex = -1) {
     const direct = cleanExamTitle(cellAt(row, nameIndex));
     if (direct) return direct;
@@ -5799,7 +6068,7 @@
       .replace(/\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?/g, " ")
       .replace(/\d{1,2}[-/.月]\d{1,2}日/g, " ")
       .replace(/\d{1,2}[:：]\d{2}(?:\s*[-~～—–－至到]\s*\d{1,2}[:：]\d{2})?/g, " ")
-      .replace(/(?:考试)?(?:日期|时间|地点|考场|教室|校区|座位号|学号|姓名|序号|备注|说明|周次|星期)\s*[:：]\s*[^，,;；]*/g, " ")
+      .replace(/(?:考试)?(?:日期|时间|地点|考场|教室|校区|座位号|座位|座次|座号|座席|学号|姓名|序号|备注|说明|周次|星期)\s*[:：]\s*[^，,;；]*/g, " ")
       .replace(/^\d+\s*[、.．]\s*/, "");
     const normalized = normalizeText(text);
     if (!normalized || looksLikeExamMeta(normalized)) return "";
@@ -5814,7 +6083,7 @@
       .replace(/\d{1,2}[-/.月]\d{1,2}日/g, " ")
       .replace(/\d{1,2}[:：]\d{2}(?:\s*[-~～—–－至到]\s*\d{1,2}[:：]\d{2})?/g, " "));
     if (validDate(parseDateValue(text)) && !withoutDateTime) return true;
-    if (/^(?:考试)?(?:日期|时间|地点|考场|教室|校区|座位号|学号|姓名|序号|备注|说明|周次|星期)(?:\s*[:：].*)?$/.test(text)) return true;
+    if (/^(?:考试)?(?:日期|时间|地点|考场|教室|校区|座位号|座位|座次|座号|座席|学号|姓名|序号|备注|说明|周次|星期)(?:\s*[:：].*)?$/.test(text)) return true;
     if (/^(?:随堂考试|期中考试|期末考试|补考|缓考|重修考试|考查|闭卷|开卷|机考)$/.test(text)) return true;
     if (/^(?:第?\d{1,2}\s*(?:周|节)|周[一二三四五六日天])$/.test(text)) return true;
     if (/^\d{1,2}[:：]\d{2}(?:\s*[-~～—–－至到]\s*\d{1,2}[:：]\d{2})?$/.test(text)) return true;
@@ -5924,8 +6193,8 @@
   }
 
   function suggestedTermStart(firstYear, secondYear, kind) {
-    if (kind === "autumn") return nearestMonday(firstYear, 9, 1);
-    if (kind === "spring") return nearestMonday(secondYear, 2, 23);
+    if (kind === "autumn") return formatDate(new Date(firstYear, 8, firstYear >= 2026 ? 2 : 14));
+    if (kind === "spring") return nearestMonday(secondYear, 3, 2);
     if (kind === "summer") return nearestMonday(secondYear, 6, 24);
     return state.termStart || DEFAULT_TERM_START;
   }
@@ -6159,12 +6428,12 @@
       targetKey: "",
       noteKey: "",
       title: item.title,
-      place: displayExamPlace(item),
+      place: displayExamLocation(item),
       startTime: item.startTime,
       endTime: item.endTime,
       timeText: timeRange(item),
       typeLabel: "",
-      meta: displayExamPlace(item),
+      meta: displayExamLocation(item),
       startMinute: clockToMinutes(item.startTime)
     };
   }
@@ -6242,6 +6511,10 @@
     return overviewBucketsSignature("schedule", `${state.focusDate}:${state.termStart}`);
   }
 
+  function taskOverviewBucketsSignature() {
+    return overviewBucketsSignature("task");
+  }
+
   function specialOverviewBucketsSignature() {
     return overviewBucketsSignature("special");
   }
@@ -6291,6 +6564,22 @@
     groups.ended.sort((a, b) => sortOverviewEntry(b, a));
     lastScheduleOverviewBucketsSignature = signature;
     lastScheduleOverviewBuckets = groups;
+    return groups;
+  }
+
+  function taskOverviewBuckets() {
+    const signature = taskOverviewBucketsSignature();
+    if (lastTaskOverviewBucketsSignature === signature && lastTaskOverviewBuckets) {
+      return lastTaskOverviewBuckets;
+    }
+    const groups = { active: [], completed: [] };
+    for (const task of state.tasks) {
+      groups[task.completedAt ? "completed" : "active"].push(task);
+    }
+    groups.active.sort(sortTasks);
+    groups.completed.sort((a, b) => String(b.completedAt || "").localeCompare(String(a.completedAt || "")) || sortTasks(a, b));
+    lastTaskOverviewBucketsSignature = signature;
+    lastTaskOverviewBuckets = groups;
     return groups;
   }
 
@@ -6384,6 +6673,14 @@
       || COLLATOR.compare(a.item?.title || targetTitle(a.item?.targetKey) || "", b.item?.title || targetTitle(b.item?.targetKey) || "");
   }
 
+  function sortTasks(a, b) {
+    const aHasDate = validDateInputValue(a.date) ? 0 : 1;
+    const bHasDate = validDateInputValue(b.date) ? 0 : 1;
+    return aHasDate - bHasDate
+      || `${a.date || "9999-12-31"} ${a.time || "23:59"}`.localeCompare(`${b.date || "9999-12-31"} ${b.time || "23:59"}`)
+      || COLLATOR.compare(a.title || "", b.title || "");
+  }
+
   function detailContext() {
     const { type, id } = state.modalData || {};
     if (type === "course") {
@@ -6425,7 +6722,7 @@
     if (type === "exam") {
       const item = state.examSchedules.find((exam) => exam.id === id);
       if (!item) return null;
-      return { title: item.title, noteKey: `exam:${item.id}`, meta: [examDisplayTime(item), displayExamPlace(item)].filter(Boolean) };
+      return { title: item.title, noteKey: `exam:${item.id}`, meta: [examDisplayTime(item), displayExamLocation(item)].filter(Boolean) };
     }
     return null;
   }
@@ -6555,7 +6852,24 @@
         timeLabel: "开始"
       });
     }
-    lastNativeReminderPayload = [...manualDdlPayload, ...schedulePayload].filter((item) => validDate(item.date));
+    const taskPayload = [];
+    for (const task of state.tasks) {
+      if (task.completedAt || !validDateInputValue(task.date)) continue;
+      const reminders = normalizeReminderValues(task.reminders);
+      if (!reminders.length) continue;
+      taskPayload.push({
+        id: task.id,
+        alarmKey: ["task", task.id, task.date, task.time || TASK_REMINDER_FALLBACK_TIME].join("|"),
+        date: task.date,
+        time: task.time || TASK_REMINDER_FALLBACK_TIME,
+        topic: task.title || "任务",
+        content: task.content || "",
+        reminders,
+        kind: "task",
+        timeLabel: "任务"
+      });
+    }
+    lastNativeReminderPayload = [...manualDdlPayload, ...schedulePayload, ...taskPayload].filter((item) => validDate(item.date));
     lastNativeReminderPayloadSignature = cacheSignature;
     return lastNativeReminderPayload;
   }
@@ -7287,12 +7601,14 @@
   function normalizeExamSchedule(item) {
     const title = examTitleFromRecord(item);
     if (!item || !validDate(item.date) || !title) return null;
+    const seat = examSeatFromRecord(item) || extractExamSeat(item.place);
     return {
       id: String(item.id || newId("exam")),
       date: item.date,
       title,
       subject: title,
-      place: normalizeText(item.place),
+      place: cleanExamPlace(item.place),
+      seat,
       startTime: normalizeTime(item.startTime || "00:00"),
       endTime: normalizeTime(item.endTime || item.startTime || "00:00")
     };
@@ -7328,6 +7644,23 @@
       content: normalizeText(item.content),
       targetKey: String(item.targetKey || ""),
       reminders: normalizeReminderValues(item.reminders)
+    };
+  }
+
+  function normalizeTask(item) {
+    if (!item) return null;
+    const title = normalizeText(item.title || item.topic || item.name);
+    if (!title) return null;
+    const date = validDateInputValue(item.date);
+    const time = validTimeInputValue(item.time);
+    return {
+      id: String(item.id || newId("task")),
+      title,
+      content: normalizeText(item.content || item.note || item.description),
+      date,
+      time,
+      reminders: normalizeReminderValues(item.reminders),
+      completedAt: item.completedAt ? String(item.completedAt) : ""
     };
   }
 
@@ -7427,6 +7760,11 @@
     return `${ddl.date} ${ddl.time || "23:59"}`;
   }
 
+  function taskTimeLabel(task) {
+    if (!validDateInputValue(task?.date)) return "未设时间";
+    return [task.date, validTimeInputValue(task.time)].filter(Boolean).join(" ");
+  }
+
   function formatCompletedDdlTime(value) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "";
@@ -7441,6 +7779,12 @@
     if (!ddl.reminders?.length) return "未设置通知";
     const labels = new Map(REMINDER_OPTIONS);
     return ddl.reminders.map((value) => labels.get(String(value))).filter(Boolean).join("、");
+  }
+
+  function taskReminderSummary(task) {
+    if (!task.reminders?.length) return "未设置通知";
+    if (!validDateInputValue(task.date)) return "需设置日期";
+    return reminderSummary(task);
   }
 
   function sortDisplayItems(a, b) {

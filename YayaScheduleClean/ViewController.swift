@@ -326,7 +326,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             injectPortalNavigationHelper(into: webView)
             injectPortalAccountHelper(into: webView)
             injectAcademicImportControlsV2(into: webView)
-            resumePendingAcademicAutoImport(in: webView)
             return
         }
         applyWebInteractionMode(for: url)
@@ -345,7 +344,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             injectPortalNavigationHelper()
             injectPortalAccountHelper()
             injectAcademicImportControlsV2()
-            resumePendingAcademicAutoImport(in: webView)
         }
     }
 
@@ -768,35 +766,20 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
         guard now - lastPortalOpenAt >= portalOpenCooldown else { return }
         lastPortalOpenAt = now
         portalSessionActive = true
+        pendingAcademicAutoImportKind = ""
+        pendingAcademicTermLabel = ""
+        pendingAcademicTermStart = ""
         hidePortalTermOverlay()
         applyWebInteractionMode(academic: true)
+        setPortalActionStatus("请手动登录并进入课表或考试页面后导入")
         webView.load(URLRequest(url: portalURL))
     }
 
     private func startAcademicImport(_ body: [String: Any]) {
-        let payload = stringValue(body["payload"])
-        guard let data = payload.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data),
-              let options = object as? [String: Any] else {
-            setPortalActionStatus("后台导入参数异常，请重新选择学期")
-            return
-        }
-        let kind = normalizedAcademicImportKind(stringValue(options["kind"]))
-        guard kind == "course" || kind == "exam" else {
-            setPortalActionStatus("后台导入类型异常，请重新选择")
-            return
-        }
-        pendingAcademicAutoImportKind = kind
-        pendingAcademicTermLabel = stringValue(options["termLabel"])
-        pendingAcademicTermStart = stringValue(options["termStart"])
-        academicFrameSnapshots.removeAll()
-        let worker = ensureAcademicWorkerWebView()
-        let targetURL = academicImportURL(kind: kind)
-        let status = kind == "exam"
-            ? "正在后台打开考试安排"
-            : "正在后台打开 \(pendingAcademicTermLabel.isEmpty ? "所选学期" : pendingAcademicTermLabel) 课表"
-        setPortalActionStatus(status)
-        worker.load(URLRequest(url: targetURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 45))
+        pendingAcademicAutoImportKind = ""
+        pendingAcademicTermLabel = ""
+        pendingAcademicTermStart = ""
+        setPortalActionStatus("后台自动导入已移除，请使用网页手动导入")
     }
 
     private func academicImportURL(kind: String) -> URL {
@@ -1216,51 +1199,15 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
     }
 
     private func queueAcademicAutoImport(_ body: [String: Any]) {
-        let kind = normalizedAcademicImportKind(stringValue(body["kind"]))
-        guard kind == "course" || kind == "exam" else { return }
-        pendingAcademicAutoImportKind = kind
-        let termLabel = stringValue(body["termLabel"])
-        let termStart = stringValue(body["termStart"])
-        if !termLabel.isEmpty { pendingAcademicTermLabel = termLabel }
-        if !termStart.isEmpty { pendingAcademicTermStart = termStart }
+        pendingAcademicAutoImportKind = ""
+        pendingAcademicTermLabel = ""
+        pendingAcademicTermStart = ""
     }
 
     private func resumePendingAcademicAutoImport(in targetWebView: WKWebView? = nil) {
-        let kind = pendingAcademicAutoImportKind
-        guard kind == "course" || kind == "exam" else { return }
         pendingAcademicAutoImportKind = ""
-        setPortalActionStatus("正在继续自动导入")
-        let options: [String: Any] = [
-            "termLabel": pendingAcademicTermLabel,
-            "termStart": pendingAcademicTermStart
-        ]
-        let optionsData = try? JSONSerialization.data(withJSONObject: options)
-        let optionsJson = optionsData.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-        let script = """
-        (function() {
-          var kind = \(Self.javaScriptStringLiteral(kind));
-          var options = \(optionsJson);
-          try { window.__yayaCourseImportOptions = options; } catch (error) {}
-          function run() {
-            try {
-              if (window.__yayaRunAcademicImportForNative) {
-                window.__yayaRunAcademicImportForNative(kind, options);
-                return true;
-              }
-            } catch (error) {}
-            return false;
-          }
-          try {
-            if (window.__yayaRunAcademicImportForNative) {
-              window.__yayaRunAcademicImportForNative(kind, options);
-              return true;
-            }
-          } catch (error) {}
-          setTimeout(run, 700);
-          return false;
-        })();
-        """
-        (targetWebView ?? webView).evaluateJavaScript(script)
+        pendingAcademicTermLabel = ""
+        pendingAcademicTermStart = ""
     }
 
     private func configurePortalUi(_ payload: String) {
@@ -2703,44 +2650,16 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
             return false;
           }
           async function prepareAcademicImport(kind) {
-            var options = courseImportOptions();
             if (loginBlocked()) {
-              setStatus('检测到登录页，正在尝试自动填入账户');
-              await sleep(1600);
-              if (loginBlocked()) {
-                post('queueAcademicAutoImport', { kind: kind, termLabel: options.label || '', termStart: options.start || '' });
-                return '检测到登录页，请重新填写账号与密码并登录后再导入';
-              }
+              return '检测到登录页，请完成登录后进入课表或考试页面再导入';
             }
-            var forcedCourse = kind !== 'exam' && !!(options.label && options.start);
             if (portalOnly()) {
-              post('queueAcademicAutoImport', { kind: kind, termLabel: options.label || '', termStart: options.start || '' });
-              try { location.href = 'http://zyfw.bnu.edu.cn' + targetPath(kind); } catch (error) {}
-              return '正在进入教务系统，登录正常会继续自动导入';
+              return '请在办事大厅进入教务管理系统，再到课表或考试页面导入';
             }
-            if (!forcedCourse && hasUsefulPayload(collectStructured(kind), kind)) return true;
-            var frame = deskFrame();
-            if (frame && /zyfw\\.bnu\\.edu\\.cn/i.test(location.host)) {
-              var target = targetPath(kind);
-              var src = String(frame.getAttribute('src') || frame.src || '');
-              if (src.indexOf(target) < 0) {
-                frame.src = target;
-                setStatus(kind === 'exam' ? '正在打开考试安排' : '正在打开我的课表');
-                await sleep(1400);
-              }
-            }
-            if (kind !== 'exam' && forcedCourse) {
-              setStatus('正在写入所选学期并检索课表');
-              setCourseTermSelection(options);
-              await sleep(240);
-            }
-            if (!forcedCourse && hasUsefulPayload(collectStructured(kind), kind)) return true;
-            if (forcedCourse || clickSearch(kind)) {
-              if (forcedCourse) clickSearch(kind);
-              setStatus(kind === 'exam' ? '正在检索考试安排' : '正在按所选学期检索课表');
-              await waitUseful(kind);
-            }
-            return true;
+            var data = collectStructured(kind);
+            if (hasUsefulPayload(data, kind)) return true;
+            if (kind === 'course') return '请先在网页里手动选择学期并检索课表，再点击导入课表';
+            return '请先在网页里打开或检索考试安排，再点击导入考试';
           }
           function finishAcademicImport(kind, data) {
             if (!hasUsefulPayload(data, kind)) return false;
@@ -2769,17 +2688,6 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               data = await collectResourcePayloads(kind);
               if (finishAcademicImport(kind, data)) {
                 setStatus(kind === 'exam' ? '已从教务请求数据抓取考试' : '已从教务请求数据抓取课表，请确认学期');
-                return;
-              }
-              var exportHint = triggerAcademicExport(kind);
-              if (exportHint) {
-                setStatus('已触发网页导出，导出完成后点返回鸦鸦自动读取');
-                return;
-              }
-              setStatus(kind === 'exam' ? '未发现可用导出，正在读取分页考试源数据' : '未发现可用导出，正在读取分页课表源数据');
-              data = await crawl(kind);
-              if (finishAcademicImport(kind, data)) {
-                setStatus(kind === 'exam' ? '已抓取考试，点返回鸦鸦完成导入' : '请确认学期');
                 return;
               }
               setStatus(kind === 'exam' ? '正在读取完整考试页面文本' : '正在读取完整课表页面文本');
@@ -3105,11 +3013,7 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               return runAcademicImport(kind === 'exam' ? 'exam' : 'course');
             };
             try {
-              var pendingImport = sessionStorage.getItem('__yayaPendingAcademicImport');
-              if (pendingImport && !loginBlocked()) {
-                sessionStorage.removeItem('__yayaPendingAcademicImport');
-                setTimeout(function() { runAcademicImport(pendingImport); }, 650);
-              }
+              sessionStorage.removeItem('__yayaPendingAcademicImport');
             } catch (error) {}
             var status = document.createElement('div');
             status.setAttribute('data-yaya-ios-academic-status', 'true');
@@ -3964,8 +3868,8 @@ final class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate
               return post("openAcademicPortal");
             },
             startAcademicImport: function(payload) {
-              var value = typeof payload === "string" ? payload : JSON.stringify(payload || {});
-              return post("startAcademicImport", { payload: value });
+              post("portalImportStatus", { message: "后台自动导入已移除，请使用网页手动导入" });
+              return false;
             },
             openFileImport: function() {
               return post("openFileImport");
