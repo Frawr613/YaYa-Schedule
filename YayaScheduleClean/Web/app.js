@@ -213,6 +213,15 @@
   let scrollRenderPending = false;
   let scrollRenderPendingForce = false;
   let renderBusyTimer = 0;
+  let uiLatencyTimer = 0;
+  let activePressFeedbackElement = null;
+  let pressFeedbackTimer = 0;
+  let persistIdleHandle = 0;
+  let persistIdleActive = false;
+  let cachePersistTimer = 0;
+  let cachePersistIdleHandle = 0;
+  let cachePersistIdleActive = false;
+  let lastCachePersistSignature = "";
   let lastCommandAction = "";
   let lastCommandAt = 0;
   let lastPortalOpenAt = 0;
@@ -336,7 +345,9 @@
       dayItemsCache: dayItemsCache.size,
       localStorage: STORAGE_KEY,
       nativeReminderPayload: nativeReminderPayloadCount(),
-      serviceWorker: "serviceWorker" in navigator
+      serviceWorker: "serviceWorker" in navigator,
+      idlePersistQueued: Boolean(persistTimer || persistIdleHandle),
+      idleCacheQueued: Boolean(cachePersistTimer || cachePersistIdleHandle)
     });
     window.YayaLayers.registerRuntime("commands", {
       delegated: true,
@@ -389,7 +400,9 @@
       builtInInputPatch: INPUT_UI_PATCH_VERSION,
       optionPickerLayer: Boolean(optionPickerSource),
       portalTermOverlay: true,
-      locked: document.body?.classList?.contains("is-interaction-locked") || false
+      locked: document.body?.classList?.contains("is-interaction-locked") || false,
+      instantPressFeedback: true,
+      uiLatencyWindow: document.body?.classList?.contains("is-ui-transitioning") || false
     });
     window.YayaLayers.registerRuntime("theme", {
       theme: normalizeThemeId(state.theme),
@@ -562,6 +575,7 @@
           foregroundResumeTimer = 0;
         }
         flushPersist();
+        flushCachePersist();
       }
     });
     window.setInterval(refreshDateIfNeeded, 10 * 60 * 1000);
@@ -657,6 +671,7 @@
   function handlePageHide() {
     clearNativeImportPullTimers();
     flushPersist();
+    flushCachePersist();
   }
 
   function normalizeStoredState(raw) {
@@ -736,10 +751,10 @@
 
   function persist(options = {}) {
     const payload = JSON.stringify(serializableState());
-    if (!options.immediate && persistTimer && payload === lastPersistQueuedPayload) return;
-    if (persistTimer) window.clearTimeout(persistTimer);
+    const hasQueuedPersist = persistTimer || persistIdleHandle;
+    if (!options.immediate && hasQueuedPersist && payload === lastPersistQueuedPayload) return;
+    cancelScheduledPersist();
     if (!options.immediate && payload === lastPersistedPayload) {
-      persistTimer = 0;
       lastPersistQueuedPayload = "";
       return;
     }
@@ -748,16 +763,16 @@
       return;
     }
     lastPersistQueuedPayload = payload;
+    const delay = Number.isFinite(Number(options.delayMs)) ? Number(options.delayMs) : 180;
     persistTimer = window.setTimeout(() => {
       persistTimer = 0;
-      writePersistPayload(lastPersistQueuedPayload || payload);
-    }, 120);
+      schedulePersistIdleWrite(lastPersistQueuedPayload || payload);
+    }, delay);
   }
 
   function flushPersist() {
-    if (!persistTimer) return;
-    window.clearTimeout(persistTimer);
-    persistTimer = 0;
+    if (!persistTimer && !persistIdleHandle && !lastPersistQueuedPayload) return;
+    cancelScheduledPersist();
     writePersistPayload(lastPersistQueuedPayload || JSON.stringify(serializableState()));
   }
 
@@ -765,6 +780,35 @@
     localStorage.setItem(STORAGE_KEY, payload);
     lastPersistedPayload = payload;
     lastPersistQueuedPayload = "";
+  }
+
+  function cancelScheduledPersist() {
+    if (persistTimer) {
+      window.clearTimeout(persistTimer);
+      persistTimer = 0;
+    }
+    if (persistIdleHandle) {
+      if (persistIdleActive && window.cancelIdleCallback) window.cancelIdleCallback(persistIdleHandle);
+      else window.clearTimeout(persistIdleHandle);
+      persistIdleHandle = 0;
+      persistIdleActive = false;
+    }
+  }
+
+  function schedulePersistIdleWrite(payload) {
+    if (!payload) return;
+    const write = () => {
+      persistIdleHandle = 0;
+      persistIdleActive = false;
+      writePersistPayload(lastPersistQueuedPayload || payload);
+    };
+    if ("requestIdleCallback" in window) {
+      persistIdleActive = true;
+      persistIdleHandle = window.requestIdleCallback(write, { timeout: 900 });
+      return;
+    }
+    persistIdleActive = false;
+    persistIdleHandle = window.setTimeout(write, 90);
   }
 
   function serializableState() {
@@ -1039,11 +1083,58 @@
       endedSpecials: overviewSpecialCounts.ended.length
     });
     if (save) {
+      scheduleCachePersist(cache);
+    }
+  }
+
+  function scheduleCachePersist(cache) {
+    const signature = cache?.signature || "";
+    if (!signature) return;
+    if (signature === lastCachePersistSignature && (cachePersistTimer || cachePersistIdleHandle)) return;
+    cancelScheduledCachePersist();
+    lastCachePersistSignature = signature;
+    const write = () => {
+      cachePersistTimer = 0;
+      cachePersistIdleHandle = 0;
+      cachePersistIdleActive = false;
       try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+        const payload = appCache.signature === signature ? appCache : cache;
+        localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
       } catch (error) {
         localStorage.removeItem(CACHE_KEY);
       }
+    };
+    cachePersistTimer = window.setTimeout(() => {
+      cachePersistTimer = 0;
+      if ("requestIdleCallback" in window) {
+        cachePersistIdleActive = true;
+        cachePersistIdleHandle = window.requestIdleCallback(write, { timeout: 1200 });
+      } else {
+        cachePersistIdleHandle = window.setTimeout(write, 120);
+      }
+    }, 200);
+  }
+
+  function cancelScheduledCachePersist() {
+    if (cachePersistTimer) {
+      window.clearTimeout(cachePersistTimer);
+      cachePersistTimer = 0;
+    }
+    if (cachePersistIdleHandle) {
+      if (cachePersistIdleActive && window.cancelIdleCallback) window.cancelIdleCallback(cachePersistIdleHandle);
+      else window.clearTimeout(cachePersistIdleHandle);
+      cachePersistIdleHandle = 0;
+      cachePersistIdleActive = false;
+    }
+  }
+
+  function flushCachePersist() {
+    if (!cachePersistTimer && !cachePersistIdleHandle) return;
+    cancelScheduledCachePersist();
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify(appCache));
+    } catch (error) {
+      localStorage.removeItem(CACHE_KEY);
     }
   }
 
@@ -1104,6 +1195,7 @@
       return;
     }
     document.body.classList.add("is-rendering");
+    beginUiLatencyWindow(options.immediate ? 120 : 200);
     renderAllFrame = window.requestAnimationFrame(() => {
       renderAllFrame = 0;
       renderAllCoalesced = 0;
@@ -1169,6 +1261,61 @@
       document.body.classList.remove("is-render-busy");
       renderBusyTimer = 0;
     }, duration);
+  }
+
+  function beginUiLatencyWindow(duration = 180) {
+    document.body.classList.add("is-ui-transitioning");
+    window.clearTimeout(uiLatencyTimer);
+    uiLatencyTimer = window.setTimeout(() => {
+      document.body.classList.remove("is-ui-transitioning");
+      uiLatencyTimer = 0;
+    }, Math.max(90, duration));
+  }
+
+  function pressFeedbackTarget(event) {
+    if (event.pointerType === "mouse" && event.button !== 0) return null;
+    if (isEditableTextTarget(event.target)) return null;
+    const target = event.target?.closest?.([
+      "button",
+      "[data-action]",
+      "[data-internal-select-open]",
+      "[data-date-input]",
+      "[data-time-input]",
+      ".date-week-chip",
+      ".date-day-chip",
+      ".recurring-week-chip",
+      ".term-chip",
+      ".modal-page-chip",
+      ".ddl-view-tab",
+      ".reminder-chip",
+      ".picker-option",
+      ".option-picker-item",
+      ".choice-card",
+      ".icon-choice-card",
+      ".custom-theme-entry",
+      ".swipe-shell"
+    ].join(","));
+    if (!target || target.closest?.("[disabled],[aria-disabled='true']")) return null;
+    if (target.matches?.(".modal-backdrop,.picker-backdrop")) return null;
+    return target;
+  }
+
+  function handleInstantPressFeedback(event) {
+    const target = pressFeedbackTarget(event);
+    if (!target) return;
+    beginUiLatencyWindow(170);
+    if (activePressFeedbackElement && activePressFeedbackElement !== target) clearActivePressFeedback();
+    activePressFeedbackElement = target;
+    activePressFeedbackElement.classList.add("is-pressing");
+    window.clearTimeout(pressFeedbackTimer);
+    pressFeedbackTimer = window.setTimeout(clearActivePressFeedback, 180);
+  }
+
+  function clearActivePressFeedback() {
+    if (activePressFeedbackElement) activePressFeedbackElement.classList.remove("is-pressing");
+    activePressFeedbackElement = null;
+    window.clearTimeout(pressFeedbackTimer);
+    pressFeedbackTimer = 0;
   }
 
   function scheduleAutoLockUi(options = {}) {
@@ -3483,6 +3630,9 @@
     document.addEventListener("wheel", guardFloatingLayerEvent, { passive: false, capture: true });
     document.addEventListener("touchmove", guardFloatingLayerEvent, { passive: false, capture: true });
     document.addEventListener("scroll", guardFloatingLayerEvent, true);
+    document.addEventListener("pointerdown", handleInstantPressFeedback, { passive: true, capture: true });
+    document.addEventListener("pointerup", clearActivePressFeedback, true);
+    document.addEventListener("pointercancel", clearActivePressFeedback, true);
     document.addEventListener("selectstart", preventForegroundTextSelection, true);
     document.addEventListener("contextmenu", preventForegroundTextSelection, true);
     document.addEventListener("dragstart", preventForegroundTextSelection, true);
@@ -3556,6 +3706,7 @@
       event.preventDefault();
       return;
     }
+    beginUiLatencyWindow(200);
     if (!target.closest(".swipe-shell")) closeSwipeShells();
     const action = target.dataset.action;
     lastCommandAction = action;
@@ -4757,6 +4908,7 @@
     state.modal = name;
     state.modalData = nextData;
     state.modalLayer = nextFloatingLayer();
+    beginUiLatencyWindow(260);
     renderModal();
     return true;
   }
@@ -4769,6 +4921,7 @@
     state.modal = "";
     state.modalData = {};
     state.modalLayer = 0;
+    beginUiLatencyWindow(180);
     renderModal();
     return true;
   }
